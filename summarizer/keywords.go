@@ -11,17 +11,17 @@ func KeywordPrompt(summary string, language string, count int) string {
 	switch language {
 	case "zh-Hant":
 		return fmt.Sprintf(
-			"請從以下摘要中提取最多 %d 個關鍵字，每行列出一個關鍵字，不要編號，不要其他說明文字。使用繁體中文，遇到專有名詞保留原文。\n\n%s",
+			"請從以下摘要中提取最多 %d 個關鍵字，每行列出一個關鍵字，不要編號，不要其他說明文字。所有關鍵字必須使用繁體中文，英文專有名詞除外。\n\n%s",
 			count, summary,
 		)
 	case "ja":
 		return fmt.Sprintf(
-			"以下の要約から最大 %d 個のキーワードを抽出してください。1行に1つのキーワードを記載し、番号や説明は不要です。専門用語は原語を保持してください。\n\n%s",
+			"以下の要約から最大 %d 個のキーワードを抽出してください。1行に1つのキーワードを記載し、番号や説明は不要です。すべてのキーワードは日本語で記載してください。英語の専門用語は原語のままで構いません。\n\n%s",
 			count, summary,
 		)
 	default:
 		return fmt.Sprintf(
-			"Extract up to %d keywords from the summary below. List one keyword per line. No numbering, no extra text.\n\n%s",
+			"Extract up to %d keywords from the summary below. List one keyword per line. No numbering, no extra text. Output keywords in English only. Translate non-English terms to English.\n\n%s",
 			count, summary,
 		)
 	}
