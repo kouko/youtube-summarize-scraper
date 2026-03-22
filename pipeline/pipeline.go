@@ -366,9 +366,10 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	var subType string
 	var whisperModel string
 
+	subLangs := p.effectiveSubtitleLanguages(resolvedLang)
 	subResult, err := p.subtitle.Download(
 		videoURL(meta.ID),
-		p.config.PreferredLanguages,
+		subLangs,
 		videoDir,
 		filePrefix,
 		cookieArgs,
@@ -792,9 +793,10 @@ func (p *Pipeline) processVideoInPlaylist(
 	var subType string
 	var whisperModel string
 
+	subLangs := p.effectiveSubtitleLanguages(resolvedLang)
 	subResult, err := p.subtitle.Download(
 		videoURL(meta.ID),
-		p.config.PreferredLanguages,
+		subLangs,
 		videoDir,
 		filePrefix,
 		cookieArgs,
@@ -1184,6 +1186,19 @@ func resolveVideoLanguage(meta *fetcher.VideoMeta) string {
 
 	// Tier 4: unknown.
 	return ""
+}
+
+// effectiveSubtitleLanguages returns the language list for subtitle download.
+// Uses preferred_languages from config if set, otherwise falls back to the
+// resolved video language (from metadata/title detection).
+func (p *Pipeline) effectiveSubtitleLanguages(resolvedLang string) []string {
+	if len(p.config.PreferredLanguages) > 0 {
+		return p.config.PreferredLanguages
+	}
+	if resolvedLang != "" {
+		return []string{resolvedLang}
+	}
+	return nil
 }
 
 func processedAtNow() string {
