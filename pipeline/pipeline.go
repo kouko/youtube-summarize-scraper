@@ -177,6 +177,20 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 
 	stats := &Stats{}
 	for i, meta := range filtered {
+		// Skip check before fetching full metadata (fast, glob-based).
+		if !p.force {
+			processed, err := output.IsProcessedGlobal(p.config.OutputDir, meta.ID)
+			if err != nil {
+				slog.Warn("skip check failed", "video_id", meta.ID, "error", err)
+			} else if processed {
+				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (already processed)", i+1, len(filtered), meta.ID),
+					"title", meta.Title,
+				)
+				stats.Skipped++
+				continue
+			}
+		}
+
 		slog.Info(fmt.Sprintf("[%d/%d] %s - processing", i+1, len(filtered), meta.ID),
 			"title", meta.Title,
 		)

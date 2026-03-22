@@ -82,8 +82,9 @@ func ChannelTabSuffixes(types []string) []string {
 	return suffixes
 }
 
-// FetchChannelVideos fetches videos from a channel URL with full metadata,
-// returning up to limit items. Uses tab suffixes to target specific content types.
+// FetchChannelVideos lists videos from a channel URL using --flat-playlist for speed.
+// Returns lightweight metadata (ID, title, duration). Full metadata must be fetched
+// separately via FetchVideoMeta for videos that need processing.
 func (f *Fetcher) FetchChannelVideos(channelURL string, limit int, tabSuffixes []string) ([]VideoMeta, error) {
 	var allVideos []VideoMeta
 
@@ -107,9 +108,10 @@ func (f *Fetcher) FetchChannelVideos(channelURL string, limit int, tabSuffixes [
 	return allVideos, nil
 }
 
-// fetchChannelTab fetches videos from a single channel tab URL.
+// fetchChannelTab fetches videos from a single channel tab URL using flat-playlist.
 func (f *Fetcher) fetchChannelTab(tabURL string, limit int) ([]VideoMeta, error) {
 	args := []string{
+		"--flat-playlist",
 		"--dump-json",
 		"--playlist-end", fmt.Sprintf("%d", limit),
 		tabURL,

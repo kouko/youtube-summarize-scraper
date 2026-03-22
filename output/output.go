@@ -91,6 +91,17 @@ func IsProcessed(outputDir, channelHandle, videoID string) (bool, error) {
 	return len(matches) > 0, nil
 }
 
+// IsProcessedGlobal checks whether a video has been processed in any channel directory
+// by globbing outputDir/*/**/*__videoID__*. Used when channel handle is unknown (flat-playlist).
+func IsProcessedGlobal(outputDir, videoID string) (bool, error) {
+	pattern := filepath.Join(outputDir, "*", fmt.Sprintf("*__%s__*", videoID))
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return false, fmt.Errorf("glob pattern error: %w", err)
+	}
+	return len(matches) > 0, nil
+}
+
 // EnsureDir creates the directory (and all parents) if it does not exist.
 func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0o755)

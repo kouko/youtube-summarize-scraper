@@ -7,9 +7,9 @@ type VideoMeta struct {
 	Channel        string   `json:"uploader_id"`      // handle like @HighYield
 	ChannelName    string   `json:"channel"`           // display name like "High Yield"
 	UploadDate     string   `json:"upload_date"`       // YYYYMMDD
-	Duration       int      `json:"duration"`          // seconds
+	Duration       float64  `json:"duration"`          // seconds (float in flat-playlist, int in full)
 	DurationString string   `json:"duration_string"`
-	MediaType      string   `json:"media_type"`        // "short" for Shorts, empty for regular
+	MediaType      string   `json:"media_type"`        // "short" for Shorts (only in full metadata)
 	Language       string   `json:"language"`
 	Tags           []string `json:"tags"`
 	Categories     []string `json:"categories"`
