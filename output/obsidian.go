@@ -48,31 +48,6 @@ func EnrichTagsForObsidian(originalTags []string, keywords []string, channelName
 	return result
 }
 
-// InsertWikilink inserts a wikilink reference to the transcription file
-// after the frontmatter closing "---" in the summary content.
-func InsertWikilink(summaryContent string, transcriptionFileName string) string {
-	wikiline := fmt.Sprintf("> Full transcription: [[%s]]", transcriptionFileName)
-
-	// Find the second "---" (closing frontmatter delimiter).
-	firstIdx := strings.Index(summaryContent, "---")
-	if firstIdx < 0 {
-		return wikiline + "\n\n" + summaryContent
-	}
-	secondIdx := strings.Index(summaryContent[firstIdx+3:], "---")
-	if secondIdx < 0 {
-		return wikiline + "\n\n" + summaryContent
-	}
-
-	// Position right after the closing "---\n".
-	insertPos := firstIdx + 3 + secondIdx + 3
-	// Skip the newline after "---" if present.
-	if insertPos < len(summaryContent) && summaryContent[insertPos] == '\n' {
-		insertPos++
-	}
-
-	return summaryContent[:insertPos] + "\n" + wikiline + "\n" + summaryContent[insertPos:]
-}
-
 // GenerateChannelMOC creates or overwrites an _index.md file in the channel
 // directory with a Dataview query listing all videos.
 func GenerateChannelMOC(channelHandle string, outputDir string) error {

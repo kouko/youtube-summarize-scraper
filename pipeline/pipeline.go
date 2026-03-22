@@ -562,6 +562,9 @@ func (p *Pipeline) runSummarization(
 	fmData.Keywords = keywords
 	fmData.LLMProvider = p.config.LLM.Provider
 	fmData.LLMModel = p.llmModel()
+	if p.config.Obsidian.Wikilinks {
+		fmData.Transcript = "[[" + filePrefix + "transcription.md]]"
+	}
 
 	// Enrich tags for Obsidian if enabled.
 	if p.config.Obsidian.Enabled {
@@ -580,12 +583,6 @@ func (p *Pipeline) runSummarization(
 
 	summaryPath := filepath.Join(videoDir, filePrefix+"summary.md")
 	summaryContent := summaryFM + "\n" + summaryBody + "\n"
-
-	// Insert wikilink to transcription file if enabled.
-	if p.config.Obsidian.Wikilinks {
-		transcriptionFileName := filePrefix + "transcription"
-		summaryContent = output.InsertWikilink(summaryContent, transcriptionFileName)
-	}
 
 	if err := os.WriteFile(summaryPath, []byte(summaryContent), 0o644); err != nil {
 		return fmt.Errorf("writing summary file: %w", err)
@@ -998,6 +995,9 @@ func (p *Pipeline) runSummarizationPlaylist(
 	fmData.LLMModel = p.llmModel()
 	fmData.Playlist = playlist
 	fmData.PlaylistID = playlistID
+	if p.config.Obsidian.Wikilinks {
+		fmData.Transcript = "[[" + filePrefix + "transcription.md]]"
+	}
 
 	if p.config.Obsidian.Enabled {
 		fmData.Tags = output.EnrichTagsForObsidian(
@@ -1014,11 +1014,6 @@ func (p *Pipeline) runSummarizationPlaylist(
 
 	summaryPath := filepath.Join(videoDir, filePrefix+"summary.md")
 	summaryContent := summaryFM + "\n" + summaryBody + "\n"
-
-	if p.config.Obsidian.Wikilinks {
-		transcriptionFileName := filePrefix + "transcription"
-		summaryContent = output.InsertWikilink(summaryContent, transcriptionFileName)
-	}
 
 	if err := os.WriteFile(summaryPath, []byte(summaryContent), 0o644); err != nil {
 		return fmt.Errorf("writing summary file: %w", err)

@@ -28,6 +28,7 @@ type FrontmatterData struct {
 	Keywords    []string
 	LLMProvider string
 	LLMModel    string
+	Transcript  string // wikilink to transcription file (Obsidian)
 }
 
 // BuildTranscriptionFrontmatter generates YAML frontmatter for a transcription
@@ -83,6 +84,7 @@ func BuildSummaryFrontmatter(data FrontmatterData) string {
 	writeList(&b, "keywords", data.Keywords)
 	writeLine(&b, "llm_provider", data.LLMProvider)
 	writeLine(&b, "llm_model", data.LLMModel)
+	writeLine(&b, "transcript", data.Transcript)
 	b.WriteString("---\n")
 
 	return b.String()
