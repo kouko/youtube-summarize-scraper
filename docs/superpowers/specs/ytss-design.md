@@ -129,11 +129,25 @@ channels:
   - url: "https://www.youtube.com/@channel-a"
     count: 10                        # Override default_count
     summary_prompt_file: "./prompts/tech-summary.md"  # Per-channel override
+    cookie:                          # Per-channel cookie (optional, overrides global)
+      browser: "chrome"
+      chrome_profile: "Profile 2"
     filter:                          # Per-channel filter override
       types: ["video"]               # This channel: videos only
       min_duration: 60
   - url: "https://www.youtube.com/@channel-b"
   - url: "https://www.youtube.com/@channel-c"
+
+# Playlist list
+playlists:
+  - url: "https://www.youtube.com/playlist?list=WL"
+    name: "稍後觀看"              # Display name (optional, auto-detected from yt-dlp)
+    count: 10                     # Max videos to process (optional, default: default_count)
+    summary_prompt_file: ""       # Per-playlist prompt override (optional)
+    cookie:                       # Per-playlist cookie (optional, overrides global)
+      browser: "chrome"
+      chrome_profile: "Profile 1"
+  - url: "https://www.youtube.com/playlist?list=PLxxxxx"
 ```
 
 ## Output Structure
@@ -282,6 +296,30 @@ Uses a two-phase approach: fast listing via `--flat-playlist`, then on-demand fu
 This approach avoids fetching full metadata for already-processed videos, reducing per-channel time from ~1 min to ~8s when all videos are already processed.
 
 **Note:** `--flat-playlist` returns `duration` as float (e.g., `1434.0`) and does not include `live_status`, `upload_date`, `tags`, `channel`, or `media_type`. These fields are populated in Phase 2 via full metadata fetch.
+
+### Playlist Processing
+
+Playlists are processed before channels in `ytss run`. Each playlist uses `yt-dlp --flat-playlist` for listing, then on-demand full metadata fetch for new videos (same two-phase approach as channels).
+
+**Output directory:** `_playlist__{playlist_id}__{sanitized_name}/`
+- Example: `_playlist__WL__稍後觀看/`, `_playlist__PLxxxxx__My_Favorites/`
+- Uses double-underscore separator matching video directory naming convention
+
+**Frontmatter additions** (both transcription.md and summary.md):
+- `playlist: "稍後觀看"` — playlist name (empty for channel videos)
+- `playlist_id: "WL"` — playlist ID (empty for channel videos)
+- `channel` and `channel_name` still reflect the video's original channel
+
+**Processing flow:**
+1. `yt-dlp --flat-playlist --dump-json <playlist_url>` (with cookie if configured)
+2. Apply duration filter (min/max)
+3. Take first N videos (playlist order preserved)
+4. Per video: global skip check → fetch full metadata → ProcessVideo
+5. Random delay between playlists (batch settings)
+
+**Skip detection:** Uses `IsProcessedGlobal` — a video processed via channel won't be re-processed via playlist (and vice versa).
+
+**Playlist name resolution:** If `name` is not set in config, it is auto-detected from yt-dlp metadata (`playlist_title` field).
 
 ### Skip Detection
 
@@ -687,6 +725,12 @@ Fetch metadata (yt-dlp --dump-json, no cookie)
    └─ No cookie? → log warning "cookie required", skip
 ```
 
+**Cookie priority (per request):**
+1. **Per-source cookie** (playlist/channel level `cookie` config) — if set, use directly without attempting no-cookie first
+2. **No-cookie attempt** — if no per-source cookie is configured, try without cookie
+3. **Global cookie retry** — if step 2 fails and global `cookie` is configured, retry with global cookie
+4. **Error** — log warning and skip the video/playlist
+
 Key improvements:
 - **Pre-detect restricted videos** via `availability` metadata field before attempting download
 - **Chrome multi-profile support**: When `browser: chrome`, try profiles in order: `chrome_profile` (if set) → `Default` → `Profile 1`, `Profile 2`, etc.
@@ -790,6 +834,12 @@ Videos are processed **sequentially, one at a time**. Whisper transcription is C
 **Batch settings** (`batch` config section):
 - `random_order: true` — shuffles channel processing order each run to avoid predictable patterns and ensure fair processing
 - `delay_min` / `delay_max` — random delay (in seconds) between channels to reduce request frequency. Delay is `rand(min, max)` seconds, applied after each channel except the last.
+
+**Processing order in `ytss run`:**
+1. Playlists (in order, or shuffled if `batch.random_order`)
+2. Channels (in order, or shuffled if `batch.random_order`)
+
+Playlists and channels are shuffled independently within their groups.
 
 ### Timeouts
 
