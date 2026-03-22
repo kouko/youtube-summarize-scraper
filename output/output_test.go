@@ -291,3 +291,120 @@ func TestBuildSummaryFrontmatter(t *testing.T) {
 		}
 	}
 }
+
+// ---------------------------------------------------------------------------
+// IsProcessedGlobal
+// ---------------------------------------------------------------------------
+
+func TestIsProcessedGlobal_Found(t *testing.T) {
+	tmp := t.TempDir()
+	videoDir := filepath.Join(tmp, "@somechannel", "2024-03-15__vid1__some_title")
+	if err := os.MkdirAll(videoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(videoDir, "2024-03-15__vid1__summary.md"), []byte("done"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := IsProcessedGlobal(tmp, "vid1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found {
+		t.Error("IsProcessedGlobal: expected true, got false")
+	}
+}
+
+func TestIsProcessedGlobal_PartialNoSummary(t *testing.T) {
+	tmp := t.TempDir()
+	videoDir := filepath.Join(tmp, "@somechannel", "2024-03-15__vid2__some_title")
+	if err := os.MkdirAll(videoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(videoDir, "2024-03-15__vid2__transcription.md"), []byte("partial"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := IsProcessedGlobal(tmp, "vid2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Error("IsProcessedGlobal: expected false (no summary), got true")
+	}
+}
+
+func TestIsProcessedGlobal_NotFound(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "@somechannel"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := IsProcessedGlobal(tmp, "nonexistent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Error("IsProcessedGlobal: expected false, got true")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FindVideoDir
+// ---------------------------------------------------------------------------
+
+func TestFindVideoDir_Found(t *testing.T) {
+	tmp := t.TempDir()
+	videoDir := filepath.Join(tmp, "@ch", "2024-01-01__findme__my_title")
+	if err := os.MkdirAll(videoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := FindVideoDir(tmp, "findme")
+	if got != videoDir {
+		t.Errorf("FindVideoDir: got %q, want %q", got, videoDir)
+	}
+}
+
+func TestFindVideoDir_NotFound(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "@ch"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	got := FindVideoDir(tmp, "missing")
+	if got != "" {
+		t.Errorf("FindVideoDir: got %q, want empty string", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// HasFile
+// ---------------------------------------------------------------------------
+
+func TestHasFile_Found(t *testing.T) {
+	tmp := t.TempDir()
+	videoDir := filepath.Join(tmp, "@ch", "2024-01-01__v1__title")
+	if err := os.MkdirAll(videoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(videoDir, "2024-01-01__v1__summary.md"), []byte("s"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if !HasFile(videoDir, "summary.md") {
+		t.Error("HasFile: expected true, got false")
+	}
+}
+
+func TestHasFile_NotFound(t *testing.T) {
+	tmp := t.TempDir()
+	videoDir := filepath.Join(tmp, "@ch", "2024-01-01__v1__title")
+	if err := os.MkdirAll(videoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if HasFile(videoDir, "summary.md") {
+		t.Error("HasFile: expected false, got true")
+	}
+}
