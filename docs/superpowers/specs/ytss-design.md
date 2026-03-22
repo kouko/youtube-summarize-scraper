@@ -776,6 +776,10 @@ embedded/bin/
 
 Videos are processed **sequentially, one at a time**. Whisper transcription is CPU/GPU-intensive and LLM calls can be resource-heavy; concurrent processing is out of scope for the initial version.
 
+**Batch settings** (`batch` config section):
+- `random_order: true` — shuffles channel processing order each run to avoid predictable patterns and ensure fair processing
+- `delay_min` / `delay_max` — random delay (in seconds) between channels to reduce request frequency. Delay is `rand(min, max)` seconds, applied after each channel except the last.
+
 ### Timeouts
 
 | Operation | Default Timeout |

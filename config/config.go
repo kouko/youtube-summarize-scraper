@@ -16,8 +16,15 @@ type Config struct {
 	LLM                LLMConfig       `yaml:"llm"`
 	Summary            SummaryConfig   `yaml:"summary"`
 	Filter             FilterConfig    `yaml:"filter"`
+	Batch              BatchConfig     `yaml:"batch"`
 	Obsidian           ObsidianConfig  `yaml:"obsidian"`
 	Channels           []ChannelConfig `yaml:"channels"`
+}
+
+type BatchConfig struct {
+	RandomOrder bool `yaml:"random_order"` // Shuffle channel processing order
+	DelayMin    int  `yaml:"delay_min"`    // Min seconds delay between channels
+	DelayMax    int  `yaml:"delay_max"`    // Max seconds delay between channels
 }
 
 type WhisperConfig struct {
@@ -172,6 +179,9 @@ func DefaultConfig() *Config {
 		},
 		Filter: FilterConfig{
 			Types: []string{"video", "live", "short"},
+		},
+		Batch: BatchConfig{
+			RandomOrder: true,
 		},
 	}
 }

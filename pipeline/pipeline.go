@@ -3,6 +3,7 @@ package pipeline
 import (
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,7 +81,19 @@ func NewPipeline(cfg *config.Config, force, dryRun bool) (*Pipeline, error) {
 func (p *Pipeline) ProcessBatch() (*Stats, error) {
 	total := &Stats{}
 
-	for _, ch := range p.config.Channels {
+	// Copy channels slice to avoid mutating config.
+	channels := make([]config.ChannelConfig, len(p.config.Channels))
+	copy(channels, p.config.Channels)
+
+	// Shuffle channel order if configured.
+	if p.config.Batch.RandomOrder && len(channels) > 1 {
+		rand.Shuffle(len(channels), func(i, j int) {
+			channels[i], channels[j] = channels[j], channels[i]
+		})
+		slog.Info("shuffled channel order")
+	}
+
+	for i, ch := range channels {
 		count := p.config.EffectiveCount(ch)
 		slog.Info("processing channel", "url", ch.URL, "count", count)
 
@@ -94,6 +107,18 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 		total.Skipped += stats.Skipped
 		total.Failed += stats.Failed
 		total.Errors = append(total.Errors, stats.Errors...)
+
+		// Random delay between channels (except after the last one).
+		if i < len(channels)-1 && p.config.Batch.DelayMax > 0 {
+			minDelay := p.config.Batch.DelayMin
+			maxDelay := p.config.Batch.DelayMax
+			if minDelay > maxDelay {
+				minDelay = maxDelay
+			}
+			delay := minDelay + rand.IntN(maxDelay-minDelay+1)
+			slog.Info("waiting before next channel", "delay_seconds", delay)
+			time.Sleep(time.Duration(delay) * time.Second)
+		}
 	}
 
 	// Generate Obsidian MOC files for each channel if enabled.
