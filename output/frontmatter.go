@@ -19,6 +19,7 @@ type FrontmatterData struct {
 	Tags         []string
 	Categories   []string
 	SubtitleType string
+	WhisperModel string // whisper model used (empty if subtitle download)
 	ProcessedAt  string
 
 	// Summary-only fields
@@ -46,6 +47,7 @@ func BuildTranscriptionFrontmatter(data FrontmatterData) string {
 	writeList(&b, "tags", data.Tags)
 	writeList(&b, "categories", data.Categories)
 	writeLine(&b, "subtitle_type", data.SubtitleType)
+	writeLine(&b, "whisper_model", data.WhisperModel)
 	writeLine(&b, "processed_at", data.ProcessedAt)
 	b.WriteString("---\n")
 

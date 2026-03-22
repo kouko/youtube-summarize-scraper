@@ -239,6 +239,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	var srtContent string
 	var subLang string
 	var subType string
+	var whisperModel string
 
 	subResult, err := p.subtitle.Download(
 		videoURL(meta.ID),
@@ -266,6 +267,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 		srtContent = transResult.SRTContent
 		subLang = transResult.Language
 		subType = "whisper"
+		whisperModel = transResult.ModelUsed
 		slog.Info("whisper transcription succeeded",
 			"video_id", meta.ID,
 			"language", subLang,
@@ -293,6 +295,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	// 11. Convert SRT to text and write transcription.md.
 	transcriptText := subtitle.SRTToText(srtContent)
 	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt)
+	fmData.WhisperModel = whisperModel
 
 	// Enrich tags for Obsidian if enabled.
 	if p.config.Obsidian.Enabled {
