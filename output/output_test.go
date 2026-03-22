@@ -123,6 +123,10 @@ func TestIsProcessed_Found(t *testing.T) {
 	if err := os.MkdirAll(videoDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	// Must have summary.md to be considered fully processed.
+	if err := os.WriteFile(filepath.Join(videoDir, "2024-03-15__abc123__summary.md"), []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	found, err := IsProcessed(tmp, "testchannel", "abc123")
 	if err != nil {
@@ -130,6 +134,27 @@ func TestIsProcessed_Found(t *testing.T) {
 	}
 	if !found {
 		t.Error("IsProcessed: expected true, got false")
+	}
+}
+
+func TestIsProcessed_PartialNoSummary(t *testing.T) {
+	tmp := t.TempDir()
+	channelDir := filepath.Join(tmp, "@testchannel")
+	videoDir := filepath.Join(channelDir, "2024-03-15__abc123__some_title")
+	if err := os.MkdirAll(videoDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// Only transcription, no summary → not fully processed.
+	if err := os.WriteFile(filepath.Join(videoDir, "2024-03-15__abc123__transcription.md"), []byte("test"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	found, err := IsProcessed(tmp, "testchannel", "abc123")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if found {
+		t.Error("IsProcessed: expected false (no summary), got true")
 	}
 }
 

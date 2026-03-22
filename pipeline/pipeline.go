@@ -177,17 +177,22 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 
 	stats := &Stats{}
 	for i, meta := range filtered {
-		// Skip check before fetching full metadata (fast, glob-based).
+		// Smart skip check before fetching full metadata.
 		if !p.force {
-			processed, err := output.IsProcessedGlobal(p.config.OutputDir, meta.ID)
-			if err != nil {
-				slog.Warn("skip check failed", "video_id", meta.ID, "error", err)
-			} else if processed {
-				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (already processed)", i+1, len(filtered), meta.ID),
+			existingDir := output.FindVideoDir(p.config.OutputDir, meta.ID)
+			if existingDir != "" && output.HasFile(existingDir, "summary.md") {
+				// Fully processed — skip entirely.
+				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (complete)", i+1, len(filtered), meta.ID),
 					"title", meta.Title,
 				)
 				stats.Skipped++
 				continue
+			}
+			if existingDir != "" {
+				// Partial — has folder but missing summary, will resume.
+				slog.Info(fmt.Sprintf("[%d/%d] %s - resuming (missing summary)", i+1, len(filtered), meta.ID),
+					"title", meta.Title,
+				)
 			}
 		}
 
@@ -256,14 +261,44 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 		return errSkipped
 	}
 
-	// 5. Create output directory.
+	// 5. Check for resume: existing dir with transcription but no summary.
 	videoDir := output.VideoDir(p.config.OutputDir, channelHandle, meta.UploadDate, meta.ID, meta.Title)
+	existingDir := output.FindVideoDir(p.config.OutputDir, meta.ID)
+	if existingDir != "" {
+		videoDir = existingDir // reuse existing dir (may have different title sanitization)
+	}
+
 	if err := output.EnsureDir(videoDir); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
 	}
 
 	// 6. Build file prefix.
 	filePrefix := output.VideoFilePrefix(meta.UploadDate, meta.ID)
+
+	// 6.5. Resume path: if transcription exists but summary doesn't, skip to summarization.
+	if existingDir != "" && output.HasFile(videoDir, "transcription.md") && !output.HasFile(videoDir, "summary.md") {
+		slog.Info("resuming: reading existing transcription", "video_id", meta.ID)
+		transcriptionFiles, _ := filepath.Glob(filepath.Join(videoDir, "*__transcription.md"))
+		if len(transcriptionFiles) > 0 {
+			data, err := os.ReadFile(transcriptionFiles[0])
+			if err == nil {
+				// Extract text after frontmatter (after second "---").
+				content := string(data)
+				if parts := strings.SplitN(content, "---\n", 3); len(parts) == 3 {
+					transcriptText := strings.TrimSpace(parts[2])
+					if p.summarizer != nil {
+						subLang := resolveVideoLanguage(meta)
+						if err := p.runSummarization(meta, channelCfg, channelHandle, videoDir, filePrefix, transcriptText, subLang, "resumed", processedAtNow()); err != nil {
+							slog.Warn("summarization failed on resume", "video_id", meta.ID, "error", err)
+						}
+					}
+					slog.Info("resume complete", "video_id", meta.ID)
+					return nil
+				}
+			}
+		}
+		slog.Warn("resume failed, falling through to full processing", "video_id", meta.ID)
+	}
 
 	// 7. Build cookie args.
 	cookieArgs := buildCookieArgs(p.config.Cookie)
@@ -601,6 +636,10 @@ func resolveVideoLanguage(meta *fetcher.VideoMeta) string {
 
 	// Tier 4: unknown.
 	return ""
+}
+
+func processedAtNow() string {
+	return time.Now().Format(time.RFC3339)
 }
 
 // insertMermaidAfterFirstHeading inserts a Mermaid code block after the first

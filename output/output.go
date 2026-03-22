@@ -79,11 +79,11 @@ func VideoFilePrefix(uploadDate, videoID string) string {
 	return fmt.Sprintf("%s__%s__", formatDate(uploadDate), videoID)
 }
 
-// IsProcessed checks whether a video has already been processed by looking
-// for any directory matching *__videoID__* inside the channel directory.
+// IsProcessed checks whether a video is fully processed (has summary.md)
+// inside the channel directory.
 func IsProcessed(outputDir, channelHandle, videoID string) (bool, error) {
 	channelDir := filepath.Join(outputDir, "@"+channelHandle)
-	pattern := filepath.Join(channelDir, fmt.Sprintf("*__%s__*", videoID))
+	pattern := filepath.Join(channelDir, fmt.Sprintf("*__%s__*", videoID), "*__summary.md")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return false, fmt.Errorf("glob pattern error: %w", err)
@@ -91,15 +91,34 @@ func IsProcessed(outputDir, channelHandle, videoID string) (bool, error) {
 	return len(matches) > 0, nil
 }
 
-// IsProcessedGlobal checks whether a video has been processed in any channel directory
-// by globbing outputDir/*/**/*__videoID__*. Used when channel handle is unknown (flat-playlist).
+// IsProcessedGlobal checks whether a video is fully processed (has summary.md)
+// in any channel directory. Used when channel handle is unknown (flat-playlist).
 func IsProcessedGlobal(outputDir, videoID string) (bool, error) {
-	pattern := filepath.Join(outputDir, "*", fmt.Sprintf("*__%s__*", videoID))
+	pattern := filepath.Join(outputDir, "*", fmt.Sprintf("*__%s__*", videoID), "*__summary.md")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return false, fmt.Errorf("glob pattern error: %w", err)
 	}
 	return len(matches) > 0, nil
+}
+
+// FindVideoDir returns the existing video directory path for a given video ID
+// by searching across all channel directories. Returns "" if not found.
+func FindVideoDir(outputDir, videoID string) string {
+	pattern := filepath.Join(outputDir, "*", fmt.Sprintf("*__%s__*", videoID))
+	matches, _ := filepath.Glob(pattern)
+	if len(matches) > 0 {
+		return matches[0]
+	}
+	return ""
+}
+
+// HasFile checks whether a file matching the given suffix exists in videoDir.
+// Suffix examples: "summary.md", "transcription.md", "subtitle.srt"
+func HasFile(videoDir, suffix string) bool {
+	pattern := filepath.Join(videoDir, "*__"+suffix)
+	matches, _ := filepath.Glob(pattern)
+	return len(matches) > 0
 }
 
 // EnsureDir creates the directory (and all parents) if it does not exist.
