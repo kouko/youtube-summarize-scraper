@@ -12,34 +12,43 @@ func MermaidPrompt(summary string, language string) string {
 	case "zh-Hant":
 		return fmt.Sprintf(
 			"請根據以下影片摘要，用 Mermaid 流程圖呈現影片的敘事邏輯或核心概念的關係。\n\n"+
-				"規則：\n"+
-				"- 使用 graph TD（上到下）格式\n"+
-				"- 節點文字用雙引號包裹，例如：A[\"節點文字\"]\n"+
-				"- 只用簡單箭頭 -->\n"+
-				"- 節點數量控制在 5-12 個\n"+
-				"- 只輸出 Mermaid 語法區塊，不要其他說明文字\n\n%s",
+				"嚴格規則：\n"+
+				"- 第一行必須是 graph TD\n"+
+				"- 每個節點格式：大寫字母[\"節點文字\"]，例如 A[\"開場\"]、B[\"分析\"]\n"+
+				"- 連接格式：A --> B\n"+
+				"- 節點數量 5-12 個\n"+
+				"- 用 ```mermaid 和 ``` 包裹\n"+
+				"- 不要輸出任何說明文字\n\n"+
+				"範例：\n```mermaid\ngraph TD\nA[\"主題介紹\"] --> B[\"原因分析\"]\nB --> C[\"影響評估\"]\nC --> D[\"結論\"]\n```\n\n"+
+				"摘要：\n%s",
 			summary,
 		)
 	case "ja":
 		return fmt.Sprintf(
-			"以下の動画要約に基づき、Mermaid フローチャートで動画の論理構成または核心概念の関係を表現してください。\n\n"+
-				"ルール：\n"+
-				"- graph TD（上から下）形式を使用\n"+
-				"- ノードテキストはダブルクォートで囲む。例：A[\"ノードテキスト\"]\n"+
-				"- 矢印は --> のみ使用\n"+
-				"- ノード数は 5-12 個に制限\n"+
-				"- Mermaid コードブロックのみ出力、説明文不要\n\n%s",
+			"以下の動画要約に基づき、Mermaid フローチャートで動画の論理構成を表現してください。\n\n"+
+				"厳格ルール：\n"+
+				"- 最初の行は graph TD\n"+
+				"- ノード形式：大文字[\"テキスト\"]、例：A[\"導入\"]、B[\"分析\"]\n"+
+				"- 接続形式：A --> B\n"+
+				"- ノード数 5-12 個\n"+
+				"- ```mermaid と ``` で囲む\n"+
+				"- 説明文不要\n\n"+
+				"例：\n```mermaid\ngraph TD\nA[\"テーマ紹介\"] --> B[\"原因分析\"]\nB --> C[\"影響評価\"]\nC --> D[\"結論\"]\n```\n\n"+
+				"要約：\n%s",
 			summary,
 		)
 	default:
 		return fmt.Sprintf(
-			"Based on the video summary below, create a Mermaid flowchart showing the narrative logic or relationships between core concepts.\n\n"+
-				"Rules:\n"+
-				"- Use graph TD (top-down) format\n"+
-				"- Wrap node text in double quotes, e.g.: A[\"Node text\"]\n"+
-				"- Use only simple arrows -->\n"+
-				"- Keep nodes between 5-12\n"+
-				"- Output only the Mermaid code block, no other text\n\n%s",
+			"Based on the video summary below, create a Mermaid flowchart showing the narrative logic.\n\n"+
+				"Strict rules:\n"+
+				"- First line must be graph TD\n"+
+				"- Node format: UPPERCASE[\"text\"], e.g. A[\"Introduction\"], B[\"Analysis\"]\n"+
+				"- Connection format: A --> B\n"+
+				"- 5-12 nodes\n"+
+				"- Wrap in ```mermaid and ```\n"+
+				"- No explanation text\n\n"+
+				"Example:\n```mermaid\ngraph TD\nA[\"Topic Introduction\"] --> B[\"Root Cause Analysis\"]\nB --> C[\"Impact Assessment\"]\nC --> D[\"Conclusion\"]\n```\n\n"+
+				"Summary:\n%s",
 			summary,
 		)
 	}
