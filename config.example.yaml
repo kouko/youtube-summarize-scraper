@@ -109,5 +109,10 @@ channels:
     # filter:
     #   types: ["video"]
     #   min_duration: 60
+    # copy_to:                       # Copy files after processing
+    #   path: "/path/to/vault/YouTube/{channel_name}/{upload_date}__{title}"
+    #   files: ["summary", "transcription"]
+    #   filename: "{upload_date}_{title}_{type}.md"
+    #   overwrite: false
   - url: "https://www.youtube.com/@channel-b"
   - url: "https://www.youtube.com/@channel-c"

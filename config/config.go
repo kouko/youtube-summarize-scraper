@@ -102,12 +102,20 @@ type ObsidianConfig struct {
 	Wikilinks   bool     `yaml:"wikilinks"`
 }
 
+type CopyToConfig struct {
+	Path      string   `yaml:"path"`
+	Files     []string `yaml:"files"`     // "summary", "transcription", "subtitle"
+	Filename  string   `yaml:"filename"`  // template with variables
+	Overwrite bool     `yaml:"overwrite"`
+}
+
 type ChannelConfig struct {
 	URL              string        `yaml:"url"`
 	Count            int           `yaml:"count"`
 	SummaryPromptFile string       `yaml:"summary_prompt_file"`
 	Filter           *FilterConfig `yaml:"filter"`
 	Cookie           *CookieConfig `yaml:"cookie"`
+	CopyTo           *CopyToConfig `yaml:"copy_to"`
 }
 
 type PlaylistConfig struct {
@@ -116,6 +124,7 @@ type PlaylistConfig struct {
 	Count            int           `yaml:"count"`
 	SummaryPromptFile string       `yaml:"summary_prompt_file"`
 	Cookie           *CookieConfig `yaml:"cookie"`
+	CopyTo           *CopyToConfig `yaml:"copy_to"`
 }
 
 func Load(path string) (*Config, error) {

@@ -355,6 +355,41 @@ All methods match on video ID only, resilient to title changes or sanitization l
 
 When `--force` flag is set, skip detection is bypassed and existing output is overwritten (no copy).
 
+### Post-Processing: Copy To
+
+Channels and playlists can specify a `copy_to` config to copy output files to a custom path after processing. Useful for populating Obsidian vaults or other note systems.
+
+**Config:**
+```yaml
+copy_to:
+  path: "/path/to/vault/{channel_name}/{upload_date}__{title}"
+  files: ["summary", "transcription"]    # File types to copy (no extension)
+  filename: "{upload_date}_{title}_{type}.md"  # Custom filename template (optional)
+  overwrite: false                        # Overwrite existing files (default: false)
+```
+
+**Supported variables** (for both `path` and `filename`):
+- `{upload_date}` — YYYY-MM-DD
+- `{video_id}` — YouTube video ID
+- `{title}` — sanitized title
+- `{channel_name}` — channel display name (sanitized)
+- `{channel_handle}` — channel handle without @
+- `{playlist_name}` — playlist name (sanitized, empty for channels)
+- `{playlist_id}` — playlist ID (empty for channels)
+- `{type}` — file type: summary, transcription, or subtitle
+
+**File type mapping:**
+- `summary` → `*__summary.md`
+- `transcription` → `*__transcription.md`
+- `subtitle` → `*__subtitle.srt`
+
+**Defaults:**
+- `files`: `["summary"]` (only copy summary)
+- `filename`: not set = keep original filename
+- `overwrite`: `false`
+
+**Execution:** Runs after each video is fully processed (all files written). Skipped videos and failed videos do not trigger copy.
+
 ## Core Pipeline
 
 ```
