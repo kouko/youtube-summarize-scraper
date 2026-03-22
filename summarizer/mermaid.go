@@ -14,14 +14,14 @@ func MermaidPrompt(summary string, language string) string {
 		return fmt.Sprintf(
 			"請根據以下影片摘要，用 Mermaid 流程圖呈現影片的敘事邏輯或核心概念的關係。\n\n"+
 				"嚴格規則：\n"+
-				"- 第一行必須是 graph TD\n"+
+				"- 第一行必須是 graph LR\n"+
 				"- 節點文字格式：標題<br/>━━━━━━<br/>細節敘述，用 <br/>━━━━━━<br/> 換行\n"+
 				"- 節點格式：大寫字母[\"標題<br/>━━━━━━<br/>細節\"]，例如 A[\"開場<br/>━━━━━━<br/>介紹影片主題\"]\n"+
 				"- 連接格式：A --> B\n"+
 				"- 節點數量 5-12 個\n"+
 				"- 用 ```mermaid 和 ``` 包裹\n"+
 				"- 不要輸出任何說明文字\n\n"+
-				"範例：\n```mermaid\ngraph TD\nA[\"主題介紹<br/>━━━━━━<br/>說明背景與動機\"] --> B[\"原因分析<br/>━━━━━━<br/>拆解三大因素\"]\nB --> C[\"影響評估<br/>━━━━━━<br/>對市場的衝擊\"] --> D[\"結論<br/>━━━━━━<br/>投資建議與展望\"]\n```\n\n"+
+				"範例：\n```mermaid\ngraph LR\nA[\"主題介紹<br/>━━━━━━<br/>說明背景與動機\"] --> B[\"原因分析<br/>━━━━━━<br/>拆解三大因素\"]\nB --> C[\"影響評估<br/>━━━━━━<br/>對市場的衝擊\"] --> D[\"結論<br/>━━━━━━<br/>投資建議與展望\"]\n```\n\n"+
 				"摘要：\n%s",
 			summary,
 		)
@@ -29,14 +29,14 @@ func MermaidPrompt(summary string, language string) string {
 		return fmt.Sprintf(
 			"以下の動画要約に基づき、Mermaid フローチャートで動画の論理構成を表現してください。\n\n"+
 				"厳格ルール：\n"+
-				"- 最初の行は graph TD\n"+
+				"- 最初の行は graph LR\n"+
 				"- ノードテキスト形式：タイトル<br/>━━━━━━<br/>詳細説明、<br/>━━━━━━<br/> で改行\n"+
 				"- ノード形式：大文字[\"タイトル<br/>━━━━━━<br/>詳細\"]、例：A[\"導入<br/>━━━━━━<br/>テーマの紹介\"]\n"+
 				"- 接続形式：A --> B\n"+
 				"- ノード数 5-12 個\n"+
 				"- ```mermaid と ``` で囲む\n"+
 				"- 説明文不要\n\n"+
-				"例：\n```mermaid\ngraph TD\nA[\"テーマ紹介<br/>━━━━━━<br/>背景と動機の説明\"] --> B[\"原因分析<br/>━━━━━━<br/>三大要因の分解\"]\nB --> C[\"影響評価<br/>━━━━━━<br/>市場への影響\"] --> D[\"結論<br/>━━━━━━<br/>今後の展望\"]\n```\n\n"+
+				"例：\n```mermaid\ngraph LR\nA[\"テーマ紹介<br/>━━━━━━<br/>背景と動機の説明\"] --> B[\"原因分析<br/>━━━━━━<br/>三大要因の分解\"]\nB --> C[\"影響評価<br/>━━━━━━<br/>市場への影響\"] --> D[\"結論<br/>━━━━━━<br/>今後の展望\"]\n```\n\n"+
 				"要約：\n%s",
 			summary,
 		)
@@ -44,14 +44,14 @@ func MermaidPrompt(summary string, language string) string {
 		return fmt.Sprintf(
 			"Based on the video summary below, create a Mermaid flowchart showing the narrative logic.\n\n"+
 				"Strict rules:\n"+
-				"- First line must be graph TD\n"+
+				"- First line must be graph LR\n"+
 				"- Node text format: Title<br/>━━━━━━<br/>Detail description, use <br/>━━━━━━<br/> for line break\n"+
 				"- Node format: UPPERCASE[\"Title<br/>━━━━━━<br/>Detail\"], e.g. A[\"Introduction<br/>━━━━━━<br/>Explain the topic\"]\n"+
 				"- Connection format: A --> B\n"+
 				"- 5-12 nodes\n"+
 				"- Wrap in ```mermaid and ```\n"+
 				"- No explanation text\n\n"+
-				"Example:\n```mermaid\ngraph TD\nA[\"Topic Introduction<br/>━━━━━━<br/>Background and motivation\"] --> B[\"Root Cause<br/>━━━━━━<br/>Three key factors\"]\nB --> C[\"Impact Assessment<br/>━━━━━━<br/>Market implications\"] --> D[\"Conclusion<br/>━━━━━━<br/>Outlook and recommendations\"]\n```\n\n"+
+				"Example:\n```mermaid\ngraph LR\nA[\"Topic Introduction<br/>━━━━━━<br/>Background and motivation\"] --> B[\"Root Cause<br/>━━━━━━<br/>Three key factors\"]\nB --> C[\"Impact Assessment<br/>━━━━━━<br/>Market implications\"] --> D[\"Conclusion<br/>━━━━━━<br/>Outlook and recommendations\"]\n```\n\n"+
 				"Summary:\n%s",
 			summary,
 		)
@@ -100,9 +100,9 @@ func fixMermaid(code string) string {
 	// Fix missing quotes in node text: A[text] → A["text"]
 	code = fixMissingQuotes(code)
 
-	// Prepend graph TD if missing
+	// Prepend graph LR if missing
 	if !strings.HasPrefix(code, "graph") && !strings.HasPrefix(code, "flowchart") {
-		code = "graph TD\n" + code
+		code = "graph LR\n" + code
 	}
 
 	// Clean up empty lines
