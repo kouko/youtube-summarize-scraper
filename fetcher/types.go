@@ -9,6 +9,7 @@ type VideoMeta struct {
 	UploadDate     string   `json:"upload_date"`       // YYYYMMDD
 	Duration       int      `json:"duration"`          // seconds
 	DurationString string   `json:"duration_string"`
+	MediaType      string   `json:"media_type"`        // "short" for Shorts, empty for regular
 	Language       string   `json:"language"`
 	Tags           []string `json:"tags"`
 	Categories     []string `json:"categories"`

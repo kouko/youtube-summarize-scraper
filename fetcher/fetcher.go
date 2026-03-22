@@ -56,32 +56,100 @@ func (f *Fetcher) FetchVideoMeta(videoURL string) (*VideoMeta, error) {
 	return &meta, nil
 }
 
-// FetchChannelVideos lists videos from a channel URL, returning up to limit items.
-// It uses --flat-playlist to avoid downloading full metadata for each video.
-func (f *Fetcher) FetchChannelVideos(channelURL string, limit int) ([]VideoMeta, error) {
-	channelVideosURL := channelURL + "/videos"
-	args := []string{
-		"--flat-playlist",
-		"--dump-json",
-		channelVideosURL,
+// ChannelTabSuffixes returns the URL suffixes to fetch based on the requested content types.
+// Single type uses the specific tab; all types uses bare URL; mixed uses multiple tabs.
+func ChannelTabSuffixes(types []string) []string {
+	if len(types) == 0 || (len(types) == 3 && containsAll(types, "video", "live", "short")) {
+		return []string{""} // bare URL = all content
+	}
+	typeSet := make(map[string]bool, len(types))
+	for _, t := range types {
+		typeSet[t] = true
+	}
+	var suffixes []string
+	if typeSet["video"] {
+		suffixes = append(suffixes, "/videos")
+	}
+	if typeSet["live"] {
+		suffixes = append(suffixes, "/streams")
+	}
+	if typeSet["short"] {
+		suffixes = append(suffixes, "/shorts")
+	}
+	if len(suffixes) == 0 {
+		return []string{""}
+	}
+	return suffixes
+}
+
+func containsAll(types []string, targets ...string) bool {
+	set := make(map[string]bool, len(types))
+	for _, t := range types {
+		set[t] = true
+	}
+	for _, t := range targets {
+		if !set[t] {
+			return false
+		}
+	}
+	return true
+}
+
+// FetchChannelVideos fetches videos from a channel URL with full metadata,
+// returning up to limit items. Uses tab suffixes to target specific content types.
+func (f *Fetcher) FetchChannelVideos(channelURL string, limit int, tabSuffixes []string) ([]VideoMeta, error) {
+	var allVideos []VideoMeta
+
+	for _, suffix := range tabSuffixes {
+		tabURL := channelURL + suffix
+		remaining := limit - len(allVideos)
+		if remaining <= 0 {
+			break
+		}
+
+		videos, err := f.fetchChannelTab(tabURL, remaining)
+		if err != nil {
+			return nil, fmt.Errorf("fetching %s: %w", tabURL, err)
+		}
+		allVideos = append(allVideos, videos...)
 	}
 
-	out, err := f.runYtDlp(args, false)
+	if len(allVideos) > limit {
+		allVideos = allVideos[:limit]
+	}
+	return allVideos, nil
+}
+
+// fetchChannelTab fetches videos from a single channel tab URL.
+func (f *Fetcher) fetchChannelTab(tabURL string, limit int) ([]VideoMeta, error) {
+	args := []string{
+		"--dump-json",
+		"--playlist-end", fmt.Sprintf("%d", limit),
+		tabURL,
+	}
+
+	out, err := f.runYtDlpWithTimeout(args, false, 5*time.Minute)
 	if err != nil {
 		return nil, fmt.Errorf("fetching channel videos: %w", err)
 	}
 
 	var videos []VideoMeta
 	scanner := bufio.NewScanner(bytes.NewReader(out))
-	// Increase scanner buffer for large JSON lines.
 	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
 	for scanner.Scan() {
 		if limit > 0 && len(videos) >= limit {
 			break
 		}
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
 		var meta VideoMeta
-		if err := json.Unmarshal(scanner.Bytes(), &meta); err != nil {
-			continue // skip malformed lines
+		if err := json.Unmarshal(line, &meta); err != nil {
+			continue
+		}
+		if meta.ID == "" {
+			continue
 		}
 		videos = append(videos, meta)
 	}
@@ -95,7 +163,12 @@ func (f *Fetcher) FetchChannelVideos(channelURL string, limit int) ([]VideoMeta,
 // runYtDlp executes yt-dlp with the given arguments and an optional cookie flag.
 // A context timeout of 60 seconds is applied.
 func (f *Fetcher) runYtDlp(args []string, useCookie bool) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), metadataTimeout)
+	return f.runYtDlpWithTimeout(args, useCookie, metadataTimeout)
+}
+
+// runYtDlpWithTimeout executes yt-dlp with a custom timeout.
+func (f *Fetcher) runYtDlpWithTimeout(args []string, useCookie bool, timeout time.Duration) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	fullArgs := make([]string, 0, len(args)+4)

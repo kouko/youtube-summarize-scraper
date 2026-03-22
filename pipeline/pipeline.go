@@ -127,21 +127,21 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 
 // ProcessChannel fetches videos from a channel, applies filters, and processes each video.
 func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *config.ChannelConfig) (*Stats, error) {
-	// Fetch a larger set to allow for filtering.
-	fetchLimit := count * 3
-	if fetchLimit < 30 {
-		fetchLimit = 30
-	}
+	// Determine which channel tabs to fetch based on filter types.
+	filterCfg := p.config.EffectiveFilter(*channelCfg)
+	tabSuffixes := fetcher.ChannelTabSuffixes(filterCfg.Types)
 
-	videos, err := p.fetcher.FetchChannelVideos(channelURL, fetchLimit)
+	// Small buffer for duration/other filters within the same type.
+	fetchLimit := count + 5
+
+	videos, err := p.fetcher.FetchChannelVideos(channelURL, fetchLimit, tabSuffixes)
 	if err != nil {
 		return nil, fmt.Errorf("fetching channel videos: %w", err)
 	}
 
 	slog.Info("fetched channel videos", "url", channelURL, "total", len(videos))
 
-	// Apply filter.
-	filterCfg := p.config.EffectiveFilter(*channelCfg)
+	// Apply filter (duration, etc. — type filtering already done via tab selection).
 	filtered := fetcher.FilterVideos(videos, filterCfg)
 	slog.Info("filtered videos", "before", len(videos), "after", len(filtered))
 
@@ -158,17 +158,21 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 
 		metaCopy := meta
 		if err := p.ProcessVideo(&metaCopy, channelCfg); err != nil {
-			slog.Error("video processing failed",
-				"video_id", meta.ID,
-				"title", meta.Title,
-				"error", err,
-			)
-			stats.Failed++
-			stats.Errors = append(stats.Errors, VideoError{
-				VideoID: meta.ID,
-				Title:   meta.Title,
-				Err:     err,
-			})
+			if IsSkipped(err) {
+				stats.Skipped++
+			} else {
+				slog.Error("video processing failed",
+					"video_id", meta.ID,
+					"title", meta.Title,
+					"error", err,
+				)
+				stats.Failed++
+				stats.Errors = append(stats.Errors, VideoError{
+					VideoID: meta.ID,
+					Title:   meta.Title,
+					Err:     err,
+				})
+			}
 		} else {
 			stats.Success++
 		}

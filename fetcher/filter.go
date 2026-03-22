@@ -36,14 +36,15 @@ func matchesType(v VideoMeta, typeSet map[string]bool) bool {
 	}
 
 	isLive := v.LiveStatus == "was_live" || v.LiveStatus == "is_live" || v.LiveStatus == "post_live"
+	isShort := v.MediaType == "short"
 
-	if typeSet["video"] && !isLive && v.Duration >= 60 {
+	if typeSet["video"] && !isLive && !isShort {
 		return true
 	}
 	if typeSet["live"] && isLive {
 		return true
 	}
-	if typeSet["short"] && !isLive && v.Duration > 0 && v.Duration < 60 {
+	if typeSet["short"] && isShort {
 		return true
 	}
 
