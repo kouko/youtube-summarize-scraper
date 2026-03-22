@@ -1189,14 +1189,14 @@ func resolveVideoLanguage(meta *fetcher.VideoMeta) string {
 }
 
 // effectiveSubtitleLanguages returns the language list for subtitle download.
-// Uses preferred_languages from config if set, otherwise falls back to the
-// resolved video language (from metadata/title detection).
+// Prioritizes the resolved video language (from metadata/title detection).
+// Falls back to preferred_languages from config if video language is unknown.
 func (p *Pipeline) effectiveSubtitleLanguages(resolvedLang string) []string {
-	if len(p.config.PreferredLanguages) > 0 {
-		return p.config.PreferredLanguages
-	}
 	if resolvedLang != "" {
 		return []string{resolvedLang}
+	}
+	if len(p.config.PreferredLanguages) > 0 {
+		return p.config.PreferredLanguages
 	}
 	return nil
 }
