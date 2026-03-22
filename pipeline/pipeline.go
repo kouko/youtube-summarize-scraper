@@ -562,9 +562,6 @@ func (p *Pipeline) runSummarization(
 	fmData.Keywords = keywords
 	fmData.LLMProvider = p.config.LLM.Provider
 	fmData.LLMModel = p.llmModel()
-	if p.config.Obsidian.Wikilinks {
-		fmData.Transcript = "[[" + filePrefix + "transcription.md]]"
-	}
 
 	// Enrich tags for Obsidian if enabled.
 	if p.config.Obsidian.Enabled {
@@ -995,9 +992,6 @@ func (p *Pipeline) runSummarizationPlaylist(
 	fmData.LLMModel = p.llmModel()
 	fmData.Playlist = playlist
 	fmData.PlaylistID = playlistID
-	if p.config.Obsidian.Wikilinks {
-		fmData.Transcript = "[[" + filePrefix + "transcription.md]]"
-	}
 
 	if p.config.Obsidian.Enabled {
 		fmData.Tags = output.EnrichTagsForObsidian(
