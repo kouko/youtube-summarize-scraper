@@ -17,4 +17,5 @@ type VideoMeta struct {
 	LiveStatus     string   `json:"live_status"`
 	URL            string   `json:"webpage_url"`
 	Description    string   `json:"description"`
+	PlaylistTitle  string   `json:"playlist_title"`
 }

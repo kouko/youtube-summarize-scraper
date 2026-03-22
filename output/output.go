@@ -121,6 +121,15 @@ func HasFile(videoDir, suffix string) bool {
 	return len(matches) > 0
 }
 
+// PlaylistDir returns the output directory path for a playlist:
+//
+//	outputDir/_playlist__playlistID__sanitizedName
+func PlaylistDir(outputDir, playlistID, playlistName string) string {
+	sanitized := SanitizeTitle(playlistName, 0)
+	dirName := fmt.Sprintf("_playlist__%s__%s", playlistID, sanitized)
+	return filepath.Join(outputDir, dirName)
+}
+
 // EnsureDir creates the directory (and all parents) if it does not exist.
 func EnsureDir(path string) error {
 	return os.MkdirAll(path, 0o755)

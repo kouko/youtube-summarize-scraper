@@ -149,6 +149,54 @@ func (f *Fetcher) fetchChannelTab(tabURL string, limit int) ([]VideoMeta, error)
 	return videos, nil
 }
 
+// FetchPlaylistVideos lists videos from a playlist URL using --flat-playlist.
+// Returns video metadata, the playlist title (from yt-dlp's playlist_title field), and error.
+// cookieArgs are additional yt-dlp cookie arguments (e.g., from per-playlist config).
+func (f *Fetcher) FetchPlaylistVideos(playlistURL string, limit int, cookieArgs []string) ([]VideoMeta, string, error) {
+	args := []string{
+		"--flat-playlist",
+		"--dump-json",
+		"--playlist-end", fmt.Sprintf("%d", limit),
+	}
+	args = append(args, cookieArgs...)
+	args = append(args, playlistURL)
+
+	out, err := f.runYtDlpWithTimeout(args, false, 5*time.Minute)
+	if err != nil {
+		return nil, "", fmt.Errorf("fetching playlist videos: %w", err)
+	}
+
+	var videos []VideoMeta
+	var playlistTitle string
+	scanner := bufio.NewScanner(bytes.NewReader(out))
+	scanner.Buffer(make([]byte, 0, 1024*1024), 1024*1024)
+	for scanner.Scan() {
+		if limit > 0 && len(videos) >= limit {
+			break
+		}
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var meta VideoMeta
+		if err := json.Unmarshal(line, &meta); err != nil {
+			continue
+		}
+		if meta.ID == "" {
+			continue
+		}
+		if playlistTitle == "" && meta.PlaylistTitle != "" {
+			playlistTitle = meta.PlaylistTitle
+		}
+		videos = append(videos, meta)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, "", fmt.Errorf("reading playlist video listing: %w", err)
+	}
+
+	return videos, playlistTitle, nil
+}
+
 // runYtDlp executes yt-dlp with the given arguments and an optional cookie flag.
 // A context timeout of 60 seconds is applied.
 func (f *Fetcher) runYtDlp(args []string, useCookie bool) ([]byte, error) {

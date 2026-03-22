@@ -92,6 +92,15 @@ obsidian:
   generate_moc: true
   wikilinks: true
 
+# Playlist list
+playlists:
+  - url: "https://www.youtube.com/playlist?list=WL"
+    name: "稍後觀看"              # Display name (optional, auto-detected)
+    count: 10
+    # cookie:                      # Per-playlist cookie (optional)
+    #   browser: "chrome"
+    #   chrome_profile: "Profile 1"
+
 # Channel list
 channels:
   - url: "https://www.youtube.com/@channel-a"

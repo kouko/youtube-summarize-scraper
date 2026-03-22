@@ -18,7 +18,8 @@ type Config struct {
 	Filter             FilterConfig    `yaml:"filter"`
 	Batch              BatchConfig     `yaml:"batch"`
 	Obsidian           ObsidianConfig  `yaml:"obsidian"`
-	Channels           []ChannelConfig `yaml:"channels"`
+	Playlists          []PlaylistConfig `yaml:"playlists"`
+	Channels           []ChannelConfig  `yaml:"channels"`
 }
 
 type BatchConfig struct {
@@ -102,10 +103,19 @@ type ObsidianConfig struct {
 }
 
 type ChannelConfig struct {
-	URL              string       `yaml:"url"`
-	Count            int          `yaml:"count"`
-	SummaryPromptFile string      `yaml:"summary_prompt_file"`
+	URL              string        `yaml:"url"`
+	Count            int           `yaml:"count"`
+	SummaryPromptFile string       `yaml:"summary_prompt_file"`
 	Filter           *FilterConfig `yaml:"filter"`
+	Cookie           *CookieConfig `yaml:"cookie"`
+}
+
+type PlaylistConfig struct {
+	URL              string        `yaml:"url"`
+	Name             string        `yaml:"name"`
+	Count            int           `yaml:"count"`
+	SummaryPromptFile string       `yaml:"summary_prompt_file"`
+	Cookie           *CookieConfig `yaml:"cookie"`
 }
 
 func Load(path string) (*Config, error) {

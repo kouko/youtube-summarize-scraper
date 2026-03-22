@@ -18,6 +18,8 @@ type FrontmatterData struct {
 	Language     string
 	Tags         []string
 	Categories   []string
+	Playlist     string // playlist name (empty for channel videos)
+	PlaylistID   string // playlist ID (empty for channel videos)
 	SubtitleType string
 	WhisperModel string // whisper model used (empty if subtitle download)
 	ProcessedAt  string
@@ -41,6 +43,8 @@ func BuildTranscriptionFrontmatter(data FrontmatterData) string {
 	writeLine(&b, "url", data.URL)
 	writeLine(&b, "channel", data.Channel)
 	writeLine(&b, "channel_name", data.ChannelName)
+	writeLine(&b, "playlist", data.Playlist)
+	writeLine(&b, "playlist_id", data.PlaylistID)
 	writeLine(&b, "upload_date", formattedDate)
 	writeLine(&b, "duration", data.Duration)
 	writeLine(&b, "language", data.Language)
@@ -67,6 +71,8 @@ func BuildSummaryFrontmatter(data FrontmatterData) string {
 	writeLine(&b, "url", data.URL)
 	writeLine(&b, "channel", data.Channel)
 	writeLine(&b, "channel_name", data.ChannelName)
+	writeLine(&b, "playlist", data.Playlist)
+	writeLine(&b, "playlist_id", data.PlaylistID)
 	writeLine(&b, "upload_date", formattedDate)
 	writeLine(&b, "duration", data.Duration)
 	writeLine(&b, "language", data.Language)
