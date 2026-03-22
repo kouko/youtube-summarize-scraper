@@ -275,13 +275,13 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 			stats.Success++
 			// Post-processing: copy_to
 			if channelCfg != nil && channelCfg.CopyTo != nil {
-				channelHandle := deriveChannelHandle(&meta)
-				vDir := output.FindVideoDir(p.config.OutputDir, meta.ID)
+				channelHandle := deriveChannelHandle(&metaCopy)
+				vDir := output.FindVideoDir(p.config.OutputDir, metaCopy.ID)
 				if vDir == "" {
-					vDir = output.VideoDir(p.config.OutputDir, channelHandle, meta.UploadDate, meta.ID, meta.Title)
+					vDir = output.VideoDir(p.config.OutputDir, channelHandle, metaCopy.UploadDate, metaCopy.ID, metaCopy.Title)
 				}
-				fp := output.VideoFilePrefix(meta.UploadDate, meta.ID)
-				p.executeCopyTo(channelCfg.CopyTo, vDir, fp, &meta, channelHandle, "", "")
+				fp := output.VideoFilePrefix(metaCopy.UploadDate, metaCopy.ID)
+				p.executeCopyTo(channelCfg.CopyTo, vDir, fp, &metaCopy, channelHandle, "", "")
 			}
 		}
 	}
@@ -1019,10 +1019,18 @@ func (p *Pipeline) runSummarizationPlaylist(
 
 // executeCopyTo runs the copy_to post-processing step for a successfully processed video.
 func (p *Pipeline) executeCopyTo(copyTo *config.CopyToConfig, videoDir, filePrefix string, meta *fetcher.VideoMeta, channelHandle, playlist, playlistID string) {
+	uploadDate := formatDatePipeline(meta.UploadDate)
+	if uploadDate == "" {
+		uploadDate = "unknown-date"
+	}
+	title := meta.Title
+	if title == "" {
+		title = meta.ID
+	}
 	vars := output.CopyToVars{
-		UploadDate:    formatDatePipeline(meta.UploadDate),
+		UploadDate:    uploadDate,
 		VideoID:       meta.ID,
-		Title:         meta.Title,
+		Title:         title,
 		ChannelName:   meta.ChannelName,
 		ChannelHandle: channelHandle,
 		PlaylistName:  playlist,

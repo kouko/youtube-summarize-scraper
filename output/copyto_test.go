@@ -223,3 +223,108 @@ func TestExecuteCopyTo_CustomFilename(t *testing.T) {
 		t.Errorf("expected file %s to exist", expectedPath)
 	}
 }
+
+func TestNormalizeCopyToVars(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      CopyToVars
+		wantDate   string
+		wantTitle  string
+	}{
+		{
+			name: "all fields present",
+			input: CopyToVars{
+				UploadDate: "2024-01-15",
+				VideoID:    "abc123",
+				Title:      "My Video",
+			},
+			wantDate:  "2024-01-15",
+			wantTitle: "My Video",
+		},
+		{
+			name: "empty upload_date falls back to unknown-date",
+			input: CopyToVars{
+				UploadDate: "",
+				VideoID:    "abc123",
+				Title:      "My Video",
+			},
+			wantDate:  "unknown-date",
+			wantTitle: "My Video",
+		},
+		{
+			name: "empty title falls back to video_id",
+			input: CopyToVars{
+				UploadDate: "2024-01-15",
+				VideoID:    "abc123",
+				Title:      "",
+			},
+			wantDate:  "2024-01-15",
+			wantTitle: "abc123",
+		},
+		{
+			name: "both empty",
+			input: CopyToVars{
+				UploadDate: "",
+				VideoID:    "abc123",
+				Title:      "",
+			},
+			wantDate:  "unknown-date",
+			wantTitle: "abc123",
+		},
+		{
+			name: "empty title and empty video_id",
+			input: CopyToVars{
+				UploadDate: "2024-01-15",
+				VideoID:    "",
+				Title:      "",
+			},
+			wantDate:  "2024-01-15",
+			wantTitle: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := NormalizeCopyToVars(tt.input)
+			if got.UploadDate != tt.wantDate {
+				t.Errorf("UploadDate = %q, want %q", got.UploadDate, tt.wantDate)
+			}
+			if got.Title != tt.wantTitle {
+				t.Errorf("Title = %q, want %q", got.Title, tt.wantTitle)
+			}
+		})
+	}
+}
+
+func TestExecuteCopyTo_EmptyMetadata(t *testing.T) {
+	srcDir := t.TempDir()
+	prefix := "__abc123__"
+	os.WriteFile(filepath.Join(srcDir, prefix+"summary.md"), []byte("summary"), 0o644)
+
+	dstBase := t.TempDir()
+	targetPath := filepath.Join(dstBase, "target")
+
+	cfg := config.CopyToConfig{
+		Path:     targetPath,
+		Files:    []string{"summary"},
+		Filename: "{upload_date}_{title}_{type}.md",
+	}
+
+	// Empty UploadDate and Title — normalization should produce valid filename.
+	vars := CopyToVars{
+		UploadDate: "",
+		VideoID:    "abc123",
+		Title:      "",
+	}
+
+	err := ExecuteCopyTo(cfg, srcDir, prefix, vars)
+	if err != nil {
+		t.Fatalf("ExecuteCopyTo() error = %v", err)
+	}
+
+	expectedName := "unknown-date_abc123_summary.md"
+	expectedPath := filepath.Join(targetPath, expectedName)
+	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
+		t.Errorf("expected file %s to exist", expectedPath)
+	}
+}

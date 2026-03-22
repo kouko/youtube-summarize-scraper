@@ -21,6 +21,18 @@ type CopyToVars struct {
 	PlaylistID    string
 }
 
+// NormalizeCopyToVars applies fallback defaults for empty fields to prevent
+// malformed filenames (e.g. leading underscores or double underscores).
+func NormalizeCopyToVars(vars CopyToVars) CopyToVars {
+	if vars.UploadDate == "" {
+		vars.UploadDate = "unknown-date"
+	}
+	if vars.Title == "" && vars.VideoID != "" {
+		vars.Title = vars.VideoID
+	}
+	return vars
+}
+
 // fileTypeInfo maps a file type name to its glob suffix and extension.
 type fileTypeInfo struct {
 	suffix string // e.g. "summary.md"
@@ -72,6 +84,8 @@ func expandHome(path string) string {
 }
 
 func ExecuteCopyTo(cfg config.CopyToConfig, videoDir string, filePrefix string, vars CopyToVars) error {
+	vars = NormalizeCopyToVars(vars)
+
 	// Default files to ["summary"] if empty.
 	files := cfg.Files
 	if len(files) == 0 {
