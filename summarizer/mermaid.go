@@ -2,6 +2,7 @@ package summarizer
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -57,28 +58,106 @@ func MermaidPrompt(summary string, language string) string {
 	}
 }
 
-// ValidateMermaid extracts and validates a Mermaid code block from an LLM response.
-// It looks for ```mermaid ... ``` blocks, validates basic syntax requirements,
+// ValidateMermaid extracts, auto-fixes, and validates a Mermaid code block from an LLM response.
+// It looks for ```mermaid ... ``` blocks, applies common fixes, validates basic syntax,
 // and returns the cleaned content and a validity flag.
 func ValidateMermaid(content string) (string, bool) {
-	// Extract mermaid code block
 	mermaidCode := extractMermaidBlock(content)
 	if mermaidCode == "" {
-		return "", false
+		// Try treating the whole content as mermaid if no code block found
+		if strings.Contains(content, "-->") || strings.Contains(content, "--->") {
+			mermaidCode = content
+		} else {
+			return "", false
+		}
 	}
 
-	// Basic validation: must start with "graph" or "flowchart"
-	trimmed := strings.TrimSpace(mermaidCode)
-	if !strings.HasPrefix(trimmed, "graph") && !strings.HasPrefix(trimmed, "flowchart") {
+	fixed := fixMermaid(mermaidCode)
+
+	// Validate: must start with "graph" or "flowchart"
+	if !strings.HasPrefix(fixed, "graph") && !strings.HasPrefix(fixed, "flowchart") {
 		return "", false
 	}
 
 	// Must contain at least one arrow
-	if !strings.Contains(trimmed, "-->") {
+	if !strings.Contains(fixed, "-->") {
 		return "", false
 	}
 
-	return trimmed, true
+	return fixed, true
+}
+
+// fixMermaid applies common auto-corrections to LLM-generated mermaid code.
+func fixMermaid(code string) string {
+	code = strings.TrimSpace(code)
+
+	// Fix wrong arrow types: ---> ==> -> to -->
+	code = fixArrows(code)
+
+	// Fix Chinese brackets: A【文字】 → A["文字"]
+	code = fixChineseBrackets(code)
+
+	// Fix missing quotes in node text: A[text] → A["text"]
+	code = fixMissingQuotes(code)
+
+	// Prepend graph TD if missing
+	if !strings.HasPrefix(code, "graph") && !strings.HasPrefix(code, "flowchart") {
+		code = "graph TD\n" + code
+	}
+
+	// Clean up empty lines
+	lines := strings.Split(code, "\n")
+	var cleaned []string
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			cleaned = append(cleaned, trimmed)
+		}
+	}
+
+	return strings.Join(cleaned, "\n")
+}
+
+// fixArrows normalizes arrow syntax to standard -->.
+func fixArrows(code string) string {
+	// Order matters: longer patterns first
+	code = strings.ReplaceAll(code, "===>", "-->")
+	code = strings.ReplaceAll(code, "--->", "-->")
+	code = strings.ReplaceAll(code, "==>", "-->")
+	// Be careful with -> : only replace when not part of -->
+	result := strings.Builder{}
+	for i := 0; i < len(code); i++ {
+		if i+2 < len(code) && code[i] == '-' && code[i+1] == '-' && code[i+2] == '>' {
+			result.WriteString("-->")
+			i += 2
+		} else if i+1 < len(code) && code[i] == '-' && code[i+1] == '>' {
+			result.WriteString("-->")
+			i += 1
+		} else {
+			result.WriteByte(code[i])
+		}
+	}
+	return result.String()
+}
+
+// fixChineseBrackets replaces 【】with [""].
+func fixChineseBrackets(code string) string {
+	re := regexp.MustCompile(`(\w+)【([^】]+)】`)
+	return re.ReplaceAllString(code, `$1["$2"]`)
+}
+
+// fixMissingQuotes adds quotes to node text that's missing them.
+// Matches A[text] where text doesn't start with " and converts to A["text"].
+func fixMissingQuotes(code string) string {
+	re := regexp.MustCompile(`(\w+)\[([^"\]]+)\]`)
+	return re.ReplaceAllStringFunc(code, func(match string) string {
+		sub := regexp.MustCompile(`(\w+)\[([^"\]]+)\]`)
+		parts := sub.FindStringSubmatch(match)
+		if len(parts) == 3 {
+			return fmt.Sprintf(`%s["%s"]`, parts[1], parts[2])
+		}
+		return match
+	})
 }
 
 // extractMermaidBlock finds and extracts content between ```mermaid and ``` markers.
