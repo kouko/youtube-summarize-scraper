@@ -262,12 +262,19 @@ For inline `summary.prompt`, the transcript is automatically appended after the 
 
 To get the latest videos from a channel:
 
-1. `yt-dlp --flat-playlist --dump-json <channel_url>/videos` — fetches lightweight metadata (id, title, duration, live_status, upload_date) without downloading
-2. Program filters results based on `filter` config:
-   - `types`: match `live_status` field (`not_live` → video, `was_live` → live, `post_live` → live; duration < 60s and vertical → short)
+1. Select YouTube channel tab URL(s) based on `filter.types` config:
+   - `["video"]` → `<channel_url>/videos`
+   - `["live"]` → `<channel_url>/streams`
+   - `["short"]` → `<channel_url>/shorts`
+   - Multiple types → one request per tab (e.g., `["video", "live"]` → `/videos` + `/streams`)
+   - Unset or all types → `/videos` + `/streams` + `/shorts` (three requests)
+2. `yt-dlp --dump-json --playlist-end N <tab_url>` — fetches full metadata per video (id, title, duration, live_status, upload_date, tags, channel, etc.). N = `count + 5` (small buffer for duration filters).
+3. Program filters results based on `filter` config:
+   - `types`: `media_type == "short"` for Shorts detection, `live_status` for live detection (`was_live` / `is_live` / `post_live`), regular videos are everything else
    - `min_duration` / `max_duration`: filter by `duration` field
-3. Take the first N videos that pass the filter
-4. For each video, fetch full metadata via `yt-dlp --dump-json <video_url>` (needed for tags, categories, language, etc.)
+4. Take the first N videos that pass the filter
+
+Full metadata is available immediately — no second fetch needed per video.
 
 ### Skip Detection
 

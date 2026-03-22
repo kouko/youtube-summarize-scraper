@@ -57,10 +57,10 @@ func (f *Fetcher) FetchVideoMeta(videoURL string) (*VideoMeta, error) {
 }
 
 // ChannelTabSuffixes returns the URL suffixes to fetch based on the requested content types.
-// Single type uses the specific tab; all types uses bare URL; mixed uses multiple tabs.
+// Each type maps to a specific YouTube channel tab.
 func ChannelTabSuffixes(types []string) []string {
-	if len(types) == 0 || (len(types) == 3 && containsAll(types, "video", "live", "short")) {
-		return []string{""} // bare URL = all content
+	if len(types) == 0 {
+		return []string{"/videos", "/streams", "/shorts"}
 	}
 	typeSet := make(map[string]bool, len(types))
 	for _, t := range types {
@@ -77,22 +77,9 @@ func ChannelTabSuffixes(types []string) []string {
 		suffixes = append(suffixes, "/shorts")
 	}
 	if len(suffixes) == 0 {
-		return []string{""}
+		return []string{"/videos", "/streams", "/shorts"}
 	}
 	return suffixes
-}
-
-func containsAll(types []string, targets ...string) bool {
-	set := make(map[string]bool, len(types))
-	for _, t := range types {
-		set[t] = true
-	}
-	for _, t := range targets {
-		if !set[t] {
-			return false
-		}
-	}
-	return true
 }
 
 // FetchChannelVideos fetches videos from a channel URL with full metadata,
