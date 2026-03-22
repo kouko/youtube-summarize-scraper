@@ -1105,14 +1105,16 @@ func videoURL(videoID string) string {
 }
 
 // buildCookieArgs constructs yt-dlp cookie arguments from config.
+// Chrome profile email is resolved to directory name automatically.
 func buildCookieArgs(cookie config.CookieConfig) []string {
 	if cookie.File != "" {
 		return []string{"--cookies", cookie.File}
 	}
 	if cookie.Browser != "" {
 		browser := cookie.Browser
-		if cookie.ChromeProfile != "" {
-			browser += ":" + cookie.ChromeProfile
+		profile := fetcher.ResolveChromeProfile(cookie.ChromeProfile)
+		if profile != "" {
+			browser += ":" + profile
 		}
 		return []string{"--cookies-from-browser", browser}
 	}
