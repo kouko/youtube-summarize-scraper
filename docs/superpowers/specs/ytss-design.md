@@ -317,19 +317,43 @@ Playlists are processed before channels in `ytss run`. Each playlist uses `yt-dl
 4. Per video: global skip check → fetch full metadata → ProcessVideo
 5. Random delay between playlists (batch settings)
 
-**Skip detection:** Uses `IsProcessedGlobal` — a video processed via channel won't be re-processed via playlist (and vice versa).
+**Skip detection:** See "Skip Detection" section below. A video processed via channel will be copied (not re-processed) to the playlist directory, and vice versa.
 
 **Playlist name resolution:** If `name` is not set in config, it is auto-detected from yt-dlp metadata (`playlist_title` field).
 
 ### Skip Detection
 
-**Global skip detection** (`IsProcessedGlobal`): Glob for `outputDir/*/**/*__{video_id}__*` across all channel directories. This is channel-agnostic, allowing skip checks without knowing the channel handle (which is unavailable in flat-playlist mode).
+**Process for each video:**
 
-**Per-channel skip detection** (`IsProcessed`): Glob for `*__{video_id}__*` within a specific channel directory. Used by `ytss video` command.
+1. `FindVideoDir(outputDir, videoID)` — search for existing `*__videoID__*` directory across all channel and playlist directories.
 
-Both methods are resilient to title changes or sanitization logic updates (they match on video ID only).
+2. **If found (existing directory exists):**
+   - **Same directory** (source == target):
+     - Has `summary.md` → **skip** (fully complete)
+     - No `summary.md` → **resume** (read existing transcription, only generate summary)
+   - **Cross-directory** (source ≠ target, e.g., channel → playlist or playlist → playlist):
+     - Source has `summary.md` → **copy** all files to target directory, update frontmatter (`playlist`, `playlist_id`, `channel` fields), then skip
+     - Source has no `summary.md` → treat as **new video** (don't copy incomplete data)
 
-When `--force` flag is set, skip detection is bypassed and existing output is overwritten.
+3. **If not found** → **new video**, full pipeline processing.
+
+**Cross-directory copy details:**
+- All files (subtitle.srt, transcription.md, summary.md) are copied to the target directory
+- Frontmatter in transcription.md and summary.md is updated to reflect the target context:
+  - Copying to playlist: set `playlist` and `playlist_id`
+  - Copying to channel: clear `playlist` and `playlist_id`
+- File names are preserved (same prefix format)
+- `processed_at` is updated to the copy timestamp
+
+**Helper functions:**
+- `FindVideoDir(outputDir, videoID)` — glob `outputDir/*/**/*__videoID__*`, returns first match or ""
+- `HasFile(videoDir, suffix)` — check if `*__suffix` exists in dir
+- `IsProcessed(outputDir, channelHandle, videoID)` — per-channel check with summary.md (used by `ytss video`)
+- `IsProcessedGlobal(outputDir, videoID)` — global check with summary.md
+
+All methods match on video ID only, resilient to title changes or sanitization logic updates.
+
+When `--force` flag is set, skip detection is bypassed and existing output is overwritten (no copy).
 
 ## Core Pipeline
 
