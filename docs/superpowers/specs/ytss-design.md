@@ -325,25 +325,26 @@ Playlists are processed before channels in `ytss run`. Each playlist uses `yt-dl
 
 ### Skip Detection
 
-**Process for each video:**
+**Important:** `--flat-playlist` does not return `uploader_id`, `channel`, or `upload_date`. Skip detection must rely only on video ID matching, not channel handle or directory path computation.
+
+**Channel processing — for each video:**
 
 1. `FindVideoDir(outputDir, videoID)` — search for existing `*__videoID__*` directory across all channel and playlist directories.
+2. Found + has `summary.md` → **skip** (already processed, regardless of which directory)
+3. Found without `summary.md` or not found → proceed to `ProcessVideo` (handles full metadata fetch, directory creation, and resume internally)
 
-2. **If found (existing directory exists):**
-   - **Same directory** (source == target):
-     - Has `summary.md` → **skip** (fully complete)
-     - No `summary.md` → **resume** (read existing transcription, only generate summary)
-   - **Cross-directory** (source ≠ target, e.g., channel → playlist or playlist → playlist):
-     - Source has `summary.md` → **copy** all files to target directory, update frontmatter (`playlist`, `playlist_id`, `channel` fields), then skip
-     - Source has no `summary.md` → treat as **new video** (don't copy incomplete data)
+**Playlist processing — for each video:**
 
-3. **If not found** → **new video**, full pipeline processing.
+1. `FindVideoDir(outputDir, videoID)` — search for existing directory.
+2. Found + has `summary.md`:
+   - Already in this playlist directory → **skip**
+   - In a different directory (channel or another playlist) → **cross-directory copy** to playlist dir, then skip
+3. Found without `summary.md` or not found → proceed to `processVideoInPlaylist` (handles full metadata fetch and resume)
 
-**Cross-directory copy details:**
-- All files (subtitle.srt, transcription.md, summary.md) are copied to the target directory
-- Frontmatter in transcription.md and summary.md is updated to reflect the target context:
-  - Copying to playlist: set `playlist` and `playlist_id`
-  - Copying to channel: clear `playlist` and `playlist_id`
+**Cross-directory copy details (playlist only):**
+- Uses the existing directory's subdirectory name (preserves date/title from full metadata)
+- All files (subtitle.srt, transcription.md, summary.md) are copied to the playlist directory
+- Frontmatter in transcription.md and summary.md is updated: set `playlist` and `playlist_id`
 - File names are preserved (same prefix format)
 - `processed_at` is updated to the copy timestamp
 

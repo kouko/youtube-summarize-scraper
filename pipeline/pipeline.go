@@ -209,44 +209,18 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 
 	stats := &Stats{}
 	for i, meta := range filtered {
-		// Smart skip check before fetching full metadata.
+		// Smart skip: if video already processed anywhere, skip.
+		// Note: flat-playlist metadata lacks channel/upload_date/title,
+		// so we cannot compute targetDir here. ProcessVideo handles
+		// full metadata fetch, directory creation, and resume internally.
 		if !p.force {
 			existingDir := output.FindVideoDir(p.config.OutputDir, meta.ID)
-			if existingDir != "" {
-				// Determine expected target directory for this video in the channel context.
-				channelHandle := deriveChannelHandle(&meta)
-				targetDir := output.VideoDir(p.config.OutputDir, channelHandle, meta.UploadDate, meta.ID, meta.Title)
-				if existingDir == targetDir {
-					// Same dir: skip if complete, resume if partial.
-					if output.HasFile(existingDir, "summary.md") {
-						slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (complete)", i+1, len(filtered), meta.ID),
-							"title", meta.Title,
-						)
-						stats.Skipped++
-						continue
-					}
-					slog.Info(fmt.Sprintf("[%d/%d] %s - resuming (missing summary)", i+1, len(filtered), meta.ID),
-						"title", meta.Title,
-					)
-				} else if output.HasFile(existingDir, "summary.md") {
-					// Cross-dir: reuse source subdirectory name (preserves date).
-					srcSubDir := filepath.Base(existingDir)
-					channelDir := filepath.Join(p.config.OutputDir, "@"+channelHandle)
-					copyDst := filepath.Join(channelDir, srcSubDir)
-					slog.Info(fmt.Sprintf("[%d/%d] %s - copying from existing dir", i+1, len(filtered), meta.ID),
-						"title", meta.Title,
-						"src", existingDir,
-						"dst", copyDst,
-					)
-					if err := output.CopyVideoDir(existingDir, copyDst, "", ""); err != nil {
-						slog.Warn("cross-dir copy failed, will reprocess",
-							"video_id", meta.ID, "error", err)
-					} else {
-						stats.Skipped++
-						continue
-					}
-				}
-				// Cross-dir without summary: treat as new.
+			if existingDir != "" && output.HasFile(existingDir, "summary.md") {
+				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (already processed)", i+1, len(filtered), meta.ID),
+					"title", meta.Title,
+				)
+				stats.Skipped++
+				continue
 			}
 		}
 
@@ -638,45 +612,35 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 
 	stats := &Stats{}
 	for i, meta := range videos {
-		// Build target dir: playlistDir/YYYY-MM-DD__videoID__title
-		channelHandle := deriveChannelHandle(&meta)
-		targetDir := filepath.Join(plDir, fmt.Sprintf("%s__%s__%s",
-			formatDatePipeline(meta.UploadDate), meta.ID,
-			output.SanitizeTitle(meta.Title, 0)))
-
 		// Smart skip with cross-directory copy support.
+		// Note: flat-playlist metadata lacks channel/upload_date, so we
+		// cannot compute targetDir here. Use FindVideoDir + path check instead.
 		if !p.force {
 			existingDir := output.FindVideoDir(p.config.OutputDir, meta.ID)
-			if existingDir != "" {
-				if existingDir == targetDir {
-					if output.HasFile(existingDir, "summary.md") {
-						slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (complete)", i+1, len(videos), meta.ID),
-							"title", meta.Title,
-						)
-						stats.Skipped++
-						continue
-					}
-					slog.Info(fmt.Sprintf("[%d/%d] %s - resuming (missing summary)", i+1, len(videos), meta.ID),
+			if existingDir != "" && output.HasFile(existingDir, "summary.md") {
+				if strings.HasPrefix(existingDir, plDir+string(filepath.Separator)) {
+					// Already in this playlist dir: skip.
+					slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (complete)", i+1, len(videos), meta.ID),
 						"title", meta.Title,
 					)
-				} else if output.HasFile(existingDir, "summary.md") {
-					// Cross-dir: reuse source subdirectory name (preserves date from full metadata).
-					srcSubDir := filepath.Base(existingDir)
-					copyDst := filepath.Join(plDir, srcSubDir)
-					slog.Info(fmt.Sprintf("[%d/%d] %s - copying from existing dir", i+1, len(videos), meta.ID),
-						"title", meta.Title,
-						"src", existingDir,
-						"dst", copyDst,
-					)
-					if err := output.CopyVideoDir(existingDir, copyDst, playlistName, playlistID); err != nil {
-						slog.Warn("cross-dir copy failed, will reprocess",
-							"video_id", meta.ID, "error", err)
-					} else {
-						stats.Skipped++
-						continue
-					}
+					stats.Skipped++
+					continue
 				}
-				// Cross-dir without summary: treat as new.
+				// Cross-dir: copy to playlist dir using existing subdirectory name.
+				srcSubDir := filepath.Base(existingDir)
+				copyDst := filepath.Join(plDir, srcSubDir)
+				slog.Info(fmt.Sprintf("[%d/%d] %s - copying from existing dir", i+1, len(videos), meta.ID),
+					"title", meta.Title,
+					"src", existingDir,
+					"dst", copyDst,
+				)
+				if err := output.CopyVideoDir(existingDir, copyDst, playlistName, playlistID); err != nil {
+					slog.Warn("cross-dir copy failed, will reprocess",
+						"video_id", meta.ID, "error", err)
+				} else {
+					stats.Skipped++
+					continue
+				}
 			}
 		}
 
@@ -697,11 +661,10 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 			}
 		}
 
-		// Update channel handle after full metadata fetch.
-		channelHandle = deriveChannelHandle(&metaCopy)
+		// Derive channel handle and target dir from full metadata.
+		channelHandle := deriveChannelHandle(&metaCopy)
 
-		// Recalculate targetDir with potentially updated metadata.
-		targetDir = filepath.Join(plDir, fmt.Sprintf("%s__%s__%s",
+		targetDir := filepath.Join(plDir, fmt.Sprintf("%s__%s__%s",
 			formatDatePipeline(metaCopy.UploadDate), metaCopy.ID,
 			output.SanitizeTitle(metaCopy.Title, 0)))
 
