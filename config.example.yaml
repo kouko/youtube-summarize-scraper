@@ -45,7 +45,7 @@ cookie:
 
 # LLM settings
 llm:
-  provider: "ollama"                 # ollama / llamacpp / claude-api / gemini-cli
+  provider: "ollama"                 # ollama / llamacpp / claude-api / gemini-cli / openai-compat
   ollama:
     model: "llama3"
     endpoint: "http://localhost:11434"
@@ -53,12 +53,17 @@ llm:
     timeout: 900                       # Seconds per LLM request (default: 900 = 15 min)
   llamacpp:
     endpoint: "http://localhost:8080"
-  claude_api:
+  claude-api:
     api_key: "${CLAUDE_API_KEY}"
     model: "claude-sonnet-4-20250514"
-  gemini_cli:
+  gemini-cli:
     model: "gemini-2.5-pro"
     path: ""                         # Path to gemini binary (default: search in PATH)
+  openai-compat:                       # Any OpenAI-compatible server (oMLX, LM Studio, vLLM, etc.)
+    endpoint: "http://localhost:8000/v1"
+    model: "mlx-community/Qwen3-32B-4bit"
+    api_key: ""                        # Optional API key
+    timeout: 900                       # Seconds per LLM request (default: 900 = 15 min)
 
 # Summary settings
 summary:

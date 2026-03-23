@@ -1135,6 +1135,8 @@ func (p *Pipeline) llmModel() string {
 		return p.config.LLM.ClaudeAPI.Model
 	case "gemini-cli":
 		return p.config.LLM.GeminiCLI.Model
+	case "openai-compat":
+		return p.config.LLM.OpenAICompat.Model
 	default:
 		return p.config.LLM.Provider
 	}

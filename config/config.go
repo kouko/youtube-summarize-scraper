@@ -42,11 +42,12 @@ type CookieConfig struct {
 }
 
 type LLMConfig struct {
-	Provider  string          `yaml:"provider"`
-	Ollama    OllamaConfig    `yaml:"ollama"`
-	LlamaCpp  LlamaCppConfig  `yaml:"llamacpp"`
-	ClaudeAPI ClaudeAPIConfig `yaml:"claude_api"`
-	GeminiCLI GeminiCLIConfig `yaml:"gemini_cli"`
+	Provider     string              `yaml:"provider"`
+	Ollama       OllamaConfig        `yaml:"ollama"`
+	LlamaCpp     LlamaCppConfig      `yaml:"llamacpp"`
+	ClaudeAPI    ClaudeAPIConfig     `yaml:"claude-api"`
+	GeminiCLI    GeminiCLIConfig     `yaml:"gemini-cli"`
+	OpenAICompat OpenAICompatConfig  `yaml:"openai-compat"`
 }
 
 type OllamaConfig struct {
@@ -68,6 +69,13 @@ type ClaudeAPIConfig struct {
 type GeminiCLIConfig struct {
 	Model string `yaml:"model"`
 	Path  string `yaml:"path"`
+}
+
+type OpenAICompatConfig struct {
+	Endpoint string `yaml:"endpoint"` // e.g. "http://localhost:8000/v1"
+	Model    string `yaml:"model"`
+	APIKey   string `yaml:"api_key"` // optional
+	Timeout  int    `yaml:"timeout"` // Seconds per LLM request (default: 900)
 }
 
 type SummaryConfig struct {
@@ -182,6 +190,10 @@ func DefaultConfig() *Config {
 			},
 			GeminiCLI: GeminiCLIConfig{
 				Model: "gemini-2.5-pro",
+			},
+			OpenAICompat: OpenAICompatConfig{
+				Endpoint: "http://localhost:8000/v1",
+				Timeout:  900,
 			},
 		},
 		Summary: SummaryConfig{

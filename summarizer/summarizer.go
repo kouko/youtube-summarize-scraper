@@ -49,6 +49,17 @@ func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
 			model:      cfg.GeminiCLI.Model,
 			binaryPath: cfg.GeminiCLI.Path,
 		}, nil
+	case "openai-compat":
+		timeout := time.Duration(cfg.OpenAICompat.Timeout) * time.Second
+		if timeout == 0 {
+			timeout = 15 * time.Minute
+		}
+		return &OpenAICompatSummarizer{
+			endpoint: cfg.OpenAICompat.Endpoint,
+			model:    cfg.OpenAICompat.Model,
+			apiKey:   cfg.OpenAICompat.APIKey,
+			timeout:  timeout,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown LLM provider: %q", cfg.Provider)
 	}

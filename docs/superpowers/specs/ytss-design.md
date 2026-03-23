@@ -23,7 +23,7 @@ ytss channel <URL or @handle> -n 5  # Summarize latest N videos from a channel
 ```
 --config, -c       Config file path (default: ./config.yaml)
 --output, -o       Output directory (default: ./ytss-output, overridable in config)
---llm              Override LLM backend (ollama / llamacpp / claude-api / gemini-cli)
+--llm              Override LLM backend (ollama / llamacpp / claude-api / gemini-cli / openai-compat)
 --cookie-file      Path to cookie.txt (Netscape format)
 --cookie-browser   Auto-extract cookie from browser (chrome / firefox / safari / edge / brave)
 --force            Force re-process even if output already exists (skip cache)
@@ -89,12 +89,17 @@ llm:
     timeout: 900                     # Seconds per LLM request (default: 900 = 15min)
   llamacpp:
     endpoint: "http://localhost:8080"
-  claude_api:
+  claude-api:
     api_key: "${CLAUDE_API_KEY}"
     model: "claude-sonnet-4-20250514"
-  gemini_cli:
+  gemini-cli:
     model: "gemini-2.5-pro"          # Model name
     path: ""                         # Path to gemini binary (default: search in PATH)
+  openai-compat:                     # Any OpenAI-compatible server (oMLX, LM Studio, vLLM, etc.)
+    endpoint: "http://localhost:8000/v1"
+    model: "mlx-community/Qwen3-32B-4bit"
+    api_key: ""                      # Optional API key
+    timeout: 900                     # Seconds per LLM request (default: 900 = 15min)
 
 # Summary settings
 summary:
@@ -832,7 +837,8 @@ ytss/
 │   ├── ollama.go
 │   ├── llamacpp.go
 │   ├── claude.go
-│   └── gemini.go
+│   ├── gemini.go
+│   └── openai_compat.go   # OpenAI-compatible API (oMLX, LM Studio, vLLM, etc.)
 ├── pipeline/
 │   └── pipeline.go          # Orchestrates all modules
 ├── output/
@@ -921,7 +927,7 @@ Playlists and channels are shuffled independently within their groups.
 | `yt-dlp` metadata/subtitle fetch | 60s |
 | `yt-dlp` audio download | 10min |
 | `whisper.cpp` transcription | 30min |
-| LLM summarization call | Configurable via `ollama.timeout` (default: 15min) |
+| LLM summarization call | Configurable via `ollama.timeout` or `openai_compat.timeout` (default: 15min) |
 
 ### Error Strategy
 
