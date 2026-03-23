@@ -95,6 +95,7 @@ llm:
   gemini-cli:
     model: "gemini-2.5-pro"          # Model name
     path: ""                         # Path to gemini binary (default: search in PATH)
+    timeout: 900                     # Seconds per LLM request (default: 900 = 15min)
   openai-compat:                     # Any OpenAI-compatible server (oMLX, LM Studio, vLLM, etc.)
     endpoint: "http://localhost:8000/v1"
     model: "mlx-community/Qwen3-32B-4bit"
@@ -927,7 +928,7 @@ Playlists and channels are shuffled independently within their groups.
 | `yt-dlp` metadata/subtitle fetch | 60s |
 | `yt-dlp` audio download | 10min |
 | `whisper.cpp` transcription | 30min |
-| LLM summarization call | Configurable via `ollama.timeout` or `openai_compat.timeout` (default: 15min) |
+| LLM summarization call | Configurable via `ollama.timeout`, `gemini-cli.timeout`, or `openai-compat.timeout` (default: 15min) |
 
 ### Error Strategy
 

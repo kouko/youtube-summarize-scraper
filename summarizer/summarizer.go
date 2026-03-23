@@ -45,9 +45,14 @@ func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
 			model:  cfg.ClaudeAPI.Model,
 		}, nil
 	case "gemini-cli":
+		geminiTimeout := time.Duration(cfg.GeminiCLI.Timeout) * time.Second
+		if geminiTimeout == 0 {
+			geminiTimeout = 15 * time.Minute
+		}
 		return &GeminiCLISummarizer{
 			model:      cfg.GeminiCLI.Model,
 			binaryPath: cfg.GeminiCLI.Path,
+			timeout:    geminiTimeout,
 		}, nil
 	case "openai-compat":
 		timeout := time.Duration(cfg.OpenAICompat.Timeout) * time.Second

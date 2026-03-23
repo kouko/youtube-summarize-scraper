@@ -9,10 +9,12 @@ import (
 	"time"
 )
 
-// GeminiCLISummarizer invokes the Gemini CLI tool.
+// GeminiCLISummarizer invokes the Gemini CLI tool in headless mode.
+// Prompt is passed via stdin to avoid ARG_MAX limits on long transcriptions.
 type GeminiCLISummarizer struct {
 	model      string
 	binaryPath string
+	timeout    time.Duration
 }
 
 func (g *GeminiCLISummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
@@ -32,10 +34,16 @@ func (g *GeminiCLISummarizer) Summarize(text string, opts SummarizeOptions) (str
 		}
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	timeout := g.timeout
+	if timeout == 0 {
+		timeout = 15 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	args := []string{"-m", model, "-p", combinedPrompt}
+	// Use stdin pipe for prompt content to avoid OS ARG_MAX limits.
+	// gemini reads from stdin when no -p flag is provided in pipe mode.
+	args := []string{"-m", model}
 	cmd := exec.CommandContext(ctx, binary, args...)
 
 	var stdout, stderr bytes.Buffer

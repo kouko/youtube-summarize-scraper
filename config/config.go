@@ -67,8 +67,9 @@ type ClaudeAPIConfig struct {
 }
 
 type GeminiCLIConfig struct {
-	Model string `yaml:"model"`
-	Path  string `yaml:"path"`
+	Model   string `yaml:"model"`
+	Path    string `yaml:"path"`
+	Timeout int    `yaml:"timeout"` // Seconds per LLM request (default: 900)
 }
 
 type OpenAICompatConfig struct {
@@ -189,7 +190,8 @@ func DefaultConfig() *Config {
 				Model: "claude-sonnet-4-20250514",
 			},
 			GeminiCLI: GeminiCLIConfig{
-				Model: "gemini-2.5-pro",
+				Model:   "gemini-2.5-pro",
+				Timeout: 900,
 			},
 			OpenAICompat: OpenAICompatConfig{
 				Endpoint: "http://localhost:8000/v1",
