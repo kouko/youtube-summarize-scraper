@@ -11,7 +11,7 @@ preferred_languages:
   - "zh-Hant,zh-Hans"
   - en
 
-# Default video count per channel
+# Default video count per channel tab (e.g., 5 = up to 5 videos + 5 streams + 5 shorts)
 default_count: 5
 
 # Whisper settings
@@ -104,7 +104,7 @@ playlists:
 # Channel list
 channels:
   - url: "https://www.youtube.com/@channel-a"
-    count: 10                        # Override default_count
+    count: 10                        # Per tab (override default_count)
     # summary_prompt_file: "./prompts/tech-summary.md"  # Per-channel prompt
     # filter:
     #   types: ["video"]

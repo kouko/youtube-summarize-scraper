@@ -188,24 +188,24 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 	filterCfg := p.config.EffectiveFilter(*channelCfg)
 	tabSuffixes := fetcher.ChannelTabSuffixes(filterCfg.Types)
 
-	// Small buffer for duration/other filters within the same type.
+	// Fetch each tab independently: each tab gets its own count quota.
 	fetchLimit := count + 5
+	var filtered []fetcher.VideoMeta
+	for _, suffix := range tabSuffixes {
+		tabURL := channelURL + suffix
+		videos, err := p.fetcher.FetchChannelTab(tabURL, fetchLimit)
+		if err != nil {
+			return nil, fmt.Errorf("fetching %s: %w", tabURL, err)
+		}
+		slog.Info("fetched channel tab", "tab", suffix, "count", len(videos))
 
-	videos, err := p.fetcher.FetchChannelVideos(channelURL, fetchLimit, tabSuffixes)
-	if err != nil {
-		return nil, fmt.Errorf("fetching channel videos: %w", err)
+		tabFiltered := fetcher.FilterVideos(videos, filterCfg)
+		if len(tabFiltered) > count {
+			tabFiltered = tabFiltered[:count]
+		}
+		filtered = append(filtered, tabFiltered...)
 	}
-
-	slog.Info("fetched channel videos", "url", channelURL, "total", len(videos))
-
-	// Apply filter (duration, etc. — type filtering already done via tab selection).
-	filtered := fetcher.FilterVideos(videos, filterCfg)
-	slog.Info("filtered videos", "before", len(videos), "after", len(filtered))
-
-	// Take first N.
-	if len(filtered) > count {
-		filtered = filtered[:count]
-	}
+	slog.Info("total filtered videos across tabs", "count", len(filtered))
 
 	stats := &Stats{}
 	for i, meta := range filtered {

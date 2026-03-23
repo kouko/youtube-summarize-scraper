@@ -49,7 +49,7 @@ preferred_languages:
   - "zh-Hant,zh-Hans"               # Comma = yt-dlp priority list for Chinese
   - en
 
-# Default video count per channel
+# Default video count per channel tab (e.g., 5 = up to 5 videos + 5 streams + 5 shorts)
 default_count: 5
 
 # Whisper settings
@@ -127,7 +127,7 @@ obsidian:
 # Channel list
 channels:
   - url: "https://www.youtube.com/@channel-a"
-    count: 10                        # Override default_count
+    count: 10                        # Per tab (override default_count)
     summary_prompt_file: "./prompts/tech-summary.md"  # Per-channel override
     cookie:                          # Per-channel cookie (optional, overrides global)
       browser: "chrome"
@@ -142,7 +142,7 @@ channels:
 playlists:
   - url: "https://www.youtube.com/playlist?list=WL"
     name: "稍後觀看"              # Display name (optional, auto-detected from yt-dlp)
-    count: 10                     # Max videos to process (optional, default: default_count)
+    count: 10                     # Max videos total (playlists have no tabs)
     summary_prompt_file: ""       # Per-playlist prompt override (optional)
     cookie:                       # Per-playlist cookie (optional, overrides global)
       browser: "chrome"
@@ -284,9 +284,11 @@ Uses a two-phase approach: fast listing via `--flat-playlist`, then on-demand fu
    - `["short"]` → `<channel_url>/shorts`
    - Multiple types → one request per tab (e.g., `["video", "live"]` → `/videos` + `/streams`)
    - Unset or all types → `/videos` + `/streams` + `/shorts` (three requests)
-2. `yt-dlp --flat-playlist --dump-json --playlist-end N <tab_url>` — fetches lightweight metadata (id, title, duration, description). N = `count + 5`. Type filtering is handled at the tab URL level, not program level.
-3. Apply `min_duration` / `max_duration` filter on the listing results.
-4. Take the first N videos that pass the filter.
+2. **Each tab is fetched independently with its own count quota.** `yt-dlp --flat-playlist --dump-json --playlist-end N <tab_url>` — fetches lightweight metadata (id, title, duration, description). N = `count + 5`. Type filtering is handled at the tab URL level, not program level.
+3. Per tab: apply `min_duration` / `max_duration` filter, then take the first `count` videos.
+4. Merge results from all tabs for processing.
+
+**Note:** `count` means "N videos per enabled tab", not "N total". For example, `count: 5` with 3 tabs (videos + streams + shorts) processes up to 15 videos.
 
 **Phase 2 — Skip check + on-demand fetch:**
 
