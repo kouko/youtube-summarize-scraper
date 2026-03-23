@@ -388,7 +388,18 @@ copy_to:
 - `filename`: not set = keep original filename
 - `overwrite`: `false`
 
-**Execution:** Runs after each video is fully processed (all files written). Skipped videos and failed videos do not trigger copy.
+**Empty field fallbacks (`NormalizeCopyToVars`):**
+- `{upload_date}` empty → `"unknown-date"`
+- `{title}` empty → falls back to `{video_id}`
+
+**Filename length safety:**
+Each path segment is guaranteed to fit within the filesystem limit (255 bytes). When the resolved filename exceeds this limit, fields are progressively shortened in this order:
+1. `{channel_name}` (shrink to 40 runes, then 20 runes)
+2. `{playlist_name}` (shrink to 40 runes, then 20 runes)
+3. `{title}` (shrink to 40 runes, then 20 runes)
+4. Final fallback: hard truncate the segment, preserving the file extension
+
+**Execution:** Runs after each video is fully processed (all files written). Skipped videos and failed videos do not trigger copy. Channel batch processing uses full metadata (after `ProcessVideo`) for copy_to, not flat-playlist metadata.
 
 ## Core Pipeline
 

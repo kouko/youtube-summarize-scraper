@@ -45,21 +45,101 @@ var fileTypes = map[string]fileTypeInfo{
 	"subtitle":      {suffix: "subtitle.srt", ext: "srt"},
 }
 
+// maxSegmentBytes is the maximum byte length for a single path segment (filename
+// or directory name) on macOS/Linux filesystems.
+const maxSegmentBytes = 255
+
+// truncateRunesToBytes shortens s to fit within maxBytes at rune boundaries,
+// trimming trailing underscores after truncation.
+func truncateRunesToBytes(s string, maxBytes int) string {
+	if len(s) <= maxBytes {
+		return s
+	}
+	runes := []rune(s)
+	for len(runes) > 0 && len([]byte(string(runes))) > maxBytes {
+		runes = runes[:len(runes)-1]
+	}
+	return strings.TrimRight(string(runes), "_")
+}
+
 // resolveTemplate replaces {variable} placeholders with values from vars.
 // Text values are sanitized for safe filesystem use. The fileType parameter
-// is used to resolve {type}.
+// is used to resolve {type}. Each path segment is guaranteed to fit within
+// 255 bytes by progressively shortening channel_name, playlist_name, then
+// title, with a final hard truncate as fallback.
 func resolveTemplate(template string, vars CopyToVars, fileType string) string {
-	r := strings.NewReplacer(
-		"{upload_date}", vars.UploadDate,
-		"{video_id}", vars.VideoID,
-		"{title}", SanitizeTitle(vars.Title, 0),
-		"{channel_name}", SanitizeTitle(vars.ChannelName, 0),
-		"{channel_handle}", vars.ChannelHandle,
-		"{playlist_name}", SanitizeTitle(vars.PlaylistName, 0),
-		"{playlist_id}", vars.PlaylistID,
-		"{type}", fileType,
-	)
-	return r.Replace(template)
+	// Sanitize text fields with initial max lengths.
+	channelName := SanitizeTitle(vars.ChannelName, 0)
+	playlistName := SanitizeTitle(vars.PlaylistName, 0)
+	title := SanitizeTitle(vars.Title, 0)
+
+	resolve := func(cn, pn, t string) string {
+		r := strings.NewReplacer(
+			"{upload_date}", vars.UploadDate,
+			"{video_id}", vars.VideoID,
+			"{title}", t,
+			"{channel_name}", cn,
+			"{channel_handle}", vars.ChannelHandle,
+			"{playlist_name}", pn,
+			"{playlist_id}", vars.PlaylistID,
+			"{type}", fileType,
+		)
+		return r.Replace(template)
+	}
+
+	result := resolve(channelName, playlistName, title)
+
+	// Check if any path segment exceeds the filesystem limit.
+	if !hasOversizedSegment(result) {
+		return result
+	}
+
+	// Progressive shortening: channel_name → playlist_name → title.
+	type field struct {
+		raw *string // pointer to the sanitized value
+		src string  // original raw value from vars
+	}
+	fields := []field{
+		{&channelName, vars.ChannelName},
+		{&playlistName, vars.PlaylistName},
+		{&title, vars.Title},
+	}
+	for _, maxLen := range []int{40, 20} {
+		for _, f := range fields {
+			if len([]rune(*f.raw)) > maxLen {
+				*f.raw = SanitizeTitle(f.src, maxLen)
+				result = resolve(channelName, playlistName, title)
+				if !hasOversizedSegment(result) {
+					return result
+				}
+			}
+		}
+	}
+
+	// Final fallback: hard truncate each oversized segment, preserving extension.
+	parts := strings.Split(result, string(filepath.Separator))
+	for i, part := range parts {
+		if len(part) <= maxSegmentBytes {
+			continue
+		}
+		ext := filepath.Ext(part)
+		base := strings.TrimSuffix(part, ext)
+		base = truncateRunesToBytes(base, maxSegmentBytes-len(ext))
+		parts[i] = base + ext
+		slog.Warn("copy_to: path segment truncated to fit filesystem limit",
+			"original_bytes", len(part), "segment", parts[i])
+	}
+	return strings.Join(parts, string(filepath.Separator))
+}
+
+// hasOversizedSegment returns true if any path segment exceeds maxSegmentBytes.
+func hasOversizedSegment(path string) bool {
+	for _, part := range strings.Split(path, string(filepath.Separator)) {
+		if len(part) > maxSegmentBytes {
+			return true
+		}
+	}
+	return false
 }
 
 // ExecuteCopyTo copies specified files from videoDir to the target path
