@@ -44,6 +44,16 @@ func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
 			apiKey: cfg.ClaudeAPI.APIKey,
 			model:  cfg.ClaudeAPI.Model,
 		}, nil
+	case "claude-code":
+		claudeCodeTimeout := time.Duration(cfg.ClaudeCode.Timeout) * time.Second
+		if claudeCodeTimeout == 0 {
+			claudeCodeTimeout = 15 * time.Minute
+		}
+		return &ClaudeCodeSummarizer{
+			model:      cfg.ClaudeCode.Model,
+			binaryPath: cfg.ClaudeCode.Path,
+			timeout:    claudeCodeTimeout,
+		}, nil
 	case "gemini-cli":
 		geminiTimeout := time.Duration(cfg.GeminiCLI.Timeout) * time.Second
 		if geminiTimeout == 0 {

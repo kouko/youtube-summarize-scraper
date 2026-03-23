@@ -23,7 +23,7 @@ ytss channel <URL or @handle> -n 5  # Summarize latest N videos from a channel
 ```
 --config, -c       Config file path (default: ./config.yaml)
 --output, -o       Output directory (default: ./ytss-output, overridable in config)
---llm              Override LLM backend (ollama / llamacpp / claude-api / gemini-cli / openai-compat)
+--llm              Override LLM backend (ollama / llamacpp / claude-api / claude-code / gemini-cli / openai-compat)
 --cookie-file      Path to cookie.txt (Netscape format)
 --cookie-browser   Auto-extract cookie from browser (chrome / firefox / safari / edge / brave)
 --force            Force re-process even if output already exists (skip cache)
@@ -92,8 +92,12 @@ llm:
   claude-api:
     api_key: "${CLAUDE_API_KEY}"
     model: "claude-sonnet-4-20250514"
+  claude-code:                         # Claude Code CLI (non-interactive mode)
+    model: "haiku"                     # Model alias (haiku/sonnet/opus) or full name, reference to https://code.claude.com/docs/en/model-config for details
+    path: ""                           # Path to claude binary (default: search in PATH)
+    timeout: 900                       # Seconds per LLM request (default: 900 = 15min)
   gemini-cli:
-    model: "gemini-2.5-pro"          # Model name
+    model: "auto"                    # Model alias (auto/pro/flash/flash-lite), reference to https://geminicli.com/docs/cli/cli-reference/#model-aliases for details
     path: ""                         # Path to gemini binary (default: search in PATH)
     timeout: 900                     # Seconds per LLM request (default: 900 = 15min)
   openai-compat:                     # Any OpenAI-compatible server (oMLX, LM Studio, vLLM, etc.)
@@ -837,7 +841,8 @@ ytss/
 │   ├── summarizer.go        # LLM interface definition
 │   ├── ollama.go
 │   ├── llamacpp.go
-│   ├── claude.go
+│   ├── claude.go            # Anthropic Messages API
+│   ├── claude_code.go       # Claude Code CLI (non-interactive --bare mode)
 │   ├── gemini.go
 │   └── openai_compat.go   # OpenAI-compatible API (oMLX, LM Studio, vLLM, etc.)
 ├── pipeline/
@@ -928,7 +933,7 @@ Playlists and channels are shuffled independently within their groups.
 | `yt-dlp` metadata/subtitle fetch | 60s |
 | `yt-dlp` audio download | 10min |
 | `whisper.cpp` transcription | 30min |
-| LLM summarization call | Configurable via `ollama.timeout`, `gemini-cli.timeout`, or `openai-compat.timeout` (default: 15min) |
+| LLM summarization call | Configurable per provider via `timeout` field (default: 15min) |
 
 ### Error Strategy
 

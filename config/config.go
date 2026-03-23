@@ -46,6 +46,7 @@ type LLMConfig struct {
 	Ollama       OllamaConfig        `yaml:"ollama"`
 	LlamaCpp     LlamaCppConfig      `yaml:"llamacpp"`
 	ClaudeAPI    ClaudeAPIConfig     `yaml:"claude-api"`
+	ClaudeCode   ClaudeCodeConfig    `yaml:"claude-code"`
 	GeminiCLI    GeminiCLIConfig     `yaml:"gemini-cli"`
 	OpenAICompat OpenAICompatConfig  `yaml:"openai-compat"`
 }
@@ -64,6 +65,12 @@ type LlamaCppConfig struct {
 type ClaudeAPIConfig struct {
 	APIKey string `yaml:"api_key"`
 	Model  string `yaml:"model"`
+}
+
+type ClaudeCodeConfig struct {
+	Model   string `yaml:"model"`   // e.g. "sonnet", "opus", "claude-sonnet-4-6"
+	Path    string `yaml:"path"`    // Path to claude binary (default: search in PATH)
+	Timeout int    `yaml:"timeout"` // Seconds per LLM request (default: 900)
 }
 
 type GeminiCLIConfig struct {
@@ -189,8 +196,12 @@ func DefaultConfig() *Config {
 			ClaudeAPI: ClaudeAPIConfig{
 				Model: "claude-sonnet-4-20250514",
 			},
+			ClaudeCode: ClaudeCodeConfig{
+				Model:   "haiku",
+				Timeout: 900,
+			},
 			GeminiCLI: GeminiCLIConfig{
-				Model:   "gemini-2.5-pro",
+				Model:   "auto",
 				Timeout: 900,
 			},
 			OpenAICompat: OpenAICompatConfig{

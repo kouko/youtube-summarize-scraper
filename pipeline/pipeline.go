@@ -1133,6 +1133,8 @@ func (p *Pipeline) llmModel() string {
 		return "llamacpp"
 	case "claude-api":
 		return p.config.LLM.ClaudeAPI.Model
+	case "claude-code":
+		return p.config.LLM.ClaudeCode.Model
 	case "gemini-cli":
 		return p.config.LLM.GeminiCLI.Model
 	case "openai-compat":
