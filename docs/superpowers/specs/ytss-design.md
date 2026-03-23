@@ -285,7 +285,7 @@ Uses a two-phase approach: fast listing via `--flat-playlist`, then on-demand fu
    - Multiple types → one request per tab (e.g., `["video", "live"]` → `/videos` + `/streams`)
    - Unset or all types → `/videos` + `/streams` + `/shorts` (three requests)
 2. **Each tab is fetched independently with its own count quota.** `yt-dlp --flat-playlist --dump-json --playlist-end N <tab_url>` — fetches lightweight metadata (id, title, duration, description). N = `count + 5`. Type filtering is handled at the tab URL level, not program level.
-3. Per tab: apply `min_duration` / `max_duration` filter, then take the first `count` videos.
+3. Per tab: filter out `is_upcoming` and `is_live` streams (cannot be downloaded), apply `min_duration` / `max_duration` filter, then take the first `count` videos.
 4. Merge results from all tabs for processing.
 
 **Note:** `count` means "N videos per enabled tab", not "N total". For example, `count: 5` with 3 tabs (videos + streams + shorts) processes up to 15 videos.
@@ -297,7 +297,7 @@ Uses a two-phase approach: fast listing via `--flat-playlist`, then on-demand fu
 
 This approach avoids fetching full metadata for already-processed videos, reducing per-channel time from ~1 min to ~8s when all videos are already processed.
 
-**Note:** `--flat-playlist` returns `duration` as float (e.g., `1434.0`) and does not include `live_status`, `upload_date`, `tags`, `channel`, or `media_type`. These fields are populated in Phase 2 via full metadata fetch.
+**Note:** `--flat-playlist` returns `duration` as float (e.g., `1434.0`) and `live_status` (e.g., `"is_upcoming"`, `"was_live"`), but does not include `upload_date`, `tags`, `channel`, or `media_type`. These fields are populated in Phase 2 via full metadata fetch. If full metadata fetch fails and no channel info is available (both `uploader_id` and `channel` are empty), the video is skipped to prevent creating `@unknown` directories.
 
 ### Playlist Processing
 

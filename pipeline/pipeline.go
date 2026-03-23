@@ -271,8 +271,12 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 		videoURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", meta.ID)
 		fullMeta, err := p.fetcher.FetchVideoMeta(videoURL)
 		if err != nil {
-			slog.Warn("failed to fetch full metadata, continuing with partial data",
+			slog.Warn("failed to fetch full metadata",
 				"video_id", meta.ID, "error", err)
+			// Without channel info we cannot create proper directory — skip.
+			if meta.Channel == "" && meta.ChannelName == "" {
+				return fmt.Errorf("cannot process %s: full metadata fetch failed and no channel info available", meta.ID)
+			}
 		} else {
 			*meta = *fullMeta
 		}

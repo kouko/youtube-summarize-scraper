@@ -83,3 +83,32 @@ func TestFilterVideos_FloatDuration(t *testing.T) {
 		t.Errorf("FloatDuration: expected video 'a', got %q", got[0].ID)
 	}
 }
+
+func TestFilterVideos_LiveStatus(t *testing.T) {
+	videos := []VideoMeta{
+		{ID: "upcoming", LiveStatus: "is_upcoming", Duration: 0},
+		{ID: "live", LiveStatus: "is_live", Duration: 0},
+		{ID: "was-live", LiveStatus: "was_live", Duration: 1800},
+		{ID: "normal", LiveStatus: "", Duration: 600},
+	}
+	got := FilterVideos(videos, config.FilterConfig{})
+	if len(got) != 2 {
+		t.Errorf("LiveStatus: got %d videos, want 2", len(got))
+	}
+	ids := map[string]bool{}
+	for _, v := range got {
+		ids[v.ID] = true
+	}
+	if !ids["was-live"] {
+		t.Error("LiveStatus: expected 'was-live' to be included")
+	}
+	if !ids["normal"] {
+		t.Error("LiveStatus: expected 'normal' to be included")
+	}
+	if ids["upcoming"] {
+		t.Error("LiveStatus: 'upcoming' should be filtered out")
+	}
+	if ids["live"] {
+		t.Error("LiveStatus: 'live' should be filtered out")
+	}
+}
