@@ -73,6 +73,10 @@ whisper:
     kotoba-ja: "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-model.bin"
     kotoba-ja-q5: "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-model-q5.bin"
 
+  # Timeout settings (minutes)
+  transcribe_timeout: 30               # Whisper transcription timeout (default: 30)
+  download_timeout: 10                 # Audio download timeout (default: 10)
+
 # Cookie settings (optional)
 cookie:
   file: ""                           # Path to cookie.txt
@@ -324,7 +328,7 @@ Playlists are processed before channels in `ytss run`. Each playlist uses `yt-dl
 
 **Processing flow:**
 1. `yt-dlp --flat-playlist --dump-json <playlist_url>` (with cookie if configured)
-2. Apply duration filter (min/max)
+2. Apply global duration filter (`filter.min_duration` / `filter.max_duration`)
 3. Take first N videos (playlist order preserved)
 4. Per video: global skip check → fetch full metadata → ProcessVideo
 5. Random delay between playlists (batch settings)
@@ -928,12 +932,12 @@ Playlists and channels are shuffled independently within their groups.
 
 ### Timeouts
 
-| Operation | Default Timeout |
-|-----------|----------------|
-| `yt-dlp` metadata/subtitle fetch | 60s |
-| `yt-dlp` audio download | 10min |
-| `whisper.cpp` transcription | 30min |
-| LLM summarization call | Configurable per provider via `timeout` field (default: 15min) |
+| Operation | Default Timeout | Configurable |
+|-----------|----------------|--------------|
+| `yt-dlp` metadata/subtitle fetch | 60s | No |
+| `yt-dlp` audio download | 10min | Yes, via `whisper.download_timeout` (minutes) |
+| `whisper.cpp` transcription | 30min | Yes, via `whisper.transcribe_timeout` (minutes) |
+| LLM summarization call | 15min | Yes, per provider via `timeout` field (seconds) |
 
 ### Error Strategy
 

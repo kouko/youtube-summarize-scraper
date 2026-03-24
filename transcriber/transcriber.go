@@ -104,7 +104,8 @@ func (t *Transcriber) downloadAudio(videoURL string, outputPath string, cookieAr
 	args = append(args, cookieArgs...)
 	args = append(args, videoURL)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	timeout := time.Duration(t.whisperConfig.DownloadTimeout) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, t.ytdlpPath, args...)
@@ -134,7 +135,8 @@ func (t *Transcriber) runWhisper(modelPath string, audioPath string, outputBase 
 		args = append(args, "-l", "auto")
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	timeout := time.Duration(t.whisperConfig.TranscribeTimeout) * time.Minute
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, t.whisperPath, args...)

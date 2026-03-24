@@ -37,6 +37,10 @@ whisper:
     kotoba-ja: "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-model.bin"
     kotoba-ja-q5: "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-model-q5.bin"
 
+  # Timeout settings (minutes)
+  transcribe_timeout: 30               # Whisper transcription timeout (default: 30)
+  download_timeout: 10                 # Audio download timeout (default: 10)
+
 # Cookie settings (optional)
 cookie:
   file: ""                           # Path to cookie.txt (Netscape format)
