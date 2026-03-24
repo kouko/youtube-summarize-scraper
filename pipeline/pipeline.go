@@ -28,6 +28,7 @@ type Pipeline struct {
 	subtitle    *subtitle.Downloader
 	transcriber *transcriber.Transcriber
 	summarizer  summarizer.Summarizer
+	index       *output.VideoIndex
 	force       bool
 	dryRun      bool
 }
@@ -66,6 +67,11 @@ func NewPipeline(cfg *config.Config, force, dryRun bool) (*Pipeline, error) {
 		slog.Warn("summarizer initialization failed, summaries will be skipped", "error", err)
 	}
 
+	// Build in-memory index of processed videos for fast skip detection.
+	start := time.Now()
+	idx := output.BuildIndex(cfg.OutputDir)
+	slog.Info("built video index", "duration", time.Since(start))
+
 	return &Pipeline{
 		config:      cfg,
 		binPaths:    binPaths,
@@ -73,6 +79,7 @@ func NewPipeline(cfg *config.Config, force, dryRun bool) (*Pipeline, error) {
 		subtitle:    sub,
 		transcriber: trans,
 		summarizer:  sum,
+		index:       idx,
 		force:       force,
 		dryRun:      dryRun,
 	}, nil
@@ -214,8 +221,8 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 		// so we cannot compute targetDir here. ProcessVideo handles
 		// full metadata fetch, directory creation, and resume internally.
 		if !p.force {
-			existingDir := output.FindVideoDir(p.config.OutputDir, meta.ID)
-			if existingDir != "" && output.HasFile(existingDir, "summary.md") {
+			existingDir := p.index.FindVideoDir(meta.ID)
+			if existingDir != "" && p.index.HasFile(meta.ID, "summary.md") {
 				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (already processed)", i+1, len(filtered), meta.ID),
 					"title", meta.Title,
 				)
@@ -250,7 +257,7 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 			// Post-processing: copy_to
 			if channelCfg != nil && channelCfg.CopyTo != nil {
 				channelHandle := deriveChannelHandle(&metaCopy)
-				vDir := output.FindVideoDir(p.config.OutputDir, metaCopy.ID)
+				vDir := p.index.FindVideoDir(metaCopy.ID)
 				if vDir == "" {
 					vDir = output.VideoDir(p.config.OutputDir, channelHandle, metaCopy.UploadDate, metaCopy.ID, metaCopy.Title)
 				}
@@ -287,11 +294,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 
 	// 3. Check if already processed (unless force).
 	if !p.force {
-		processed, err := output.IsProcessed(p.config.OutputDir, channelHandle, meta.ID)
-		if err != nil {
-			return fmt.Errorf("checking processed state: %w", err)
-		}
-		if processed {
+		if p.index.IsProcessed(channelHandle, meta.ID) {
 			slog.Info("skipped (already processed)", "video_id", meta.ID)
 			return errSkipped
 		}
@@ -305,7 +308,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 
 	// 5. Check for resume: existing dir with transcription but no summary.
 	videoDir := output.VideoDir(p.config.OutputDir, channelHandle, meta.UploadDate, meta.ID, meta.Title)
-	existingDir := output.FindVideoDir(p.config.OutputDir, meta.ID)
+	existingDir := p.index.FindVideoDir(meta.ID)
 	if existingDir != "" {
 		videoDir = existingDir // reuse existing dir (may have different title sanitization)
 	}
@@ -313,12 +316,13 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	if err := output.EnsureDir(videoDir); err != nil {
 		return fmt.Errorf("creating output directory: %w", err)
 	}
+	p.index.Add(meta.ID, videoDir)
 
 	// 6. Build file prefix.
 	filePrefix := output.VideoFilePrefix(meta.UploadDate, meta.ID)
 
 	// 6.5. Resume path: if transcription exists but summary doesn't, skip to summarization.
-	if existingDir != "" && output.HasFile(videoDir, "transcription.md") && !output.HasFile(videoDir, "summary.md") {
+	if existingDir != "" && p.index.HasFile(meta.ID, "transcription.md") && !p.index.HasFile(meta.ID, "summary.md") {
 		slog.Info("resuming: reading existing transcription", "video_id", meta.ID)
 		transcriptionFiles, _ := filepath.Glob(filepath.Join(videoDir, "*__transcription.md"))
 		if len(transcriptionFiles) > 0 {
@@ -408,6 +412,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	if err := os.WriteFile(srtPath, []byte(srtContent), 0o644); err != nil {
 		return fmt.Errorf("writing SRT file: %w", err)
 	}
+	p.index.AddFile(meta.ID, "subtitle.srt")
 
 	// 11. Convert SRT to text and write transcription.md.
 	transcriptText := subtitle.SRTToText(srtContent)
@@ -428,6 +433,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	if err := os.WriteFile(transcriptionPath, []byte(transcriptionContent), 0o644); err != nil {
 		return fmt.Errorf("writing transcription file: %w", err)
 	}
+	p.index.AddFile(meta.ID, "transcription.md")
 
 	// 12. Summarization (if summarizer is available).
 	if p.summarizer != nil {
@@ -562,6 +568,7 @@ func (p *Pipeline) runSummarization(
 	if err := os.WriteFile(summaryPath, []byte(summaryContent), 0o644); err != nil {
 		return fmt.Errorf("writing summary file: %w", err)
 	}
+	p.index.AddFile(meta.ID, "summary.md")
 
 	slog.Info("summary written", "video_id", meta.ID, "path", summaryPath)
 	return nil
@@ -623,8 +630,8 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 		// Note: flat-playlist metadata lacks channel/upload_date, so we
 		// cannot compute targetDir here. Use FindVideoDir + path check instead.
 		if !p.force {
-			existingDir := output.FindVideoDir(p.config.OutputDir, meta.ID)
-			if existingDir != "" && output.HasFile(existingDir, "summary.md") {
+			existingDir := p.index.FindVideoDir(meta.ID)
+			if existingDir != "" && p.index.HasFile(meta.ID, "summary.md") {
 				if strings.HasPrefix(existingDir, plDir+string(filepath.Separator)) {
 					// Already in this playlist dir: skip.
 					slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (complete)", i+1, len(videos), meta.ID),
@@ -683,6 +690,7 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 			})
 			continue
 		}
+		p.index.Add(metaCopy.ID, targetDir)
 
 		// Process the video using the playlist-aware wrapper.
 		if err := p.processVideoInPlaylist(&metaCopy, channelHandle, targetDir, playlistName, playlistID, playlistCfg); err != nil {
@@ -735,7 +743,7 @@ func (p *Pipeline) processVideoInPlaylist(
 	filePrefix := output.VideoFilePrefix(meta.UploadDate, meta.ID)
 
 	// Resume path: if transcription exists but summary doesn't, skip to summarization.
-	if output.HasFile(videoDir, "transcription.md") && !output.HasFile(videoDir, "summary.md") {
+	if p.index.HasFile(meta.ID, "transcription.md") && !p.index.HasFile(meta.ID, "summary.md") {
 		slog.Info("resuming: reading existing transcription", "video_id", meta.ID)
 		transcriptionFiles, _ := filepath.Glob(filepath.Join(videoDir, "*__transcription.md"))
 		if len(transcriptionFiles) > 0 {
@@ -827,6 +835,7 @@ func (p *Pipeline) processVideoInPlaylist(
 	if err := os.WriteFile(srtPath, []byte(srtContent), 0o644); err != nil {
 		return fmt.Errorf("writing SRT file: %w", err)
 	}
+	p.index.AddFile(meta.ID, "subtitle.srt")
 
 	// Convert SRT to text and write transcription.md.
 	transcriptText := subtitle.SRTToText(srtContent)
@@ -847,6 +856,7 @@ func (p *Pipeline) processVideoInPlaylist(
 	if err := os.WriteFile(transcriptionPath, []byte(transcriptionContent), 0o644); err != nil {
 		return fmt.Errorf("writing transcription file: %w", err)
 	}
+	p.index.AddFile(meta.ID, "transcription.md")
 
 	// Summarization.
 	if p.summarizer != nil {
@@ -982,6 +992,7 @@ func (p *Pipeline) runSummarizationPlaylist(
 	if err := os.WriteFile(summaryPath, []byte(summaryContent), 0o644); err != nil {
 		return fmt.Errorf("writing summary file: %w", err)
 	}
+	p.index.AddFile(meta.ID, "summary.md")
 
 	slog.Info("summary written", "video_id", meta.ID, "path", summaryPath)
 	return nil
