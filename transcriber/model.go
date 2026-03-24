@@ -18,18 +18,9 @@ var knownCustomPrefixes = []string{
 }
 
 // resolveModelPath returns the full filesystem path where the model file
-// should be located. It expands ~ in ModelDir and determines the correct
-// filename based on the model name.
+// should be located. ModelDir is already expanded by config.Load().
 func (t *Transcriber) resolveModelPath(modelName string) string {
 	modelDir := t.whisperConfig.ModelDir
-
-	// Expand ~ to home directory.
-	if strings.HasPrefix(modelDir, "~") {
-		home, err := os.UserHomeDir()
-		if err == nil {
-			modelDir = filepath.Join(home, modelDir[1:])
-		}
-	}
 
 	// Determine filename: custom models use "ggml-model.bin" in a subdirectory,
 	// standard models use "ggml-{name}.bin".

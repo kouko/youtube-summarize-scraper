@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -29,6 +30,8 @@ type Pipeline struct {
 	transcriber *transcriber.Transcriber
 	summarizer  summarizer.Summarizer
 	index       *output.VideoIndex
+	ctx         context.Context
+	cancel      context.CancelFunc
 	force       bool
 	dryRun      bool
 }
@@ -72,6 +75,8 @@ func NewPipeline(cfg *config.Config, force, dryRun bool) (*Pipeline, error) {
 	idx := output.BuildIndex(cfg.OutputDir)
 	slog.Info("built video index", "duration", time.Since(start))
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &Pipeline{
 		config:      cfg,
 		binPaths:    binPaths,
@@ -80,9 +85,31 @@ func NewPipeline(cfg *config.Config, force, dryRun bool) (*Pipeline, error) {
 		transcriber: trans,
 		summarizer:  sum,
 		index:       idx,
+		ctx:         ctx,
+		cancel:      cancel,
 		force:       force,
 		dryRun:      dryRun,
 	}, nil
+}
+
+// Shutdown signals the pipeline to stop processing after the current video completes.
+func (p *Pipeline) Shutdown() {
+	p.cancel()
+}
+
+// stopped returns true if a shutdown has been requested.
+func (p *Pipeline) stopped() bool {
+	select {
+	case <-p.ctx.Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// ResetContext creates a fresh context for a new watch iteration.
+func (p *Pipeline) ResetContext() {
+	p.ctx, p.cancel = context.WithCancel(context.Background())
 }
 
 // ReloadConfig re-reads the config file and updates runtime-safe fields
@@ -120,6 +147,10 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 	}
 
 	for i, pl := range playlists {
+		if p.stopped() {
+			slog.Info("batch interrupted by shutdown signal")
+			return total, nil
+		}
 		count := pl.Count
 		if count <= 0 {
 			count = p.config.DefaultCount
@@ -158,6 +189,10 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 	}
 
 	for i, ch := range channels {
+		if p.stopped() {
+			slog.Info("batch interrupted by shutdown signal")
+			return total, nil
+		}
 		count := p.config.EffectiveCount(ch)
 		slog.Info("processing channel", "url", ch.URL, "count", count)
 

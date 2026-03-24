@@ -47,7 +47,8 @@ var runCmd = &cobra.Command{
 }
 
 // runWatch runs ProcessBatch in a loop with the given interval (minutes).
-// It handles SIGINT/SIGTERM for graceful shutdown.
+// It handles SIGINT/SIGTERM for graceful shutdown between iterations,
+// and also signals the pipeline to stop mid-batch if interrupted.
 func runWatch(p *pipeline.Pipeline, cfgPath string, intervalMin int) error {
 	interval := time.Duration(intervalMin) * time.Minute
 
@@ -61,14 +62,35 @@ func runWatch(p *pipeline.Pipeline, cfgPath string, intervalMin int) error {
 		iteration++
 		slog.Info(fmt.Sprintf("watch: iteration %d starting", iteration))
 
+		p.ResetContext()
 		p.ReloadConfig(cfgPath)
 		p.RebuildIndex()
 
-		stats, err := p.ProcessBatch()
-		if err != nil {
-			slog.Error("watch: batch processing failed", "iteration", iteration, "error", err)
+		// Run ProcessBatch in a goroutine so we can listen for signals concurrently.
+		doneCh := make(chan batchResult, 1)
+		go func() {
+			stats, err := p.ProcessBatch()
+			doneCh <- batchResult{stats: stats, err: err}
+		}()
+
+		// Wait for either batch completion or signal.
+		var result batchResult
+		select {
+		case result = <-doneCh:
+			// Batch completed normally.
+		case sig := <-sigCh:
+			slog.Info("watch: received signal, stopping current batch", "signal", sig)
+			p.Shutdown()
+			result = <-doneCh // Wait for batch to finish current video.
+			printStats(result.stats)
+			slog.Info("watch: shutdown complete")
+			return nil
+		}
+
+		if result.err != nil {
+			slog.Error("watch: batch processing failed", "iteration", iteration, "error", result.err)
 		} else {
-			printStats(stats)
+			printStats(result.stats)
 		}
 
 		slog.Info(fmt.Sprintf("watch: iteration %d complete, sleeping %s", iteration, interval))
@@ -81,6 +103,11 @@ func runWatch(p *pipeline.Pipeline, cfgPath string, intervalMin int) error {
 			continue
 		}
 	}
+}
+
+type batchResult struct {
+	stats *pipeline.Stats
+	err   error
 }
 
 func init() {
