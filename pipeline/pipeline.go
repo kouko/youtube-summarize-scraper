@@ -196,15 +196,15 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 	tabSuffixes := fetcher.ChannelTabSuffixes(filterCfg.Types)
 
 	// Fetch each tab independently: each tab gets its own count quota.
-	fetchLimit := count + 5
+	// Type filtering is handled at the URL tab level, so no over-fetch buffer needed.
 	var filtered []fetcher.VideoMeta
 	for _, suffix := range tabSuffixes {
 		tabURL := channelURL + suffix
-		videos, err := p.fetcher.FetchChannelTab(tabURL, fetchLimit)
+		videos, err := p.fetcher.FetchChannelTab(tabURL, count)
 		if err != nil {
 			return nil, fmt.Errorf("fetching %s: %w", tabURL, err)
 		}
-		slog.Info("fetched channel tab", "tab", suffix, "count", len(videos))
+		slog.Info("fetched channel tab", "tab", suffix, "fetched", len(videos), "limit", count)
 
 		tabFiltered := fetcher.FilterVideos(videos, filterCfg)
 		if len(tabFiltered) > count {
