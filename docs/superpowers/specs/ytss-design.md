@@ -298,7 +298,7 @@ Uses a two-phase approach: fast listing via `--flat-playlist`, then on-demand fu
    - `["short"]` → `<channel_url>/shorts`
    - Multiple types → one request per tab (e.g., `["video", "live"]` → `/videos` + `/streams`)
    - Unset or all types → `/videos` + `/streams` + `/shorts` (three requests)
-2. **Each tab is fetched independently with its own count quota.** `yt-dlp --flat-playlist --dump-json --playlist-end N <tab_url>` — fetches lightweight metadata (id, title, duration, description). N = `count + 5`. Type filtering is handled at the tab URL level, not program level.
+2. **Each tab is fetched independently with its own count quota.** `yt-dlp --flat-playlist --dump-json --playlist-end N <tab_url>` — fetches lightweight metadata (id, title, duration, description). N = `count`. Type filtering is handled at the URL tab level, so no over-fetch buffer is needed.
 3. Per tab: filter out `is_upcoming` and `is_live` streams (cannot be downloaded), apply `min_duration` / `max_duration` filter, then take the first `count` videos.
 4. Merge results from all tabs for processing.
 
