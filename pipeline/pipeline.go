@@ -85,6 +85,14 @@ func NewPipeline(cfg *config.Config, force, dryRun bool) (*Pipeline, error) {
 	}, nil
 }
 
+// RebuildIndex rebuilds the in-memory video index from the output directory.
+// Call this at the start of each watch iteration to detect external changes.
+func (p *Pipeline) RebuildIndex() {
+	start := time.Now()
+	p.index = output.BuildIndex(p.config.OutputDir)
+	slog.Info("rebuilt video index", "duration", time.Since(start))
+}
+
 // ProcessBatch iterates all playlists and channels from config, processes each, and aggregates stats.
 // Playlists are processed first, then channels.
 func (p *Pipeline) ProcessBatch() (*Stats, error) {

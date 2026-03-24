@@ -23,9 +23,11 @@ type Config struct {
 }
 
 type BatchConfig struct {
-	RandomOrder bool `yaml:"random_order"` // Shuffle channel processing order
-	DelayMin    int  `yaml:"delay_min"`    // Min seconds delay between channels
-	DelayMax    int  `yaml:"delay_max"`    // Max seconds delay between channels
+	RandomOrder   bool `yaml:"random_order"`   // Shuffle channel processing order
+	DelayMin      int  `yaml:"delay_min"`      // Min seconds delay between channels
+	DelayMax      int  `yaml:"delay_max"`      // Max seconds delay between channels
+	Watch         bool `yaml:"watch"`           // Enable watch mode (loop)
+	WatchInterval int  `yaml:"watch_interval"` // Minutes between iterations (default: 10)
 }
 
 type WhisperConfig struct {
@@ -229,7 +231,8 @@ func DefaultConfig() *Config {
 			Types: []string{"video", "live", "short"},
 		},
 		Batch: BatchConfig{
-			RandomOrder: true,
+			RandomOrder:   true,
+			WatchInterval: 10,
 		},
 	}
 }

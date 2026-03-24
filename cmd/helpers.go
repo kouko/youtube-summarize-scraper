@@ -38,6 +38,12 @@ func applyOverrides(cfg *config.Config) {
 	if cookieBrowser != "" {
 		cfg.Cookie.Browser = cookieBrowser
 	}
+	if watchFlag {
+		cfg.Batch.Watch = true
+	}
+	if intervalFlag > 0 {
+		cfg.Batch.WatchInterval = intervalFlag
+	}
 }
 
 // setupLogging configures the default slog level.

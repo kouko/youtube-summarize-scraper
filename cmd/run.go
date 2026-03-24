@@ -2,6 +2,11 @@ package cmd
 
 import (
 	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/kouko/youtube-summarize-scraper/pipeline"
 	"github.com/spf13/cobra"
@@ -17,8 +22,8 @@ var runCmd = &cobra.Command{
 		cfg := loadConfig(cfgFile)
 		applyOverrides(cfg)
 
-		if len(cfg.Channels) == 0 {
-			return fmt.Errorf("no channels configured in %s", cfgFile)
+		if len(cfg.Channels) == 0 && len(cfg.Playlists) == 0 {
+			return fmt.Errorf("no channels or playlists configured in %s", cfgFile)
 		}
 
 		p, err := pipeline.NewPipeline(cfg, forceFlag, dryRun)
@@ -26,14 +31,55 @@ var runCmd = &cobra.Command{
 			return fmt.Errorf("initializing pipeline: %w", err)
 		}
 
-		stats, err := p.ProcessBatch()
-		if err != nil {
-			return fmt.Errorf("batch processing: %w", err)
+		if !cfg.Batch.Watch {
+			// Single run mode.
+			stats, err := p.ProcessBatch()
+			if err != nil {
+				return fmt.Errorf("batch processing: %w", err)
+			}
+			printStats(stats)
+			return nil
 		}
 
-		printStats(stats)
-		return nil
+		// Watch mode: loop until signal received.
+		return runWatch(p, cfg.Batch.WatchInterval)
 	},
+}
+
+// runWatch runs ProcessBatch in a loop with the given interval (minutes).
+// It handles SIGINT/SIGTERM for graceful shutdown.
+func runWatch(p *pipeline.Pipeline, intervalMin int) error {
+	interval := time.Duration(intervalMin) * time.Minute
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	slog.Info("watch mode started", "interval", interval)
+
+	iteration := 0
+	for {
+		iteration++
+		slog.Info(fmt.Sprintf("watch: iteration %d starting", iteration))
+
+		p.RebuildIndex()
+
+		stats, err := p.ProcessBatch()
+		if err != nil {
+			slog.Error("watch: batch processing failed", "iteration", iteration, "error", err)
+		} else {
+			printStats(stats)
+		}
+
+		slog.Info(fmt.Sprintf("watch: iteration %d complete, sleeping %s", iteration, interval))
+
+		select {
+		case sig := <-sigCh:
+			slog.Info("watch: received signal, shutting down", "signal", sig)
+			return nil
+		case <-time.After(interval):
+			continue
+		}
+	}
 }
 
 func init() {

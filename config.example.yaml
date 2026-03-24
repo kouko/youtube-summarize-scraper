@@ -98,6 +98,8 @@ batch:
   random_order: true               # Shuffle channel processing order (default: true)
   delay_min: 0                     # Min seconds delay between channels (default: 0)
   delay_max: 0                     # Max seconds delay between channels (default: 0)
+  watch: false                     # Enable watch mode (default: false, use --watch flag)
+  watch_interval: 10               # Minutes between watch iterations (default: 10)
 
 # Obsidian integration (optional)
 obsidian:
