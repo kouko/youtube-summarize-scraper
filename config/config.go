@@ -255,4 +255,26 @@ func (c *Config) EffectiveFilter(ch ChannelConfig) FilterConfig {
 	return c.Filter
 }
 
+// ReloadPartial re-reads the config file and updates only the fields that are
+// safe to change at runtime: channels, playlists, filter, batch, default_count,
+// and obsidian settings. LLM, whisper, and cookie settings are preserved since
+// their dependent modules are not rebuilt.
+func (c *Config) ReloadPartial(path string) error {
+	fresh, err := Load(path)
+	if err != nil {
+		return err
+	}
+
+	c.Channels = fresh.Channels
+	c.Playlists = fresh.Playlists
+	c.Filter = fresh.Filter
+	c.Batch = fresh.Batch
+	c.DefaultCount = fresh.DefaultCount
+	c.Obsidian = fresh.Obsidian
+	c.OutputDir = fresh.OutputDir
+	c.PreferredLanguages = fresh.PreferredLanguages
+
+	return nil
+}
+
 func ptrBool(v bool) *bool { return &v }

@@ -85,6 +85,16 @@ func NewPipeline(cfg *config.Config, force, dryRun bool) (*Pipeline, error) {
 	}, nil
 }
 
+// ReloadConfig re-reads the config file and updates runtime-safe fields
+// (channels, playlists, filter, batch, etc.). LLM/whisper/cookie are preserved.
+func (p *Pipeline) ReloadConfig(cfgPath string) {
+	if err := p.config.ReloadPartial(cfgPath); err != nil {
+		slog.Warn("config reload failed, keeping previous config", "error", err)
+		return
+	}
+	slog.Info("config reloaded")
+}
+
 // RebuildIndex rebuilds the in-memory video index from the output directory.
 // Call this at the start of each watch iteration to detect external changes.
 func (p *Pipeline) RebuildIndex() {

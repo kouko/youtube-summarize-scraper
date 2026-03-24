@@ -42,13 +42,13 @@ var runCmd = &cobra.Command{
 		}
 
 		// Watch mode: loop until signal received.
-		return runWatch(p, cfg.Batch.WatchInterval)
+		return runWatch(p, cfgFile, cfg.Batch.WatchInterval)
 	},
 }
 
 // runWatch runs ProcessBatch in a loop with the given interval (minutes).
 // It handles SIGINT/SIGTERM for graceful shutdown.
-func runWatch(p *pipeline.Pipeline, intervalMin int) error {
+func runWatch(p *pipeline.Pipeline, cfgPath string, intervalMin int) error {
 	interval := time.Duration(intervalMin) * time.Minute
 
 	sigCh := make(chan os.Signal, 1)
@@ -61,6 +61,7 @@ func runWatch(p *pipeline.Pipeline, intervalMin int) error {
 		iteration++
 		slog.Info(fmt.Sprintf("watch: iteration %d starting", iteration))
 
+		p.ReloadConfig(cfgPath)
 		p.RebuildIndex()
 
 		stats, err := p.ProcessBatch()

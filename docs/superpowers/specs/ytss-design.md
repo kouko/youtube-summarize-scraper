@@ -947,11 +947,12 @@ batch:
 ```
 
 **Flow per iteration:**
-1. Rebuild VideoIndex (detect external changes)
-2. Run `ProcessBatch()` (same as single-run mode)
-3. Print stats
-4. Sleep for `watch_interval` minutes
-5. Repeat
+1. Reload config (`ReloadPartial`) — updates channels, playlists, filter, batch, default_count, obsidian, output_dir, preferred_languages. LLM/whisper/cookie settings are preserved (modules not rebuilt).
+2. Rebuild VideoIndex (detect external changes)
+3. Run `ProcessBatch()` (same as single-run mode)
+4. Print stats
+5. Sleep for `watch_interval` minutes
+6. Repeat
 
 **Graceful shutdown:** SIGINT/SIGTERM during sleep exits immediately. During processing, the current video completes before exit.
 
