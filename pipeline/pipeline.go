@@ -593,10 +593,10 @@ func (p *Pipeline) runSummarization(
 	fmData.LLMProvider = p.config.LLM.Provider
 	fmData.LLMModel = p.llmModel()
 
-	// Enrich tags for Obsidian if enabled (merge LLM tags + video tags + channel + auto).
+	// Enrich tags for Obsidian if enabled (LLM tags + channel + auto).
 	if p.config.Obsidian.Enabled {
 		fmData.Tags = output.EnrichTagsForObsidian(
-			fmData.VideoTags, fmData.Tags, meta.ChannelName, p.config.Obsidian.AutoTags,
+			fmData.Tags, meta.ChannelName, p.config.Obsidian.AutoTags,
 		)
 	}
 
@@ -1013,10 +1013,10 @@ func (p *Pipeline) runSummarizationPlaylist(
 	fmData.Playlist = playlist
 	fmData.PlaylistID = playlistID
 
-	// Enrich tags for Obsidian if enabled (merge LLM tags + video tags + channel + auto).
+	// Enrich tags for Obsidian if enabled (LLM tags + channel + auto).
 	if p.config.Obsidian.Enabled {
 		fmData.Tags = output.EnrichTagsForObsidian(
-			fmData.VideoTags, fmData.Tags, meta.ChannelName, p.config.Obsidian.AutoTags,
+			fmData.Tags, meta.ChannelName, p.config.Obsidian.AutoTags,
 		)
 	}
 

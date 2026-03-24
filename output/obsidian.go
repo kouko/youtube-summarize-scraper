@@ -4,42 +4,55 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 )
 
-// EnrichTagsForObsidian merges originalTags, keywords, a sanitized channel name,
-// and autoTags into a single deduplicated list.
-func EnrichTagsForObsidian(originalTags []string, keywords []string, channelName string, autoTags []string) []string {
+// reTagUnsafe matches characters not allowed in Obsidian tags.
+// Allowed: letters (including CJK), numbers, hyphens, underscores.
+var reTagUnsafe = regexp.MustCompile(`[^\p{L}\p{N}\-_]`)
+
+// reMultiHyphen collapses consecutive hyphens.
+var reMultiHyphen = regexp.MustCompile(`-+`)
+
+// SanitizeTag converts a string into a valid Obsidian tag:
+// lowercase, spaces → hyphens, remove special characters, collapse hyphens.
+func SanitizeTag(tag string) string {
+	tag = strings.TrimSpace(tag)
+	tag = strings.ToLower(tag)
+	tag = strings.TrimPrefix(tag, "@")
+	tag = strings.ReplaceAll(tag, " ", "-")
+	tag = reTagUnsafe.ReplaceAllString(tag, "")
+	tag = reMultiHyphen.ReplaceAllString(tag, "-")
+	tag = strings.Trim(tag, "-")
+	return tag
+}
+
+// EnrichTagsForObsidian merges LLM-generated tags, a sanitized channel name,
+// and autoTags into a single deduplicated list for Obsidian's tags field.
+// All tags are sanitized for Obsidian compatibility (lowercase, no spaces, no special chars).
+// YouTube native video tags are excluded (kept separately in video_tags).
+func EnrichTagsForObsidian(llmTags []string, channelName string, autoTags []string) []string {
 	seen := make(map[string]struct{})
 	var result []string
 
 	add := func(tag string) {
-		tag = strings.TrimSpace(tag)
+		tag = SanitizeTag(tag)
 		if tag == "" {
 			return
 		}
-		lower := strings.ToLower(tag)
-		if _, ok := seen[lower]; ok {
+		if _, ok := seen[tag]; ok {
 			return
 		}
-		seen[lower] = struct{}{}
+		seen[tag] = struct{}{}
 		result = append(result, tag)
 	}
 
-	for _, t := range originalTags {
+	for _, t := range llmTags {
 		add(t)
 	}
-	for _, k := range keywords {
-		add(k)
-	}
 
-	// Sanitize channel name: remove @, replace spaces with hyphens, lowercase.
-	sanitized := strings.TrimPrefix(channelName, "@")
-	sanitized = strings.ReplaceAll(sanitized, " ", "-")
-	sanitized = strings.ToLower(sanitized)
-	if sanitized != "" {
-		add(sanitized)
-	}
+	add(channelName)
 
 	for _, t := range autoTags {
 		add(t)
