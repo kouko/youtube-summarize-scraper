@@ -13,6 +13,8 @@ var (
 	forceFlag     bool
 	dryRun        bool
 	verbose       bool
+	watchFlag     bool
+	intervalFlag  int
 )
 
 var rootCmd = &cobra.Command{
@@ -34,4 +36,6 @@ func init() {
 	rootCmd.PersistentFlags().BoolVar(&forceFlag, "force", false, "force re-process even if output already exists")
 	rootCmd.PersistentFlags().BoolVar(&dryRun, "dry-run", false, "list videos that would be processed without executing")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose logging")
+	rootCmd.PersistentFlags().BoolVar(&watchFlag, "watch", false, "run in watch mode (check for new videos periodically)")
+	rootCmd.PersistentFlags().IntVar(&intervalFlag, "interval", 0, "watch interval in minutes (overrides config, default: 10)")
 }

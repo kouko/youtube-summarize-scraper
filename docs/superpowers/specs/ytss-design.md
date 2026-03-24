@@ -930,6 +930,33 @@ Videos are processed **sequentially, one at a time**. Whisper transcription is C
 
 Playlists and channels are shuffled independently within their groups.
 
+### Watch Mode
+
+Watch mode enables continuous monitoring. Enabled via `--watch` CLI flag or `batch.watch: true` in config.
+
+```
+ytss run --watch                    # Use config interval (default: 10min)
+ytss run --watch --interval 30     # Override to 30min
+```
+
+**Config:**
+```yaml
+batch:
+  watch: true
+  watch_interval: 10               # Minutes between iterations
+```
+
+**Flow per iteration:**
+1. Rebuild VideoIndex (detect external changes)
+2. Run `ProcessBatch()` (same as single-run mode)
+3. Print stats
+4. Sleep for `watch_interval` minutes
+5. Repeat
+
+**Graceful shutdown:** SIGINT/SIGTERM during sleep exits immediately. During processing, the current video completes before exit.
+
+**CLI flag precedence:** `--watch` overrides `batch.watch`, `--interval` overrides `batch.watch_interval`.
+
 ### Timeouts
 
 | Operation | Default Timeout | Configurable |

@@ -63,6 +63,63 @@ output_dir: "./test-output"
 	}
 }
 
+func TestDefaultConfig_WatchMode(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg.Batch.Watch {
+		t.Error("Watch: expected false by default")
+	}
+	if cfg.Batch.WatchInterval != 10 {
+		t.Errorf("WatchInterval: got %d, want 10", cfg.Batch.WatchInterval)
+	}
+}
+
+func TestLoad_WatchModeOverride(t *testing.T) {
+	yaml := `
+batch:
+  watch: true
+  watch_interval: 30
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !cfg.Batch.Watch {
+		t.Error("Watch: expected true")
+	}
+	if cfg.Batch.WatchInterval != 30 {
+		t.Errorf("WatchInterval: got %d, want 30", cfg.Batch.WatchInterval)
+	}
+}
+
+func TestLoad_WatchModeDefault(t *testing.T) {
+	yaml := `
+output_dir: "./test-output"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Batch.Watch {
+		t.Error("Watch: expected false (default)")
+	}
+	if cfg.Batch.WatchInterval != 10 {
+		t.Errorf("WatchInterval: got %d, want 10 (default)", cfg.Batch.WatchInterval)
+	}
+}
+
 func writeTestFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
