@@ -16,7 +16,7 @@ type FrontmatterData struct {
 	UploadDate   string // YYYYMMDD from yt-dlp
 	Duration     string
 	Language     string
-	Tags         []string
+	VideoTags    []string // YouTube native tags
 	Categories   []string
 	Playlist     string // playlist name (empty for channel videos)
 	PlaylistID   string // playlist ID (empty for channel videos)
@@ -25,10 +25,9 @@ type FrontmatterData struct {
 	ProcessedAt  string
 
 	// Summary-only fields
-	Keywords    []string
+	Tags        []string // LLM-generated tags (formerly keywords)
 	LLMProvider string
 	LLMModel    string
-
 }
 
 // BuildTranscriptionFrontmatter generates YAML frontmatter for a transcription
@@ -49,7 +48,7 @@ func BuildTranscriptionFrontmatter(data FrontmatterData) string {
 	writeLine(&b, "upload_date", formattedDate)
 	writeLine(&b, "duration", data.Duration)
 	writeLine(&b, "language", data.Language)
-	writeList(&b, "tags", data.Tags)
+	writeList(&b, "video_tags", data.VideoTags)
 	writeList(&b, "categories", data.Categories)
 	writeLine(&b, "subtitle_type", data.SubtitleType)
 	writeLine(&b, "whisper_model", data.WhisperModel)
@@ -60,7 +59,7 @@ func BuildTranscriptionFrontmatter(data FrontmatterData) string {
 }
 
 // BuildSummaryFrontmatter generates YAML frontmatter for a summary markdown
-// file. It includes additional fields: keywords, llm_provider, llm_model.
+// file. It includes additional fields: tags (LLM-generated), llm_provider, llm_model.
 func BuildSummaryFrontmatter(data FrontmatterData) string {
 	formattedDate := formatDate(data.UploadDate)
 	fmTitle := fmt.Sprintf("%s %s (summary)", formattedDate, data.Title)
@@ -77,11 +76,11 @@ func BuildSummaryFrontmatter(data FrontmatterData) string {
 	writeLine(&b, "upload_date", formattedDate)
 	writeLine(&b, "duration", data.Duration)
 	writeLine(&b, "language", data.Language)
-	writeList(&b, "tags", data.Tags)
+	writeList(&b, "video_tags", data.VideoTags)
 	writeList(&b, "categories", data.Categories)
 	writeLine(&b, "subtitle_type", data.SubtitleType)
 	writeLine(&b, "processed_at", data.ProcessedAt)
-	writeList(&b, "keywords", data.Keywords)
+	writeList(&b, "tags", data.Tags)
 	writeLine(&b, "llm_provider", data.LLMProvider)
 	writeLine(&b, "llm_model", data.LLMModel)
 	b.WriteString("---\n")

@@ -472,13 +472,6 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt)
 	fmData.WhisperModel = whisperModel
 
-	// Enrich tags for Obsidian if enabled.
-	if p.config.Obsidian.Enabled {
-		fmData.Tags = output.EnrichTagsForObsidian(
-			fmData.Tags, nil, meta.ChannelName, p.config.Obsidian.AutoTags,
-		)
-	}
-
 	transcriptionFM := output.BuildTranscriptionFrontmatter(fmData)
 
 	transcriptionPath := filepath.Join(videoDir, filePrefix+"transcription.md")
@@ -596,14 +589,14 @@ func (p *Pipeline) runSummarization(
 
 	// Build summary frontmatter.
 	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt)
-	fmData.Keywords = keywords
+	fmData.Tags = keywords
 	fmData.LLMProvider = p.config.LLM.Provider
 	fmData.LLMModel = p.llmModel()
 
-	// Enrich tags for Obsidian if enabled.
+	// Enrich tags for Obsidian if enabled (merge LLM tags + video tags + channel + auto).
 	if p.config.Obsidian.Enabled {
 		fmData.Tags = output.EnrichTagsForObsidian(
-			fmData.Tags, keywords, meta.ChannelName, p.config.Obsidian.AutoTags,
+			fmData.VideoTags, fmData.Tags, meta.ChannelName, p.config.Obsidian.AutoTags,
 		)
 	}
 
@@ -897,12 +890,6 @@ func (p *Pipeline) processVideoInPlaylist(
 	fmData.Playlist = playlist
 	fmData.PlaylistID = playlistID
 
-	if p.config.Obsidian.Enabled {
-		fmData.Tags = output.EnrichTagsForObsidian(
-			fmData.Tags, nil, meta.ChannelName, p.config.Obsidian.AutoTags,
-		)
-	}
-
 	transcriptionFM := output.BuildTranscriptionFrontmatter(fmData)
 	transcriptionPath := filepath.Join(videoDir, filePrefix+"transcription.md")
 	transcriptionContent := transcriptionFM + "\n" + transcriptText + "\n"
@@ -1020,15 +1007,16 @@ func (p *Pipeline) runSummarizationPlaylist(
 
 	// Build summary frontmatter with playlist fields.
 	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt)
-	fmData.Keywords = keywords
+	fmData.Tags = keywords
 	fmData.LLMProvider = p.config.LLM.Provider
 	fmData.LLMModel = p.llmModel()
 	fmData.Playlist = playlist
 	fmData.PlaylistID = playlistID
 
+	// Enrich tags for Obsidian if enabled (merge LLM tags + video tags + channel + auto).
 	if p.config.Obsidian.Enabled {
 		fmData.Tags = output.EnrichTagsForObsidian(
-			fmData.Tags, keywords, meta.ChannelName, p.config.Obsidian.AutoTags,
+			fmData.VideoTags, fmData.Tags, meta.ChannelName, p.config.Obsidian.AutoTags,
 		)
 	}
 
@@ -1228,7 +1216,7 @@ func buildFrontmatterData(
 		UploadDate:   meta.UploadDate,
 		Duration:     meta.DurationString,
 		Language:     language,
-		Tags:         meta.Tags,
+		VideoTags:    meta.Tags,
 		Categories:   meta.Categories,
 		SubtitleType: subtitleType,
 		ProcessedAt:  processedAt,

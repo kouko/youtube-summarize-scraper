@@ -219,7 +219,7 @@ func TestBuildTranscriptionFrontmatter(t *testing.T) {
 		UploadDate:   "20240315",
 		Duration:     "10:30",
 		Language:     "en",
-		Tags:         []string{"go", "tutorial"},
+		VideoTags:    []string{"go", "tutorial"},
 		Categories:   []string{},
 		SubtitleType: "auto",
 		ProcessedAt:  "2024-03-16T12:00:00Z",
@@ -232,7 +232,7 @@ func TestBuildTranscriptionFrontmatter(t *testing.T) {
 		`title: "2024-03-15 My Video (transcription)"`,
 		`video_id: "abc123"`,
 		`upload_date: "2024-03-15"`,
-		`tags:`,
+		`video_tags:`,
 		`- "go"`,
 		`- "tutorial"`,
 		`categories: []`,
@@ -245,9 +245,6 @@ func TestBuildTranscriptionFrontmatter(t *testing.T) {
 	}
 
 	// Should NOT contain summary-only fields.
-	if strings.Contains(got, "keywords") {
-		t.Error("transcription frontmatter should not contain keywords")
-	}
 	if strings.Contains(got, "llm_provider") {
 		t.Error("transcription frontmatter should not contain llm_provider")
 	}
@@ -263,11 +260,11 @@ func TestBuildSummaryFrontmatter(t *testing.T) {
 		UploadDate:   "20240315",
 		Duration:     "10:30",
 		Language:     "en",
-		Tags:         []string{},
+		VideoTags:    []string{},
 		Categories:   []string{"Education"},
 		SubtitleType: "manual",
 		ProcessedAt:  "2024-03-16T12:00:00Z",
-		Keywords:     []string{"golang", "testing"},
+		Tags:         []string{"golang", "testing"},
 		LLMProvider:  "anthropic",
 		LLMModel:     "claude-3-opus",
 	}
@@ -276,10 +273,10 @@ func TestBuildSummaryFrontmatter(t *testing.T) {
 
 	checks := []string{
 		`title: "2024-03-15 My Video (summary)"`,
-		`tags: []`,
+		`video_tags: []`,
 		`categories:`,
 		`- "Education"`,
-		`keywords:`,
+		`tags:`,
 		`- "golang"`,
 		`- "testing"`,
 		`llm_provider: "anthropic"`,
