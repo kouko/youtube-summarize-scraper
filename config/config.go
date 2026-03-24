@@ -283,6 +283,7 @@ func (c *Config) EffectiveFilter(ch ChannelConfig) FilterConfig {
 // and obsidian settings. LLM, whisper, and cookie settings are preserved since
 // their dependent modules are not rebuilt.
 func (c *Config) ReloadPartial(path string) error {
+	path = ExpandHome(path)
 	fresh, err := Load(path)
 	if err != nil {
 		return err
