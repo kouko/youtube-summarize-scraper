@@ -607,6 +607,9 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 		"total", len(videos),
 	)
 
+	// Apply global filter (duration, live status) to playlist videos.
+	videos = fetcher.FilterVideos(videos, p.config.Filter)
+
 	if len(videos) > count {
 		videos = videos[:count]
 	}

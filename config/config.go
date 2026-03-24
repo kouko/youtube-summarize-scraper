@@ -29,10 +29,12 @@ type BatchConfig struct {
 }
 
 type WhisperConfig struct {
-	ModelDir       string            `yaml:"model_dir"`
-	DefaultModel   string            `yaml:"default_model"`
-	LanguageModels map[string]string `yaml:"language_models"`
-	ModelSources   map[string]string `yaml:"model_sources"`
+	ModelDir           string            `yaml:"model_dir"`
+	DefaultModel       string            `yaml:"default_model"`
+	LanguageModels     map[string]string `yaml:"language_models"`
+	ModelSources       map[string]string `yaml:"model_sources"`
+	TranscribeTimeout  int              `yaml:"transcribe_timeout"`
+	DownloadTimeout    int              `yaml:"download_timeout"`
 }
 
 type CookieConfig struct {
@@ -170,6 +172,8 @@ func DefaultConfig() *Config {
 				"zh": "belle-zh",
 				"en": "medium",
 			},
+			TranscribeTimeout: 30,
+			DownloadTimeout:   10,
 			ModelSources: map[string]string{
 				"tiny":            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
 				"base":            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
