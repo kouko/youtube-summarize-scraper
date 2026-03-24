@@ -159,6 +159,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.expandEnvVars()
+	cfg.expandPaths()
 	return cfg, nil
 }
 
@@ -239,6 +240,28 @@ func DefaultConfig() *Config {
 
 func (c *Config) expandEnvVars() {
 	c.LLM.ClaudeAPI.APIKey = os.ExpandEnv(c.LLM.ClaudeAPI.APIKey)
+}
+
+func (c *Config) expandPaths() {
+	c.OutputDir = ExpandHome(c.OutputDir)
+	c.Whisper.ModelDir = ExpandHome(c.Whisper.ModelDir)
+	c.Cookie.File = ExpandHome(c.Cookie.File)
+	c.LLM.ClaudeCode.Path = ExpandHome(c.LLM.ClaudeCode.Path)
+	c.LLM.GeminiCLI.Path = ExpandHome(c.LLM.GeminiCLI.Path)
+	c.Summary.SummaryPromptFile = ExpandHome(c.Summary.SummaryPromptFile)
+
+	for i := range c.Channels {
+		c.Channels[i].SummaryPromptFile = ExpandHome(c.Channels[i].SummaryPromptFile)
+		if c.Channels[i].CopyTo != nil {
+			c.Channels[i].CopyTo.Path = ExpandHome(c.Channels[i].CopyTo.Path)
+		}
+	}
+	for i := range c.Playlists {
+		c.Playlists[i].SummaryPromptFile = ExpandHome(c.Playlists[i].SummaryPromptFile)
+		if c.Playlists[i].CopyTo != nil {
+			c.Playlists[i].CopyTo.Path = ExpandHome(c.Playlists[i].CopyTo.Path)
+		}
+	}
 }
 
 func (c *Config) EffectiveCount(ch ChannelConfig) int {

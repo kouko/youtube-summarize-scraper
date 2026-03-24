@@ -12,6 +12,7 @@ import (
 // loadConfig tries to load the config file at the given path.
 // If the file does not exist, it returns DefaultConfig.
 func loadConfig(path string) *config.Config {
+	path = config.ExpandHome(path)
 	cfg, err := config.Load(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -27,13 +28,13 @@ func loadConfig(path string) *config.Config {
 // applyOverrides applies CLI flag overrides to the config.
 func applyOverrides(cfg *config.Config) {
 	if outputDir != "" {
-		cfg.OutputDir = outputDir
+		cfg.OutputDir = config.ExpandHome(outputDir)
 	}
 	if llmOverride != "" {
 		cfg.LLM.Provider = llmOverride
 	}
 	if cookieFile != "" {
-		cfg.Cookie.File = cookieFile
+		cfg.Cookie.File = config.ExpandHome(cookieFile)
 	}
 	if cookieBrowser != "" {
 		cfg.Cookie.Browser = cookieBrowser

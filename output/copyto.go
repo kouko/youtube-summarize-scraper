@@ -145,24 +145,7 @@ func hasOversizedSegment(path string) bool {
 // ExecuteCopyTo copies specified files from videoDir to the target path
 // defined in the CopyToConfig. Files are matched by type (summary,
 // transcription, subtitle) using glob patterns.
-// expandHome replaces a leading "~/" or "~" with the user's home directory.
-func expandHome(path string) string {
-	if !strings.HasPrefix(path, "~") {
-		return path
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return path
-	}
-	if path == "~" {
-		return home
-	}
-	if strings.HasPrefix(path, "~/") {
-		return filepath.Join(home, path[2:])
-	}
-	return path
-}
-
+// Note: cfg.Path is already expanded by config.expandPaths() at load time.
 func ExecuteCopyTo(cfg config.CopyToConfig, videoDir string, filePrefix string, vars CopyToVars) error {
 	vars = NormalizeCopyToVars(vars)
 
@@ -193,8 +176,8 @@ func ExecuteCopyTo(cfg config.CopyToConfig, videoDir string, filePrefix string, 
 		}
 		srcPath := matches[0]
 
-		// Resolve target directory (expand ~ to home dir).
-		targetDir := expandHome(resolveTemplate(cfg.Path, vars, fileType))
+		// Resolve target directory (~ already expanded by config.expandPaths).
+		targetDir := resolveTemplate(cfg.Path, vars, fileType)
 
 		// Create target directory.
 		if err := os.MkdirAll(targetDir, 0o755); err != nil {
