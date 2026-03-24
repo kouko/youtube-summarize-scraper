@@ -203,7 +203,7 @@ channel_name: "Channel A"
 upload_date: "2026-03-20"
 duration: "12:34"
 language: "ja"
-tags: ["tag1", "tag2"]
+video_tags: ["tag1", "tag2"]
 categories: ["Science & Technology"]
 subtitle_type: "manual"
 processed_at: "2026-03-22T15:30:00+08:00"
@@ -216,18 +216,18 @@ The `title` field is formatted as `YYYY-MM-DD Video Title (type)`:
 
 **summary.md** includes additional fields:
 ```yaml
-keywords: ["AI", "機器學習"]         # LLM-generated keywords ([] if extraction failed)
+tags: ["AI", "機器學習"]             # LLM-generated tags ([] if extraction failed)
 llm_provider: "ollama"
 llm_model: "llama3"
 ```
 
-**Tags and keywords in Obsidian mode (`obsidian.enabled: true`):**
-- `tags` is enriched: YouTube original tags + `auto_tags` + channel name + `keywords` (all merged)
-- `keywords` field is always kept separately for programmatic access (e.g., Claude Code)
+**Tags in Obsidian mode (`obsidian.enabled: true`):**
+- `tags` in summary.md is enriched: YouTube video_tags + LLM tags + `auto_tags` + channel name (all merged, deduplicated)
+- `video_tags` always contains YouTube original tags only
 
-**Tags and keywords in non-Obsidian mode:**
-- `tags`: YouTube original tags only
-- `keywords`: LLM-generated keywords only
+**Tags in non-Obsidian mode:**
+- `video_tags`: YouTube original tags only
+- `tags`: LLM-generated tags only (summary.md only)
 
 ### Obsidian Integration
 
