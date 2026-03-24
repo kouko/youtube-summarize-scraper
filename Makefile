@@ -1,6 +1,8 @@
 BINARY_NAME := ytss
 GOOS ?= $(shell uname -s | tr '[:upper:]' '[:lower:]')
 GOARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+LDFLAGS := -X main.version=$(VERSION)
 
 .PHONY: all build clean download-deps build-deps deps build-all
 
@@ -23,7 +25,7 @@ build-deps:
 # Build the Go binary
 build:
 	@echo "==> Building $(BINARY_NAME) for $(GOOS)-$(GOARCH)..."
-	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BINARY_NAME) .
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -ldflags "$(LDFLAGS)" -o $(BINARY_NAME) .
 
 # Build for all supported platforms (sequential: deps → build per platform)
 build-all:

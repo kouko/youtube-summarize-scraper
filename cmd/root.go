@@ -23,6 +23,11 @@ var rootCmd = &cobra.Command{
 	Long:  "A CLI tool that batch-processes YouTube channels to download subtitles, transcribe audio, and generate LLM-powered summaries.",
 }
 
+// SetVersion sets the version string displayed by --version.
+func SetVersion(v string) {
+	rootCmd.Version = v
+}
+
 func Execute() error {
 	return rootCmd.Execute()
 }
