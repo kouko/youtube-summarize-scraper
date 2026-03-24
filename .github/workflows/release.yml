@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: macos-14
+            goos: darwin
+            goarch: arm64
+          - os: ubuntu-latest
+            goos: linux
+            goarch: amd64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install prerequisites (Linux)
+        if: matrix.goos == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake nasm
+
+      - name: Download yt-dlp
+        run: make download-deps GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }}
+
+      - name: Build ffmpeg
+        run: bash scripts/build-ffmpeg.sh ${{ matrix.goos }} ${{ matrix.goarch }}
+
+      - name: Build whisper-cli
+        run: bash scripts/build-whisper.sh ${{ matrix.goos }} ${{ matrix.goarch }}
+
+      - name: Build binary
+        run: |
+          VERSION=${{ github.ref_name }}
+          if [ "$VERSION" = "" ] || [[ ! "$VERSION" =~ ^v ]]; then
+            VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo "dev")
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} \
+            go build -ldflags "-X main.version=${VERSION}" -o ytss .
+
+      - name: Run tests
+        run: go test ./...
+
+      - name: Rename binary
+        run: mv ytss ytss-${{ matrix.goos }}-${{ matrix.goarch }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ytss-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ytss-${{ matrix.goos }}-${{ matrix.goarch }}
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release files
+        run: |
+          mkdir -p release
+          find artifacts -type f -name 'ytss-*' -exec cp {} release/ \;
+          cd release
+          sha256sum ytss-* > checksums.txt
+          cat checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
