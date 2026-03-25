@@ -69,9 +69,10 @@ func truncateRunesToBytes(s string, maxBytes int) string {
 // title, with a final hard truncate as fallback.
 func resolveTemplate(template string, vars CopyToVars, fileType string) string {
 	// Sanitize text fields with initial max lengths.
+	// Title uses display-friendly sanitization (preserves spaces and full-width punctuation).
 	channelName := SanitizeTitle(vars.ChannelName, 0)
 	playlistName := SanitizeTitle(vars.PlaylistName, 0)
-	title := SanitizeTitle(vars.Title, 0)
+	title := SanitizeTitleForDisplay(vars.Title, 0)
 
 	resolve := func(cn, pn, t string) string {
 		r := strings.NewReplacer(
@@ -96,18 +97,19 @@ func resolveTemplate(template string, vars CopyToVars, fileType string) string {
 
 	// Progressive shortening: channel_name → playlist_name → title.
 	type field struct {
-		raw *string // pointer to the sanitized value
-		src string  // original raw value from vars
+		raw      *string                   // pointer to the sanitized value
+		src      string                    // original raw value from vars
+		sanitize func(string, int) string  // sanitizer function
 	}
 	fields := []field{
-		{&channelName, vars.ChannelName},
-		{&playlistName, vars.PlaylistName},
-		{&title, vars.Title},
+		{&channelName, vars.ChannelName, SanitizeTitle},
+		{&playlistName, vars.PlaylistName, SanitizeTitle},
+		{&title, vars.Title, SanitizeTitleForDisplay},
 	}
 	for _, maxLen := range []int{40, 20} {
 		for _, f := range fields {
 			if len([]rune(*f.raw)) > maxLen {
-				*f.raw = SanitizeTitle(f.src, maxLen)
+				*f.raw = f.sanitize(f.src, maxLen)
 				result = resolve(channelName, playlistName, title)
 				if !hasOversizedSegment(result) {
 					return result

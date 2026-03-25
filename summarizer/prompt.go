@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/kouko/youtube-summarize-scraper/config"
-	"github.com/kouko/youtube-summarize-scraper/prompts/builtin"
 )
 
 // PromptVars holds all variables available for prompt template substitution.
@@ -56,18 +55,9 @@ func readPromptFile(path string) (string, error) {
 	return string(data), nil
 }
 
-// loadBuiltinPrompt loads a built-in prompt template for the given language.
+// loadBuiltinPrompt loads a built-in summary prompt template for the given language.
 func loadBuiltinPrompt(language string) (string, error) {
-	filename := "summary-" + language + ".md"
-	data, err := builtin.Prompts.ReadFile(filename)
-	if err != nil {
-		// Fallback to English
-		data, err = builtin.Prompts.ReadFile("summary-en.md")
-		if err != nil {
-			return "", fmt.Errorf("loading built-in prompt: %w", err)
-		}
-	}
-	return string(data), nil
+	return loadBuiltinPromptByPrefix("summary", language)
 }
 
 // SubstituteVars replaces {{variable}} placeholders in a template with values from vars.

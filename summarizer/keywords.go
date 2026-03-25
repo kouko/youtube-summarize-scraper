@@ -2,29 +2,40 @@ package summarizer
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
+
+	"github.com/kouko/youtube-summarize-scraper/prompts/builtin"
 )
 
 // KeywordPrompt generates a Stage 2 keyword extraction prompt.
-// The prompt language is selected by the language parameter.
-func KeywordPrompt(summary string, language string, count int) string {
-	switch language {
-	case "zh-Hant":
-		return fmt.Sprintf(
-			"請從以下摘要中提取最多 %d 個關鍵字，每行列出一個關鍵字，不要編號，不要其他說明文字。所有關鍵字必須使用繁體中文，英文專有名詞除外。\n\n%s",
-			count, summary,
-		)
-	case "ja":
-		return fmt.Sprintf(
-			"以下の要約から最大 %d 個のキーワードを抽出してください。1行に1つのキーワードを記載し、番号や説明は不要です。すべてのキーワードは日本語で記載してください。英語の専門用語は原語のままで構いません。\n\n%s",
-			count, summary,
-		)
-	default:
-		return fmt.Sprintf(
-			"Extract up to %d keywords from the summary below. List one keyword per line. No numbering, no extra text. Output keywords in English only. Translate non-English terms to English.\n\n%s",
-			count, summary,
-		)
+// The prompt template is loaded from embedded files by language, with variable substitution.
+func KeywordPrompt(summary string, language string, count int) (string, error) {
+	template, err := loadBuiltinPromptByPrefix("keywords", language)
+	if err != nil {
+		return "", fmt.Errorf("loading keyword prompt: %w", err)
 	}
+
+	replacer := strings.NewReplacer(
+		"{{count}}", strconv.Itoa(count),
+		"{{summary}}", summary,
+	)
+	return replacer.Replace(template), nil
+}
+
+// loadBuiltinPromptByPrefix loads a built-in prompt template for the given prefix and language.
+// Falls back to English if the requested language is not found.
+func loadBuiltinPromptByPrefix(prefix string, language string) (string, error) {
+	filename := prefix + "-" + language + ".md"
+	data, err := builtin.Prompts.ReadFile(filename)
+	if err != nil {
+		// Fallback to English
+		data, err = builtin.Prompts.ReadFile(prefix + "-en.md")
+		if err != nil {
+			return "", fmt.Errorf("loading built-in %s prompt: %w", prefix, err)
+		}
+	}
+	return string(data), nil
 }
 
 // ParseKeywords splits an LLM response into individual keywords.

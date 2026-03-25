@@ -34,13 +34,13 @@ func TestResolveTemplate(t *testing.T) {
 			name:     "path with channel and date",
 			template: "/vault/{channel_name}/{upload_date}__{title}",
 			fileType: "summary",
-			want:     "/vault/Test_Channel/2024-01-15__My_Test_Video",
+			want:     "/vault/Test_Channel/2024-01-15__My Test Video",
 		},
 		{
 			name:     "filename with type",
 			template: "{upload_date}_{title}_{type}.md",
 			fileType: "summary",
-			want:     "2024-01-15_My_Test_Video_summary.md",
+			want:     "2024-01-15_My Test Video_summary.md",
 		},
 		{
 			name:     "all variables",
@@ -218,7 +218,7 @@ func TestExecuteCopyTo_CustomFilename(t *testing.T) {
 		t.Fatalf("ExecuteCopyTo() error = %v", err)
 	}
 
-	expectedName := "2024-01-15_My_Test_Video_summary.md"
+	expectedName := "2024-01-15_My Test Video_summary.md"
 	expectedPath := filepath.Join(targetPath, expectedName)
 	if _, err := os.Stat(expectedPath); os.IsNotExist(err) {
 		t.Errorf("expected file %s to exist", expectedPath)
@@ -396,7 +396,7 @@ func TestResolveTemplate_NormalNotAffected(t *testing.T) {
 	vars := testVars()
 	// Same as existing test — ensure normal-length results are unchanged.
 	result := resolveTemplate("{upload_date}_{title}_{type}.md", vars, "summary")
-	want := "2024-01-15_My_Test_Video_summary.md"
+	want := "2024-01-15_My Test Video_summary.md"
 	if result != want {
 		t.Errorf("resolveTemplate() = %q, want %q", result, want)
 	}
