@@ -546,11 +546,14 @@ func (p *Pipeline) runSummarization(
 	var keywords []string
 	if p.config.Summary.Keywords.Enabled {
 		slog.Info("stage 2: extracting keywords", "video_id", meta.ID)
-		kwPrompt := summarizer.KeywordPrompt(
+		kwPrompt, kwPromptErr := summarizer.KeywordPrompt(
 			summaryText,
 			p.config.Summary.Keywords.Language,
 			p.config.Summary.Keywords.Count,
 		)
+		if kwPromptErr != nil {
+			slog.Warn("stage 2 keyword prompt loading failed", "video_id", meta.ID, "error", kwPromptErr)
+		}
 		kwOpts := summarizer.SummarizeOptions{
 			Prompt:    kwPrompt,
 			MaxTokens: p.config.Summary.MaxTokens,
@@ -564,11 +567,14 @@ func (p *Pipeline) runSummarization(
 		}
 	}
 
-	// Stage 3: Mermaid diagram (non-blocking).
-	var mermaidBlock string
+	// Stage 3: Mermaid diagrams (non-blocking).
+	var mermaidBlocks []summarizer.MermaidBlock
 	if p.config.Summary.Mermaid.Enabled {
-		slog.Info("stage 3: generating mermaid diagram", "video_id", meta.ID)
-		mermaidPrompt := summarizer.MermaidPrompt(summaryText, p.config.Summary.Language)
+		slog.Info("stage 3: generating mermaid diagrams", "video_id", meta.ID)
+		mermaidPrompt, mermaidPromptErr := summarizer.MermaidPrompt(summaryText, p.config.Summary.Language)
+		if mermaidPromptErr != nil {
+			slog.Warn("stage 3 mermaid prompt loading failed", "video_id", meta.ID, "error", mermaidPromptErr)
+		}
 		mermaidOpts := summarizer.SummarizeOptions{
 			Prompt:    mermaidPrompt,
 			MaxTokens: p.config.Summary.MaxTokens,
@@ -578,11 +584,11 @@ func (p *Pipeline) runSummarization(
 		if mermaidErr != nil {
 			slog.Warn("stage 3 mermaid generation failed", "video_id", meta.ID, "error", mermaidErr)
 		} else {
-			validated, ok := summarizer.ValidateMermaid(mermaidResponse)
-			if ok {
-				mermaidBlock = validated
-			} else {
+			mermaidBlocks = summarizer.ValidateMermaidBlocks(mermaidResponse)
+			if len(mermaidBlocks) == 0 {
 				slog.Warn("stage 3 mermaid validation failed", "video_id", meta.ID)
+			} else {
+				slog.Debug("stage 3 complete", "video_id", meta.ID, "diagram_count", len(mermaidBlocks))
 			}
 		}
 	}
@@ -604,8 +610,8 @@ func (p *Pipeline) runSummarization(
 
 	// Assemble summary.md content.
 	summaryBody := summaryText
-	if mermaidBlock != "" {
-		summaryBody = insertMermaidAfterFirstHeading(summaryBody, mermaidBlock)
+	if len(mermaidBlocks) > 0 {
+		summaryBody = insertMermaidBlocksAfterFirstHeading(summaryBody, mermaidBlocks)
 	}
 
 	summaryPath := filepath.Join(videoDir, filePrefix+"summary.md")
@@ -964,11 +970,14 @@ func (p *Pipeline) runSummarizationPlaylist(
 	var keywords []string
 	if p.config.Summary.Keywords.Enabled {
 		slog.Info("stage 2: extracting keywords", "video_id", meta.ID)
-		kwPrompt := summarizer.KeywordPrompt(
+		kwPrompt, kwPromptErr := summarizer.KeywordPrompt(
 			summaryText,
 			p.config.Summary.Keywords.Language,
 			p.config.Summary.Keywords.Count,
 		)
+		if kwPromptErr != nil {
+			slog.Warn("stage 2 keyword prompt loading failed", "video_id", meta.ID, "error", kwPromptErr)
+		}
 		kwOpts := summarizer.SummarizeOptions{
 			Prompt:    kwPrompt,
 			MaxTokens: p.config.Summary.MaxTokens,
@@ -982,11 +991,14 @@ func (p *Pipeline) runSummarizationPlaylist(
 		}
 	}
 
-	// Stage 3: Mermaid diagram.
-	var mermaidBlock string
+	// Stage 3: Mermaid diagrams.
+	var mermaidBlocks []summarizer.MermaidBlock
 	if p.config.Summary.Mermaid.Enabled {
-		slog.Info("stage 3: generating mermaid diagram", "video_id", meta.ID)
-		mermaidPrompt := summarizer.MermaidPrompt(summaryText, p.config.Summary.Language)
+		slog.Info("stage 3: generating mermaid diagrams", "video_id", meta.ID)
+		mermaidPrompt, mermaidPromptErr := summarizer.MermaidPrompt(summaryText, p.config.Summary.Language)
+		if mermaidPromptErr != nil {
+			slog.Warn("stage 3 mermaid prompt loading failed", "video_id", meta.ID, "error", mermaidPromptErr)
+		}
 		mermaidOpts := summarizer.SummarizeOptions{
 			Prompt:    mermaidPrompt,
 			MaxTokens: p.config.Summary.MaxTokens,
@@ -996,11 +1008,11 @@ func (p *Pipeline) runSummarizationPlaylist(
 		if mermaidErr != nil {
 			slog.Warn("stage 3 mermaid generation failed", "video_id", meta.ID, "error", mermaidErr)
 		} else {
-			validated, ok := summarizer.ValidateMermaid(mermaidResponse)
-			if ok {
-				mermaidBlock = validated
-			} else {
+			mermaidBlocks = summarizer.ValidateMermaidBlocks(mermaidResponse)
+			if len(mermaidBlocks) == 0 {
 				slog.Warn("stage 3 mermaid validation failed", "video_id", meta.ID)
+			} else {
+				slog.Debug("stage 3 complete", "video_id", meta.ID, "diagram_count", len(mermaidBlocks))
 			}
 		}
 	}
@@ -1023,8 +1035,8 @@ func (p *Pipeline) runSummarizationPlaylist(
 	summaryFM := output.BuildSummaryFrontmatter(fmData)
 
 	summaryBody := summaryText
-	if mermaidBlock != "" {
-		summaryBody = insertMermaidAfterFirstHeading(summaryBody, mermaidBlock)
+	if len(mermaidBlocks) > 0 {
+		summaryBody = insertMermaidBlocksAfterFirstHeading(summaryBody, mermaidBlocks)
 	}
 
 	summaryPath := filepath.Join(videoDir, filePrefix+"summary.md")
@@ -1265,21 +1277,117 @@ func processedAtNow() string {
 	return time.Now().Format(time.RFC3339)
 }
 
-// insertMermaidAfterFirstHeading inserts a Mermaid code block after the first
-// "### " heading in the summary text. If no heading is found, it prepends the block.
-func insertMermaidAfterFirstHeading(summaryText, mermaidCode string) string {
-	mermaidSection := "\n\n```mermaid\n" + mermaidCode + "\n```\n"
-
+// insertMermaidBlocksAfterFirstHeading inserts Mermaid code blocks into the summary.
+// Blocks whose Title exactly matches a #### heading are inserted after that section's content.
+// Unmatched blocks fall back to being inserted after the overview (before the second ### heading).
+func insertMermaidBlocksAfterFirstHeading(summaryText string, blocks []summarizer.MermaidBlock) string {
 	lines := strings.Split(summaryText, "\n")
+
+	// Build a map of #### heading text → insertion line index.
+	// The insertion point is just before the next heading (### or ####) after the matched heading.
+	type sectionPos struct {
+		headingLine int // line index of the #### heading
+		insertLine  int // line index to insert before (next heading or EOF)
+	}
+	sections := map[string]sectionPos{}
+	var headingIndices []int
 	for i, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "### ") {
-			// Insert after this line.
-			before := strings.Join(lines[:i+1], "\n")
-			after := strings.Join(lines[i+1:], "\n")
-			return before + mermaidSection + after
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(trimmed, "#### ") {
+			headingIndices = append(headingIndices, i)
+		}
+	}
+	for idx, hi := range headingIndices {
+		trimmed := strings.TrimSpace(lines[hi])
+		if !strings.HasPrefix(trimmed, "#### ") {
+			continue
+		}
+		// Find the next heading (any level ### or ####) after this one.
+		insertAt := len(lines) // default: end of file
+		if idx+1 < len(headingIndices) {
+			insertAt = headingIndices[idx+1]
+		}
+		sections[trimmed] = sectionPos{headingLine: hi, insertLine: insertAt}
+	}
+
+	// Classify blocks into matched (with insertion line) and unmatched.
+	type insertion struct {
+		line  int
+		block summarizer.MermaidBlock
+	}
+	var matched []insertion
+	var unmatched []summarizer.MermaidBlock
+	for _, b := range blocks {
+		title := strings.TrimSpace(b.Title)
+		if pos, ok := sections[title]; ok {
+			matched = append(matched, insertion{line: pos.insertLine, block: b})
+		} else {
+			unmatched = append(unmatched, b)
 		}
 	}
 
-	// No heading found — prepend.
-	return mermaidSection + summaryText
+	// Sort matched insertions by line descending so we can insert back-to-front
+	// without shifting indices.
+	for i := 0; i < len(matched); i++ {
+		for j := i + 1; j < len(matched); j++ {
+			if matched[j].line > matched[i].line {
+				matched[i], matched[j] = matched[j], matched[i]
+			}
+		}
+	}
+
+	// Insert matched blocks (back-to-front) without title (already under the matching heading).
+	for _, ins := range matched {
+		snippet := formatMermaidSnippet(ins.block, false)
+		before := lines[:ins.line]
+		after := lines[ins.line:]
+		lines = make([]string, 0, len(before)+1+len(after))
+		lines = append(lines, before...)
+		lines = append(lines, snippet)
+		lines = append(lines, after...)
+	}
+
+	result := strings.Join(lines, "\n")
+
+	// Insert unmatched blocks after overview (before the second ### heading).
+	if len(unmatched) > 0 {
+		var sb strings.Builder
+		for _, b := range unmatched {
+			sb.WriteString(formatMermaidSnippet(b, true))
+		}
+		fallback := sb.String()
+
+		resultLines := strings.Split(result, "\n")
+		h3Count := 0
+		for i, line := range resultLines {
+			if strings.HasPrefix(strings.TrimSpace(line), "### ") {
+				h3Count++
+				if h3Count == 2 {
+					before := strings.Join(resultLines[:i], "\n")
+					after := strings.Join(resultLines[i:], "\n")
+					return before + fallback + "\n" + after
+				}
+			}
+		}
+		// Fewer than 2 ### headings — append at end.
+		return result + fallback
+	}
+
+	return result
+}
+
+// formatMermaidSnippet formats a single MermaidBlock as a markdown snippet.
+// When includeTitle is false, the title is omitted (used for matched insertions
+// where the diagram is already under the corresponding section heading).
+func formatMermaidSnippet(b summarizer.MermaidBlock, includeTitle bool) string {
+	var sb strings.Builder
+	sb.WriteString("\n")
+	if includeTitle && b.Title != "" {
+		sb.WriteString(b.Title)
+		sb.WriteString("\n")
+	}
+	sb.WriteString("```mermaid\n")
+	sb.WriteString(b.Code)
+	sb.WriteString("\n```\n")
+	return sb.String()
 }

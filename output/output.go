@@ -12,8 +12,15 @@ import (
 // reUnsafe matches characters that are not alphanumeric, CJK, or underscores.
 var reUnsafe = regexp.MustCompile(`[^\p{L}\p{N}_\s]`)
 
+// reUnsafeDisplay matches characters that are not alphanumeric, CJK,
+// underscores, spaces, or full-width punctuation.
+var reUnsafeDisplay = regexp.MustCompile(`[^\p{L}\p{N}_\s\x{3000}-\x{303F}\x{FF01}-\x{FF60}\x{FE30}-\x{FE4F}]`)
+
 // reMultiUnderscore collapses consecutive underscores.
 var reMultiUnderscore = regexp.MustCompile(`_+`)
+
+// reMultiSpace collapses consecutive whitespace characters.
+var reMultiSpace = regexp.MustCompile(`\s+`)
 
 // SanitizeTitle removes special characters (keeping alphanumeric, CJK chars,
 // underscores), replaces spaces with underscores, and limits length to maxLen.
@@ -49,6 +56,37 @@ func SanitizeTitle(title string, maxLen int) string {
 
 	// Trim trailing underscores after truncation.
 	s = strings.TrimRight(s, "_")
+
+	return s
+}
+
+// SanitizeTitleForDisplay sanitizes a title while preserving spaces and full-width
+// punctuation. Intended for copy_to filenames where readability matters.
+// Removes unsafe characters (keeping alphanumeric, CJK, underscores, spaces,
+// full-width punctuation), collapses consecutive spaces, and trims edges.
+func SanitizeTitleForDisplay(title string, maxLen int) string {
+	if maxLen <= 0 {
+		maxLen = 80
+	}
+
+	// Remove unsafe characters (keep letters, numbers, underscores, spaces, full-width punctuation).
+	s := reUnsafeDisplay.ReplaceAllString(title, "")
+
+	// Collapse consecutive whitespace to a single space.
+	s = reMultiSpace.ReplaceAllString(s, " ")
+
+	// Trim leading/trailing spaces.
+	s = strings.TrimSpace(s)
+
+	// Truncate to maxLen (rune-aware to preserve CJK characters).
+	runes := []rune(s)
+	if len(runes) > maxLen {
+		runes = runes[:maxLen]
+	}
+	s = string(runes)
+
+	// Trim trailing spaces after truncation.
+	s = strings.TrimRight(s, " ")
 
 	return s
 }
