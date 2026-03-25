@@ -716,7 +716,7 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 
 		// Fetch full metadata.
 		metaCopy := meta
-		if metaCopy.Tags == nil {
+		if metaCopy.Tags == nil || metaCopy.UploadDate == "" {
 			slog.Debug("fetching full metadata", "video_id", metaCopy.ID)
 			fullMeta, err := p.fetcher.FetchVideoMeta(videoURL(metaCopy.ID))
 			if err != nil {
