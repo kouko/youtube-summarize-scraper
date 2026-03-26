@@ -93,7 +93,11 @@ func (o *OpenAICompatSummarizer) Summarize(text string, opts SummarizeOptions) (
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("openai-compat: HTTP %d: %s", resp.StatusCode, string(respBody))
+		baseErr := fmt.Errorf("openai-compat: HTTP %d: %s", resp.StatusCode, string(respBody))
+		if resp.StatusCode == http.StatusTooManyRequests || isQuotaMessage(string(respBody)) {
+			return "", &QuotaError{Provider: "openai-compat", Err: baseErr}
+		}
+		return "", baseErr
 	}
 
 	var result openaiResponse

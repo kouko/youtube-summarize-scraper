@@ -34,7 +34,14 @@ func (f *Fetcher) FetchVideoMeta(videoURL string) (*VideoMeta, error) {
 	args := []string{"--dump-json", "--no-download", videoURL}
 	out, err := f.runYtDlp(args, false)
 	if err != nil {
-		return nil, fmt.Errorf("fetching video metadata: %w", err)
+		// Retry with cookies if available (handles private/WL playlist videos
+		// where unauthenticated access fails entirely).
+		if f.hasCookies() {
+			out, err = f.runYtDlp(args, true)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("fetching video metadata: %w", err)
+		}
 	}
 
 	var meta VideoMeta
@@ -89,6 +96,7 @@ func (f *Fetcher) FetchChannelTab(tabURL string, limit int) ([]VideoMeta, error)
 	args := []string{
 		"--flat-playlist",
 		"--dump-json",
+		"--extractor-args", "youtubetab:approximate_date",
 		"--playlist-end", fmt.Sprintf("%d", limit),
 		tabURL,
 	}
@@ -132,6 +140,7 @@ func (f *Fetcher) FetchPlaylistVideos(playlistURL string, limit int, cookieArgs 
 	args := []string{
 		"--flat-playlist",
 		"--dump-json",
+		"--extractor-args", "youtubetab:approximate_date",
 		"--playlist-end", fmt.Sprintf("%d", limit),
 	}
 	args = append(args, cookieArgs...)

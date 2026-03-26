@@ -106,6 +106,11 @@ func readChromeProfileEmail(prefsPath string) string {
 	return ""
 }
 
+// hasCookies reports whether any cookie configuration is available.
+func (f *Fetcher) hasCookies() bool {
+	return f.cookieConfig.File != "" || f.cookieConfig.Browser != ""
+}
+
 // needsCookie returns true when the video's availability requires authentication cookies.
 func (f *Fetcher) needsCookie(availability string) bool {
 	switch availability {

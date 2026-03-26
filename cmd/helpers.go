@@ -31,7 +31,7 @@ func applyOverrides(cfg *config.Config) {
 		cfg.OutputDir = config.ExpandHome(outputDir)
 	}
 	if llmOverride != "" {
-		cfg.LLM.Provider = llmOverride
+		cfg.LLM.Provider.SetPrimary(llmOverride)
 	}
 	if cookieFile != "" {
 		cfg.Cookie.File = config.ExpandHome(cookieFile)

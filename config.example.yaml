@@ -54,6 +54,14 @@ cookie:
 # LLM settings
 llm:
   provider: "ollama"                 # ollama / llamacpp / claude-api / claude-code / gemini-cli / openai-compat
+                                     # Use a list for fallback chain (first = primary, rest = fallbacks):
+                                     #   provider:
+                                     #     - "gemini-cli"
+                                     #     - "claude-code"
+                                     #     - "ollama"
+  # provider_fallback_strategy:      # Controls how the fallback chain behaves (only needed with multiple providers)
+  #   cooldown_seconds: 300          # Seconds before retrying a failed provider (default: 300 = 5 min)
+  #   failure_threshold: 1           # Quota errors before skipping a provider (default: 1)
   ollama:
     model: "llama3"
     endpoint: "http://localhost:11434"

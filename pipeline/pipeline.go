@@ -329,13 +329,20 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 // ProcessVideo is the core pipeline for a single video.
 func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.ChannelConfig) error {
 	// 1. Fetch full metadata if we only have partial data (e.g., from ytss video command).
-	if meta.Tags == nil {
+	// Preserve approximate date from flat-playlist as fallback.
+	approxUploadDate := meta.UploadDate
+	approxTimestamp := meta.Timestamp
+
+	if meta.Tags == nil || meta.UploadDate == "" {
 		slog.Debug("fetching full metadata", "video_id", meta.ID)
 		videoURL := fmt.Sprintf("https://www.youtube.com/watch?v=%s", meta.ID)
 		fullMeta, err := p.fetcher.FetchVideoMeta(videoURL)
 		if err != nil {
 			slog.Warn("failed to fetch full metadata",
 				"video_id", meta.ID, "error", err)
+			// Restore approximate date if available.
+			meta.UploadDate = approxUploadDate
+			meta.Timestamp = approxTimestamp
 			// Without channel info we cannot create proper directory — skip.
 			if meta.Channel == "" && meta.ChannelName == "" {
 				return fmt.Errorf("cannot process %s: full metadata fetch failed and no channel info available", meta.ID)
@@ -600,7 +607,7 @@ func (p *Pipeline) runSummarization(
 	// Build summary frontmatter.
 	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt, p.timezone)
 	fmData.Tags = keywords
-	fmData.LLMProvider = p.config.LLM.Provider
+	fmData.LLMProvider = p.config.LLM.Provider.Primary()
 	fmData.LLMModel = p.llmModel()
 
 	// Enrich tags for Obsidian if enabled (LLM tags + channel + auto).
@@ -719,13 +726,20 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 		)
 
 		// Fetch full metadata.
+		// Preserve approximate date from flat-playlist as fallback.
 		metaCopy := meta
+		approxUploadDate := metaCopy.UploadDate
+		approxTimestamp := metaCopy.Timestamp
+
 		if metaCopy.Tags == nil || metaCopy.UploadDate == "" {
 			slog.Debug("fetching full metadata", "video_id", metaCopy.ID)
 			fullMeta, err := p.fetcher.FetchVideoMeta(videoURL(metaCopy.ID))
 			if err != nil {
 				slog.Warn("failed to fetch full metadata, continuing with partial data",
 					"video_id", metaCopy.ID, "error", err)
+				// Restore approximate date if available.
+				metaCopy.UploadDate = approxUploadDate
+				metaCopy.Timestamp = approxTimestamp
 			} else {
 				metaCopy = *fullMeta
 			}
@@ -735,6 +749,9 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 		channelHandle := deriveChannelHandle(&metaCopy)
 
 		convertedDate := output.ConvertUploadDate(metaCopy.UploadDate, metaCopy.Timestamp, p.timezone)
+		if convertedDate == "" {
+			convertedDate = "unknown-date"
+		}
 		targetDir := filepath.Join(plDir, fmt.Sprintf("%s__%s__%s",
 			convertedDate, metaCopy.ID,
 			output.SanitizeTitle(metaCopy.Title, 0)))
@@ -1026,7 +1043,7 @@ func (p *Pipeline) runSummarizationPlaylist(
 	// Build summary frontmatter with playlist fields.
 	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt, p.timezone)
 	fmData.Tags = keywords
-	fmData.LLMProvider = p.config.LLM.Provider
+	fmData.LLMProvider = p.config.LLM.Provider.Primary()
 	fmData.LLMModel = p.llmModel()
 	fmData.Playlist = playlist
 	fmData.PlaylistID = playlistID
@@ -1191,7 +1208,7 @@ func buildCookieArgs(cookie config.CookieConfig) []string {
 
 // llmModel returns the model name for the configured LLM provider.
 func (p *Pipeline) llmModel() string {
-	switch p.config.LLM.Provider {
+	switch p.config.LLM.Provider.Primary() {
 	case "ollama":
 		return p.config.LLM.Ollama.Model
 	case "llamacpp":
@@ -1205,7 +1222,7 @@ func (p *Pipeline) llmModel() string {
 	case "openai-compat":
 		return p.config.LLM.OpenAICompat.Model
 	default:
-		return p.config.LLM.Provider
+		return p.config.LLM.Provider.Primary()
 	}
 }
 

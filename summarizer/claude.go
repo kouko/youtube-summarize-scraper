@@ -85,7 +85,11 @@ func (c *ClaudeSummarizer) Summarize(text string, opts SummarizeOptions) (string
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("claude: unexpected status %d: %s", resp.StatusCode, string(respBody))
+		baseErr := fmt.Errorf("claude: unexpected status %d: %s", resp.StatusCode, string(respBody))
+		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == 529 || isQuotaMessage(string(respBody)) {
+			return "", &QuotaError{Provider: "claude-api", Err: baseErr}
+		}
+		return "", baseErr
 	}
 
 	var result claudeResponse

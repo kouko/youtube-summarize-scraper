@@ -1,0 +1,58 @@
+package summarizer
+
+import (
+	"fmt"
+	"log/slog"
+)
+
+// providerEntry pairs a Summarizer implementation with its circuit breaker.
+type providerEntry struct {
+	name    string
+	impl    Summarizer
+	breaker *CircuitBreaker
+}
+
+// FallbackSummarizer wraps multiple Summarizer backends with circuit breakers.
+// It tries providers in priority order, skipping those with open circuits.
+// Only QuotaErrors trigger the circuit breaker; other errors try the next
+// provider without penalizing the current one.
+type FallbackSummarizer struct {
+	providers []providerEntry
+}
+
+func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+	var lastErr error
+
+	for _, p := range f.providers {
+		if !p.breaker.Allow() {
+			slog.Debug("provider circuit open, skipping", "provider", p.name)
+			continue
+		}
+
+		result, err := p.impl.Summarize(text, opts)
+		if err == nil {
+			p.breaker.RecordSuccess()
+			return result, nil
+		}
+
+		if IsQuotaError(err) {
+			p.breaker.RecordFailure()
+			slog.Warn("provider quota exceeded, trying fallback",
+				"provider", p.name, "error", err)
+			lastErr = err
+			continue
+		}
+
+		// Non-quota error: try next provider for this request,
+		// but don't open the circuit (provider itself is healthy).
+		slog.Warn("provider error (non-quota), trying fallback",
+			"provider", p.name, "error", err)
+		lastErr = err
+		continue
+	}
+
+	if lastErr != nil {
+		return "", fmt.Errorf("all providers failed: %w", lastErr)
+	}
+	return "", fmt.Errorf("no providers configured")
+}
