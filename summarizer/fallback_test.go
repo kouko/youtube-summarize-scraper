@@ -8,8 +8,9 @@ import (
 
 // mockSummarizer is a test double that returns pre-configured results.
 type mockSummarizer struct {
-	calls   int
-	results []mockResult
+	calls    int
+	results  []mockResult
+	lastOpts SummarizeOptions // captures the last opts received
 }
 
 type mockResult struct {
@@ -18,6 +19,7 @@ type mockResult struct {
 }
 
 func (m *mockSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+	m.lastOpts = opts
 	idx := m.calls
 	m.calls++
 	if idx < len(m.results) {
@@ -174,6 +176,28 @@ func TestFallback_PrimaryRecovery(t *testing.T) {
 	}
 	if pEntry.breaker.State() != stateClosed {
 		t.Error("primary circuit should be closed after recovery")
+	}
+}
+
+func TestFallback_ModelNotPassedToFallbackProvider(t *testing.T) {
+	primary := newMock(mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}})
+	fallback := newMock(mockResult{text: "ok"})
+
+	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
+
+	// Call with a model set (simulating pipeline passing primary's model).
+	_, err := f.Summarize("test", SummarizeOptions{Model: "auto", MaxTokens: 2000})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// The fallback provider should receive empty Model so it uses its own.
+	if fallback.lastOpts.Model != "" {
+		t.Errorf("fallback received Model=%q, want empty (should use its own)", fallback.lastOpts.Model)
+	}
+	// Other opts fields should be preserved.
+	if fallback.lastOpts.MaxTokens != 2000 {
+		t.Errorf("fallback MaxTokens=%d, want 2000", fallback.lastOpts.MaxTokens)
 	}
 }
 
