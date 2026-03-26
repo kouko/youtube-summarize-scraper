@@ -29,7 +29,12 @@ func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 			continue
 		}
 
-		result, err := p.impl.Summarize(text, opts)
+		// Clear Model so each provider uses its own configured model,
+		// not the primary provider's model (e.g., gemini's "auto" would
+		// fail on claude-code which expects "haiku"/"sonnet"/etc.).
+		providerOpts := opts
+		providerOpts.Model = ""
+		result, err := p.impl.Summarize(text, providerOpts)
 		if err == nil {
 			p.breaker.RecordSuccess()
 			return result, nil
