@@ -3,6 +3,10 @@
 # Output directory
 output_dir: "./ytss-output"
 
+# Timezone for upload date conversion (IANA name, e.g., "Asia/Taipei", "Asia/Tokyo")
+# If unset: auto-detect from system → fallback to UTC
+timezone: ""
+
 # Subtitle language preferences (optional, supports regex via yt-dlp)
 # If unset: detect video original language → fallback to English
 # Note: YouTube requires zh-Hant/zh-Hans, not bare "zh"
