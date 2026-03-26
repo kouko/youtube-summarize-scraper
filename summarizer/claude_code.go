@@ -44,12 +44,15 @@ func (c *ClaudeCodeSummarizer) Summarize(text string, opts SummarizeOptions) (st
 	// --print: non-interactive mode, read from stdin
 	// --output-format text: plain text output
 	// --strict-mcp-config: disable all MCP servers (no --mcp-config provided)
+	// --setting-sources "": skip all user/project settings including hooks
+	//   (prevents user hooks from blocking automated summarization)
 	// Note: --bare is not used because it disables OAuth/keychain auth.
 	args := []string{
 		"--print",
 		"--model", model,
 		"--output-format", "text",
 		"--strict-mcp-config",
+		"--setting-sources", "",
 	}
 	cmd := exec.CommandContext(ctx, binary, args...)
 
