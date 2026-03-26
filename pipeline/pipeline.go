@@ -30,6 +30,7 @@ type Pipeline struct {
 	transcriber *transcriber.Transcriber
 	summarizer  summarizer.Summarizer
 	index       *output.VideoIndex
+	timezone    *time.Location
 	ctx         context.Context
 	cancel      context.CancelFunc
 	force       bool
@@ -85,6 +86,7 @@ func NewPipeline(cfg *config.Config, force, dryRun bool) (*Pipeline, error) {
 		transcriber: trans,
 		summarizer:  sum,
 		index:       idx,
+		timezone:    config.LoadTimezone(cfg.Timezone),
 		ctx:         ctx,
 		cancel:      cancel,
 		force:       force,
@@ -312,9 +314,10 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 				channelHandle := deriveChannelHandle(&metaCopy)
 				vDir := p.index.FindVideoDir(metaCopy.ID)
 				if vDir == "" {
-					vDir = output.VideoDir(p.config.OutputDir, channelHandle, metaCopy.UploadDate, metaCopy.ID, metaCopy.Title)
+					convertedDate := output.ConvertUploadDate(metaCopy.UploadDate, metaCopy.Timestamp, p.timezone)
+					vDir = output.VideoDir(p.config.OutputDir, channelHandle, convertedDate, metaCopy.ID, metaCopy.Title)
 				}
-				fp := output.VideoFilePrefix(metaCopy.UploadDate, metaCopy.ID)
+				fp := output.VideoFilePrefix(output.ConvertUploadDate(metaCopy.UploadDate, metaCopy.Timestamp, p.timezone), metaCopy.ID)
 				p.executeCopyTo(channelCfg.CopyTo, vDir, fp, &metaCopy, channelHandle, "", "")
 			}
 		}
@@ -360,7 +363,8 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	}
 
 	// 5. Check for resume: existing dir with transcription but no summary.
-	videoDir := output.VideoDir(p.config.OutputDir, channelHandle, meta.UploadDate, meta.ID, meta.Title)
+	convertedDate := output.ConvertUploadDate(meta.UploadDate, meta.Timestamp, p.timezone)
+	videoDir := output.VideoDir(p.config.OutputDir, channelHandle, convertedDate, meta.ID, meta.Title)
 	existingDir := p.index.FindVideoDir(meta.ID)
 	if existingDir != "" {
 		videoDir = existingDir // reuse existing dir (may have different title sanitization)
@@ -372,7 +376,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	p.index.Add(meta.ID, videoDir)
 
 	// 6. Build file prefix.
-	filePrefix := output.VideoFilePrefix(meta.UploadDate, meta.ID)
+	filePrefix := output.VideoFilePrefix(convertedDate, meta.ID)
 
 	// 6.5. Resume path: if transcription exists but summary doesn't, skip to summarization.
 	if existingDir != "" && p.index.HasFile(meta.ID, "transcription.md") && !p.index.HasFile(meta.ID, "summary.md") {
@@ -469,7 +473,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 
 	// 11. Convert SRT to text and write transcription.md.
 	transcriptText := subtitle.SRTToText(srtContent)
-	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt)
+	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt, p.timezone)
 	fmData.WhisperModel = whisperModel
 
 	transcriptionFM := output.BuildTranscriptionFrontmatter(fmData)
@@ -516,7 +520,7 @@ func (p *Pipeline) runSummarization(
 		Title:               meta.Title,
 		ChannelName:         meta.ChannelName,
 		Language:            p.config.Summary.Language,
-		UploadDate:          meta.UploadDate,
+		UploadDate:          output.ConvertUploadDate(meta.UploadDate, meta.Timestamp, p.timezone),
 		Duration:            meta.DurationString,
 		Tags:                strings.Join(meta.Tags, ", "),
 		Transcript:          transcriptText,
@@ -594,7 +598,7 @@ func (p *Pipeline) runSummarization(
 	}
 
 	// Build summary frontmatter.
-	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt)
+	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt, p.timezone)
 	fmData.Tags = keywords
 	fmData.LLMProvider = p.config.LLM.Provider
 	fmData.LLMModel = p.llmModel()
@@ -730,8 +734,9 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 		// Derive channel handle and target dir from full metadata.
 		channelHandle := deriveChannelHandle(&metaCopy)
 
+		convertedDate := output.ConvertUploadDate(metaCopy.UploadDate, metaCopy.Timestamp, p.timezone)
 		targetDir := filepath.Join(plDir, fmt.Sprintf("%s__%s__%s",
-			formatDatePipeline(metaCopy.UploadDate), metaCopy.ID,
+			convertedDate, metaCopy.ID,
 			output.SanitizeTitle(metaCopy.Title, 0)))
 
 		if err := output.EnsureDir(targetDir); err != nil {
@@ -765,7 +770,7 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 			stats.Success++
 			// Post-processing: copy_to
 			if playlistCfg != nil && playlistCfg.CopyTo != nil {
-				fp := output.VideoFilePrefix(metaCopy.UploadDate, metaCopy.ID)
+				fp := output.VideoFilePrefix(convertedDate, metaCopy.ID)
 				p.executeCopyTo(playlistCfg.CopyTo, targetDir, fp, &metaCopy, channelHandle, playlistName, playlistID)
 			}
 		}
@@ -792,7 +797,8 @@ func (p *Pipeline) processVideoInPlaylist(
 	}
 
 	// Build file prefix.
-	filePrefix := output.VideoFilePrefix(meta.UploadDate, meta.ID)
+	convertedDate := output.ConvertUploadDate(meta.UploadDate, meta.Timestamp, p.timezone)
+	filePrefix := output.VideoFilePrefix(convertedDate, meta.ID)
 
 	// Resume path: if transcription exists but summary doesn't, skip to summarization.
 	if p.index.HasFile(meta.ID, "transcription.md") && !p.index.HasFile(meta.ID, "summary.md") {
@@ -891,7 +897,7 @@ func (p *Pipeline) processVideoInPlaylist(
 
 	// Convert SRT to text and write transcription.md.
 	transcriptText := subtitle.SRTToText(srtContent)
-	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt)
+	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt, p.timezone)
 	fmData.WhisperModel = whisperModel
 	fmData.Playlist = playlist
 	fmData.PlaylistID = playlistID
@@ -942,7 +948,7 @@ func (p *Pipeline) runSummarizationPlaylist(
 		Title:               meta.Title,
 		ChannelName:         meta.ChannelName,
 		Language:            p.config.Summary.Language,
-		UploadDate:          meta.UploadDate,
+		UploadDate:          output.ConvertUploadDate(meta.UploadDate, meta.Timestamp, p.timezone),
 		Duration:            meta.DurationString,
 		Tags:                strings.Join(meta.Tags, ", "),
 		Transcript:          transcriptText,
@@ -1018,7 +1024,7 @@ func (p *Pipeline) runSummarizationPlaylist(
 	}
 
 	// Build summary frontmatter with playlist fields.
-	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt)
+	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt, p.timezone)
 	fmData.Tags = keywords
 	fmData.LLMProvider = p.config.LLM.Provider
 	fmData.LLMModel = p.llmModel()
@@ -1053,7 +1059,7 @@ func (p *Pipeline) runSummarizationPlaylist(
 
 // executeCopyTo runs the copy_to post-processing step for a successfully processed video.
 func (p *Pipeline) executeCopyTo(copyTo *config.CopyToConfig, videoDir, filePrefix string, meta *fetcher.VideoMeta, channelHandle, playlist, playlistID string) {
-	uploadDate := formatDatePipeline(meta.UploadDate)
+	uploadDate := output.ConvertUploadDate(meta.UploadDate, meta.Timestamp, p.timezone)
 	if uploadDate == "" {
 		uploadDate = "unknown-date"
 	}
@@ -1138,14 +1144,6 @@ func playlistToChannelCfg(pl *config.PlaylistConfig) *config.ChannelConfig {
 	}
 }
 
-// formatDatePipeline converts YYYYMMDD to YYYY-MM-DD for directory naming.
-func formatDatePipeline(date string) string {
-	if len(date) == 8 {
-		return date[:4] + "-" + date[4:6] + "-" + date[6:8]
-	}
-	return date
-}
-
 // errSkipped is a sentinel used to signal that a video was skipped (not an error).
 var errSkipped = fmt.Errorf("skipped")
 
@@ -1218,6 +1216,7 @@ func buildFrontmatterData(
 	language string,
 	subtitleType string,
 	processedAt string,
+	loc *time.Location,
 ) output.FrontmatterData {
 	return output.FrontmatterData{
 		Title:        meta.Title,
@@ -1225,7 +1224,9 @@ func buildFrontmatterData(
 		URL:          meta.URL,
 		Channel:      "@" + channelHandle,
 		ChannelName:  meta.ChannelName,
-		UploadDate:   meta.UploadDate,
+		UploadDate:   output.ConvertUploadDate(meta.UploadDate, meta.Timestamp, loc),
+		UploadTime:   output.FormatUploadTime(meta.Timestamp, loc),
+		Timezone:     loc.String(),
 		Duration:     meta.DurationString,
 		Language:     language,
 		VideoTags:    meta.Tags,

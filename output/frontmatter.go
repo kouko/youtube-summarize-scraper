@@ -13,7 +13,9 @@ type FrontmatterData struct {
 	URL          string
 	Channel      string // @handle
 	ChannelName  string
-	UploadDate   string // YYYYMMDD from yt-dlp
+	UploadDate   string // YYYY-MM-DD (timezone-converted)
+	UploadTime   string // RFC3339 in configured timezone
+	Timezone     string // IANA timezone name used for conversion
 	Duration     string
 	Language     string
 	VideoTags    []string // YouTube native tags
@@ -33,8 +35,7 @@ type FrontmatterData struct {
 // BuildTranscriptionFrontmatter generates YAML frontmatter for a transcription
 // markdown file.
 func BuildTranscriptionFrontmatter(data FrontmatterData) string {
-	formattedDate := formatDate(data.UploadDate)
-	fmTitle := fmt.Sprintf("%s %s (transcription)", formattedDate, data.Title)
+	fmTitle := fmt.Sprintf("%s %s (transcription)", data.UploadDate, data.Title)
 
 	var b strings.Builder
 	b.WriteString("---\n")
@@ -45,7 +46,9 @@ func BuildTranscriptionFrontmatter(data FrontmatterData) string {
 	writeLine(&b, "channel_name", data.ChannelName)
 	writeLine(&b, "playlist", data.Playlist)
 	writeLine(&b, "playlist_id", data.PlaylistID)
-	writeLine(&b, "upload_date", formattedDate)
+	writeLine(&b, "upload_date", data.UploadDate)
+	writeLine(&b, "upload_time", data.UploadTime)
+	writeLine(&b, "timezone", data.Timezone)
 	writeLine(&b, "duration", data.Duration)
 	writeLine(&b, "language", data.Language)
 	writeList(&b, "video_tags", data.VideoTags)
@@ -61,8 +64,7 @@ func BuildTranscriptionFrontmatter(data FrontmatterData) string {
 // BuildSummaryFrontmatter generates YAML frontmatter for a summary markdown
 // file. It includes additional fields: tags (LLM-generated), llm_provider, llm_model.
 func BuildSummaryFrontmatter(data FrontmatterData) string {
-	formattedDate := formatDate(data.UploadDate)
-	fmTitle := fmt.Sprintf("%s %s (summary)", formattedDate, data.Title)
+	fmTitle := fmt.Sprintf("%s %s (summary)", data.UploadDate, data.Title)
 
 	var b strings.Builder
 	b.WriteString("---\n")
@@ -73,7 +75,9 @@ func BuildSummaryFrontmatter(data FrontmatterData) string {
 	writeLine(&b, "channel_name", data.ChannelName)
 	writeLine(&b, "playlist", data.Playlist)
 	writeLine(&b, "playlist_id", data.PlaylistID)
-	writeLine(&b, "upload_date", formattedDate)
+	writeLine(&b, "upload_date", data.UploadDate)
+	writeLine(&b, "upload_time", data.UploadTime)
+	writeLine(&b, "timezone", data.Timezone)
 	writeLine(&b, "duration", data.Duration)
 	writeLine(&b, "language", data.Language)
 	writeList(&b, "video_tags", data.VideoTags)

@@ -11,6 +11,7 @@ type Config struct {
 	OutputDir          string          `yaml:"output_dir"`
 	PreferredLanguages []string        `yaml:"preferred_languages"`
 	DefaultCount       int             `yaml:"default_count"`
+	Timezone           string          `yaml:"timezone"`
 	Whisper            WhisperConfig   `yaml:"whisper"`
 	Cookie             CookieConfig    `yaml:"cookie"`
 	LLM                LLMConfig       `yaml:"llm"`
@@ -294,6 +295,7 @@ func (c *Config) ReloadPartial(path string) error {
 	c.Filter = fresh.Filter
 	c.Batch = fresh.Batch
 	c.DefaultCount = fresh.DefaultCount
+	c.Timezone = fresh.Timezone
 	c.Obsidian = fresh.Obsidian
 	c.OutputDir = fresh.OutputDir
 	c.PreferredLanguages = fresh.PreferredLanguages
