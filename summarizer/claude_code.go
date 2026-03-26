@@ -43,6 +43,8 @@ func (c *ClaudeCodeSummarizer) Summarize(text string, opts SummarizeOptions) (st
 
 	// --print: non-interactive mode, read from stdin
 	// --output-format text: plain text output
+	// --tools "": disable all built-in tools for pure text generation
+	//   (prevents the model from attempting file writes instead of returning text)
 	// --strict-mcp-config: disable all MCP servers (no --mcp-config provided)
 	// --setting-sources "": skip all user/project settings including hooks
 	//   (prevents user hooks from blocking automated summarization)
@@ -51,6 +53,7 @@ func (c *ClaudeCodeSummarizer) Summarize(text string, opts SummarizeOptions) (st
 		"--print",
 		"--model", model,
 		"--output-format", "text",
+		"--tools", "",
 		"--strict-mcp-config",
 		"--setting-sources", "",
 	}
