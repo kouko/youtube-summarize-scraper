@@ -43,8 +43,11 @@ func (g *GeminiCLISummarizer) Summarize(text string, opts SummarizeOptions) (str
 
 	// Use stdin pipe for prompt content to avoid OS ARG_MAX limits.
 	// gemini reads from stdin when no -p flag is provided in pipe mode.
-	// Disable MCP servers to prevent "MCP issues detected" leaking into output.
-	args := []string{"-m", model, "--allowed-mcp-server-names", "__none__"}
+	// -o text: plain text output format
+	// --approval-mode plan: read-only mode, prevents tool write operations
+	//   (gemini-cli has no --tools "" equivalent to disable tools entirely)
+	// --allowed-mcp-server-names __none__: disable MCP servers
+	args := []string{"-m", model, "-o", "text", "--approval-mode", "plan", "--allowed-mcp-server-names", "__none__"}
 	cmd := exec.CommandContext(ctx, binary, args...)
 
 	var stdout, stderr bytes.Buffer
