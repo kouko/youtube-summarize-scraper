@@ -14,6 +14,7 @@ Strict rules:
 - Use arrow labels to explain "why" or "how" nodes connect: A -->|causes| B. Examples: causation (leads to, causes), conditions (if success, if failure), method (via API), feedback (corrects). Keep labels to 2-6 words
 - 5-12 nodes per diagram
 - Choose topology based on content logic (branching, convergence, parallel paths, loops, etc.) — avoid making every diagram a simple linear chain
+- If the content is a linear narrative with no natural branching, merge related steps into a single node (list with <br/>), increase per-node information density, and keep nodes to 3-6 to avoid long straight lines
 - Wrap in ```mermaid and ```
 - Output only diagram headings and Mermaid code blocks, no other explanation text
 - Add style declarations at the end of each code block to color-code nodes by type
@@ -23,7 +24,7 @@ Syntax safety rules:
 - Never use "number. space" pattern in node text (e.g. 1. Step), use "1.Step" or "Step 1:" instead
 - No emoji in node text
 - Avoid half-width quotes or parentheses in node text
-- Keep title under 20 characters, detail under 30 characters per node
+- Keep title under 40 characters, detail under 150 characters per node (use <br/> to list when merging steps)
 
 Color guide (choose by semantic role):
 - Green fill:#d3f9d8,stroke:#2f9e44 — opening, input, start
