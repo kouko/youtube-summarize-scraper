@@ -112,6 +112,31 @@ func TestVideoFilePrefix_ShortDate(t *testing.T) {
 	}
 }
 
+func TestVideoDir_EmptyDate(t *testing.T) {
+	got := VideoDir("/out", "ch", "", "vid1", "Title")
+	want := filepath.Join("/out", "@ch", "unknown-date__vid1__Title")
+	if got != want {
+		t.Errorf("VideoDir empty date: got %q, want %q", got, want)
+	}
+}
+
+func TestVideoFilePrefix_EmptyDate(t *testing.T) {
+	got := VideoFilePrefix("", "vid1")
+	want := "unknown-date__vid1__"
+	if got != want {
+		t.Errorf("VideoFilePrefix empty date: got %q, want %q", got, want)
+	}
+}
+
+func TestFallbackDate(t *testing.T) {
+	if got := fallbackDate(""); got != "unknown-date" {
+		t.Errorf("fallbackDate empty: got %q, want %q", got, "unknown-date")
+	}
+	if got := fallbackDate("2024-03-15"); got != "2024-03-15" {
+		t.Errorf("fallbackDate non-empty: got %q, want %q", got, "2024-03-15")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // IsProcessed
 // ---------------------------------------------------------------------------

@@ -100,12 +100,22 @@ func formatDate(date string) string {
 	return date
 }
 
+// fallbackDate returns "unknown-date" if the date string is empty,
+// otherwise returns it unchanged. This prevents directory names from
+// starting with "__" when upload dates are unavailable.
+func fallbackDate(date string) string {
+	if date == "" {
+		return "unknown-date"
+	}
+	return date
+}
+
 // VideoDir returns the output directory path for a single video:
 //
 //	outputDir/@channelHandle/YYYY-MM-DD__videoID__sanitizedTitle
 func VideoDir(outputDir, channelHandle, uploadDate, videoID, title string) string {
 	sanitized := SanitizeTitle(title, 0)
-	formattedDate := formatDate(uploadDate)
+	formattedDate := fallbackDate(formatDate(uploadDate))
 	dirName := fmt.Sprintf("%s__%s__%s", formattedDate, videoID, sanitized)
 	return filepath.Join(outputDir, "@"+channelHandle, dirName)
 }
@@ -114,7 +124,7 @@ func VideoDir(outputDir, channelHandle, uploadDate, videoID, title string) strin
 //
 //	YYYY-MM-DD__videoID__
 func VideoFilePrefix(uploadDate, videoID string) string {
-	return fmt.Sprintf("%s__%s__", formatDate(uploadDate), videoID)
+	return fmt.Sprintf("%s__%s__", fallbackDate(formatDate(uploadDate)), videoID)
 }
 
 // IsProcessed checks whether a video is fully processed (has summary.md)
