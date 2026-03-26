@@ -11,7 +11,7 @@ Strict rules:
 - Node text format: Title<br/>━━━━━━<br/>Detail description, use <br/>━━━━━━<br/> for line break
 - Node format: UPPERCASE["Title<br/>━━━━━━<br/>Detail"], e.g. A["Introduction<br/>━━━━━━<br/>Explain the topic"]
 - Connection types: A --> B (main flow), A -.-> B (supplementary/optional), A ==> B (emphasis)
-- Use arrow labels to explain "why" or "how" nodes connect: A -->|causes| B. Examples: causation (leads to, causes), conditions (if success, if failure), method (via API), feedback (corrects). Keep labels to 2-6 words
+- EVERY arrow MUST have a label explaining "why" or "how" nodes connect: A -->|causes| B. No bare arrows without labels. Examples: causation (leads to, causes), conditions (if success, if failure), method (via API), feedback (corrects). Keep labels to 2-6 words
 - 5-12 nodes per diagram
 - Choose topology based on content logic (branching, convergence, parallel paths, loops, etc.) — avoid making every diagram a simple linear chain
 - If the content is a linear narrative with no natural branching, merge related steps into a single node (list with <br/>), increase per-node information density, and keep nodes to 3-6 to avoid long straight lines
@@ -39,14 +39,14 @@ Example output:
 #### Overall Narrative Flow
 ```mermaid
 graph LR
-A["Topic Introduction<br/>━━━━━━<br/>Background and motivation"] --> B["Root Cause<br/>━━━━━━<br/>Three key factors"]
-B --> C["Factor 1<br/>━━━━━━<br/>Supply chain disruption"]
-B --> D["Factor 2<br/>━━━━━━<br/>Cost increase"]
-B --> E["Factor 3<br/>━━━━━━<br/>Demand decline"]
-C --> F["Impact Assessment<br/>━━━━━━<br/>Market implications"]
-D --> F
-E --> F
-F ==> G["Conclusion<br/>━━━━━━<br/>Outlook and recommendations"]
+A["Topic Introduction<br/>━━━━━━<br/>Background and motivation"] -->|identifies| B["Root Cause<br/>━━━━━━<br/>Three key factors"]
+B -->|factor 1| C["Supply Chain<br/>━━━━━━<br/>Supply chain disruption"]
+B -->|factor 2| D["Cost Pressure<br/>━━━━━━<br/>Cost increase"]
+B -->|factor 3| E["Demand Shift<br/>━━━━━━<br/>Demand decline"]
+C -->|amplifies| F["Impact Assessment<br/>━━━━━━<br/>Market implications"]
+D -->|compounds| F
+E -->|accelerates| F
+F ==>|concludes| G["Conclusion<br/>━━━━━━<br/>Outlook and recommendations"]
 style A fill:#d3f9d8,stroke:#2f9e44,stroke-width:2px
 style B fill:#e5dbff,stroke:#5f3dc4,stroke-width:2px
 style C fill:#ffe8cc,stroke:#d9480f,stroke-width:2px
@@ -59,13 +59,13 @@ style G fill:#c5f6fa,stroke:#0c8599,stroke-width:2px
 #### Solution Comparison and Decision
 ```mermaid
 graph LR
-H["Current Problem<br/>━━━━━━<br/>Low efficiency"] --> I["Option A<br/>━━━━━━<br/>Automate workflow"]
-H --> J["Option B<br/>━━━━━━<br/>Outsource processing"]
-I --> K["Evaluation<br/>━━━━━━<br/>Cost-benefit analysis"]
-J --> K
-K ==> L["Final Decision<br/>━━━━━━<br/>Adopt Option A"]
+H["Current Problem<br/>━━━━━━<br/>Low efficiency"] -->|proposes| I["Option A<br/>━━━━━━<br/>Automate workflow"]
+H -->|alternative| J["Option B<br/>━━━━━━<br/>Outsource processing"]
+I -->|evaluated by| K["Evaluation<br/>━━━━━━<br/>Cost-benefit analysis"]
+J -->|compared in| K
+K ==>|selects| L["Final Decision<br/>━━━━━━<br/>Adopt Option A"]
 I -.->|risk| M["Adoption Risk<br/>━━━━━━<br/>Transition challenges"]
-M -.-> L
+M -.->|mitigated in| L
 style H fill:#ffe3e3,stroke:#c92a2a,stroke-width:2px
 style I fill:#ffe8cc,stroke:#d9480f,stroke-width:2px
 style J fill:#ffe8cc,stroke:#d9480f,stroke-width:2px
