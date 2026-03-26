@@ -216,8 +216,8 @@ channels:
 	}
 
 	// LLM and whisper should NOT be updated.
-	if cfg.LLM.Provider != "claude-api" {
-		t.Errorf("LLM.Provider: got %q, want 'claude-api' (preserved)", cfg.LLM.Provider)
+	if cfg.LLM.Provider.Primary() != "claude-api" {
+		t.Errorf("LLM.Provider: got %q, want 'claude-api' (preserved)", cfg.LLM.Provider.Primary())
 	}
 	if cfg.Whisper.DefaultModel != "large-v3" {
 		t.Errorf("Whisper.DefaultModel: got %q, want 'large-v3' (preserved)", cfg.Whisper.DefaultModel)
@@ -311,6 +311,235 @@ channels:
 
 	if cfg.Timezone != "Asia/Taipei" {
 		t.Errorf("Timezone after reload: got %q, want 'Asia/Taipei'", cfg.Timezone)
+	}
+}
+
+func TestProviderList_SingleString(t *testing.T) {
+	yamlContent := `
+llm:
+  provider: "gemini-cli"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yamlContent); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.LLM.Provider.Primary() != "gemini-cli" {
+		t.Errorf("Primary: got %q, want %q", cfg.LLM.Provider.Primary(), "gemini-cli")
+	}
+	if len(cfg.LLM.Provider.Fallbacks()) != 0 {
+		t.Errorf("Fallbacks: got %v, want empty", cfg.LLM.Provider.Fallbacks())
+	}
+}
+
+func TestProviderList_MultipleProviders(t *testing.T) {
+	yamlContent := `
+llm:
+  provider:
+    - "gemini-cli"
+    - "claude-code"
+    - "ollama"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yamlContent); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.LLM.Provider.Primary() != "gemini-cli" {
+		t.Errorf("Primary: got %q, want %q", cfg.LLM.Provider.Primary(), "gemini-cli")
+	}
+	fallbacks := cfg.LLM.Provider.Fallbacks()
+	if len(fallbacks) != 2 {
+		t.Fatalf("Fallbacks: got %d items, want 2", len(fallbacks))
+	}
+	if fallbacks[0] != "claude-code" || fallbacks[1] != "ollama" {
+		t.Errorf("Fallbacks: got %v, want [claude-code ollama]", fallbacks)
+	}
+}
+
+func TestProviderList_FallbackStrategy(t *testing.T) {
+	yamlContent := `
+llm:
+  provider:
+    - "gemini-cli"
+    - "claude-code"
+  provider_fallback_strategy:
+    cooldown_seconds: 600
+    failure_threshold: 3
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yamlContent); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.LLM.ProviderFallbackStrategy.CooldownSeconds != 600 {
+		t.Errorf("CooldownSeconds: got %d, want 600", cfg.LLM.ProviderFallbackStrategy.CooldownSeconds)
+	}
+	if cfg.LLM.ProviderFallbackStrategy.FailureThreshold != 3 {
+		t.Errorf("FailureThreshold: got %d, want 3", cfg.LLM.ProviderFallbackStrategy.FailureThreshold)
+	}
+}
+
+func TestProviderList_SetPrimary(t *testing.T) {
+	p := ProviderList{"gemini-cli", "claude-code", "ollama"}
+	p.SetPrimary("claude-code")
+
+	if p.Primary() != "claude-code" {
+		t.Errorf("Primary: got %q, want %q", p.Primary(), "claude-code")
+	}
+	// claude-code should not appear in fallbacks (deduplicated).
+	fallbacks := p.Fallbacks()
+	for _, fb := range fallbacks {
+		if fb == "claude-code" {
+			t.Error("SetPrimary should remove duplicate from fallbacks")
+		}
+	}
+}
+
+func TestProviderList_Default(t *testing.T) {
+	cfg := DefaultConfig()
+	if cfg.LLM.Provider.Primary() != "ollama" {
+		t.Errorf("Default primary: got %q, want %q", cfg.LLM.Provider.Primary(), "ollama")
+	}
+	if cfg.LLM.ProviderFallbackStrategy.CooldownSeconds != 300 {
+		t.Errorf("Default cooldown: got %d, want 300", cfg.LLM.ProviderFallbackStrategy.CooldownSeconds)
+	}
+}
+
+func TestProviderList_String(t *testing.T) {
+	p := ProviderList{"gemini-cli", "claude-code"}
+	if got := p.String(); got != "gemini-cli" {
+		t.Errorf("String: got %q, want %q", got, "gemini-cli")
+	}
+
+	empty := ProviderList{}
+	if got := empty.String(); got != "" {
+		t.Errorf("String (empty): got %q, want empty", got)
+	}
+}
+
+func TestProviderList_Primary_Empty(t *testing.T) {
+	p := ProviderList{}
+	if got := p.Primary(); got != "" {
+		t.Errorf("Primary (empty): got %q, want empty", got)
+	}
+}
+
+func TestProviderList_Equal(t *testing.T) {
+	a := ProviderList{"gemini-cli", "claude-code"}
+	b := ProviderList{"gemini-cli", "claude-code"}
+	c := ProviderList{"gemini-cli"}
+	d := ProviderList{"ollama", "claude-code"}
+
+	if !a.Equal(b) {
+		t.Error("identical lists should be equal")
+	}
+	if a.Equal(c) {
+		t.Error("different length lists should not be equal")
+	}
+	if a.Equal(d) {
+		t.Error("different content lists should not be equal")
+	}
+}
+
+func TestProviderList_Contains(t *testing.T) {
+	p := ProviderList{"gemini-cli", "Claude-Code"}
+	if !p.Contains("gemini-cli") {
+		t.Error("should contain gemini-cli")
+	}
+	if !p.Contains("claude-code") {
+		t.Error("should contain claude-code (case-insensitive)")
+	}
+	if p.Contains("ollama") {
+		t.Error("should not contain ollama")
+	}
+}
+
+func TestProviderList_MarshalYAML_Single(t *testing.T) {
+	p := ProviderList{"ollama"}
+	v, err := p.MarshalYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, ok := v.(string)
+	if !ok {
+		t.Fatalf("expected string, got %T", v)
+	}
+	if s != "ollama" {
+		t.Errorf("got %q, want %q", s, "ollama")
+	}
+}
+
+func TestProviderList_MarshalYAML_Multiple(t *testing.T) {
+	p := ProviderList{"gemini-cli", "claude-code"}
+	v, err := p.MarshalYAML()
+	if err != nil {
+		t.Fatal(err)
+	}
+	list, ok := v.([]string)
+	if !ok {
+		t.Fatalf("expected []string, got %T", v)
+	}
+	if len(list) != 2 || list[0] != "gemini-cli" || list[1] != "claude-code" {
+		t.Errorf("got %v, want [gemini-cli claude-code]", list)
+	}
+}
+
+func TestProviderList_SetPrimary_Empty(t *testing.T) {
+	p := ProviderList{}
+	p.SetPrimary("ollama")
+	if p.Primary() != "ollama" {
+		t.Errorf("Primary: got %q, want %q", p.Primary(), "ollama")
+	}
+	if len(p) != 1 {
+		t.Errorf("length: got %d, want 1", len(p))
+	}
+}
+
+func TestProviderList_SetPrimary_NoDuplicate(t *testing.T) {
+	p := ProviderList{"gemini-cli", "ollama"}
+	p.SetPrimary("ollama")
+	if p.Primary() != "ollama" {
+		t.Errorf("Primary: got %q, want %q", p.Primary(), "ollama")
+	}
+	// "ollama" should appear only once (as primary), "gemini-cli" stays as fallback.
+	if len(p) != 2 {
+		t.Errorf("length: got %d, want 2", len(p))
+	}
+	if p[1] != "gemini-cli" {
+		t.Errorf("fallback[0]: got %q, want %q", p[1], "gemini-cli")
+	}
+}
+
+func TestProviderList_UnmarshalYAML_InvalidType(t *testing.T) {
+	yamlContent := `
+llm:
+  provider:
+    key: value
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yamlContent); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := Load(path)
+	if err == nil {
+		t.Error("expected error for invalid provider YAML type")
 	}
 }
 

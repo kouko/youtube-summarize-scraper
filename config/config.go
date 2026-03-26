@@ -3,9 +3,110 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
+
+// ProviderList holds one or more LLM provider names.
+// The first entry is the primary provider; subsequent entries are fallbacks
+// tried in order when the primary is unavailable (e.g., quota exhausted).
+//
+// YAML accepts both a scalar string and a list:
+//
+//	provider: "gemini-cli"          # single provider
+//	provider:                       # provider chain
+//	  - "gemini-cli"
+//	  - "claude-code"
+type ProviderList []string
+
+func (p *ProviderList) UnmarshalYAML(value *yaml.Node) error {
+	if value.Kind == yaml.ScalarNode {
+		*p = ProviderList{value.Value}
+		return nil
+	}
+	var list []string
+	if err := value.Decode(&list); err != nil {
+		return err
+	}
+	*p = list
+	return nil
+}
+
+// Primary returns the first (highest priority) provider name.
+func (p ProviderList) Primary() string {
+	if len(p) == 0 {
+		return ""
+	}
+	return p[0]
+}
+
+// Fallbacks returns all providers after the primary.
+func (p ProviderList) Fallbacks() []string {
+	if len(p) <= 1 {
+		return nil
+	}
+	return p[1:]
+}
+
+// String returns the primary provider name for display/frontmatter.
+func (p ProviderList) String() string {
+	return p.Primary()
+}
+
+// FallbackStrategyConfig controls how the provider fallback chain behaves.
+type FallbackStrategyConfig struct {
+	CooldownSeconds  int `yaml:"cooldown_seconds"`  // Seconds before retrying a failed provider (default: 300)
+	FailureThreshold int `yaml:"failure_threshold"`  // Quota errors before skipping a provider (default: 1)
+}
+
+// SetPrimary replaces the primary provider while keeping fallbacks.
+func (p *ProviderList) SetPrimary(name string) {
+	if len(*p) == 0 {
+		*p = ProviderList{name}
+		return
+	}
+	// Rebuild list: new primary + all others (deduplicating name).
+	result := ProviderList{name}
+	for _, existing := range *p {
+		if existing != name {
+			result = append(result, existing)
+		}
+	}
+	*p = result
+}
+
+// Equal compares two ProviderList values for testing.
+func (p ProviderList) Equal(other ProviderList) bool {
+	if len(p) != len(other) {
+		return false
+	}
+	for i := range p {
+		if p[i] != other[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// MarshalYAML serializes ProviderList back to YAML.
+// A single-element list is written as a scalar string for backward compatibility.
+func (p ProviderList) MarshalYAML() (interface{}, error) {
+	if len(p) == 1 {
+		return p[0], nil
+	}
+	return []string(p), nil
+}
+
+// Contains reports whether the list includes the named provider.
+func (p ProviderList) Contains(name string) bool {
+	for _, v := range p {
+		if strings.EqualFold(v, name) {
+			return true
+		}
+	}
+	return false
+}
 
 type Config struct {
 	OutputDir          string          `yaml:"output_dir"`
@@ -47,13 +148,14 @@ type CookieConfig struct {
 }
 
 type LLMConfig struct {
-	Provider     string              `yaml:"provider"`
-	Ollama       OllamaConfig        `yaml:"ollama"`
-	LlamaCpp     LlamaCppConfig      `yaml:"llamacpp"`
-	ClaudeAPI    ClaudeAPIConfig     `yaml:"claude-api"`
-	ClaudeCode   ClaudeCodeConfig    `yaml:"claude-code"`
-	GeminiCLI    GeminiCLIConfig     `yaml:"gemini-cli"`
-	OpenAICompat OpenAICompatConfig  `yaml:"openai-compat"`
+	Provider                 ProviderList           `yaml:"provider"`
+	ProviderFallbackStrategy FallbackStrategyConfig `yaml:"provider_fallback_strategy"`
+	Ollama                   OllamaConfig           `yaml:"ollama"`
+	LlamaCpp                 LlamaCppConfig         `yaml:"llamacpp"`
+	ClaudeAPI                ClaudeAPIConfig        `yaml:"claude-api"`
+	ClaudeCode               ClaudeCodeConfig       `yaml:"claude-code"`
+	GeminiCLI                GeminiCLIConfig        `yaml:"gemini-cli"`
+	OpenAICompat             OpenAICompatConfig     `yaml:"openai-compat"`
 }
 
 type OllamaConfig struct {
@@ -191,7 +293,11 @@ func DefaultConfig() *Config {
 			},
 		},
 		LLM: LLMConfig{
-			Provider: "ollama",
+			Provider: ProviderList{"ollama"},
+			ProviderFallbackStrategy: FallbackStrategyConfig{
+				CooldownSeconds:  300,
+				FailureThreshold: 1,
+			},
 			Ollama: OllamaConfig{
 				Model:    "llama3",
 				Endpoint: "http://localhost:11434",

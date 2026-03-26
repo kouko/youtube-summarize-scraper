@@ -64,7 +64,11 @@ func (c *ClaudeCodeSummarizer) Summarize(text string, opts SummarizeOptions) (st
 		if errMsg == "" {
 			errMsg = stdout.String()
 		}
-		return "", fmt.Errorf("claude-code: execution failed: %w\noutput: %s", err, errMsg)
+		baseErr := fmt.Errorf("claude-code: execution failed: %w\noutput: %s", err, errMsg)
+		if isQuotaMessage(errMsg) {
+			return "", &QuotaError{Provider: "claude-code", Err: baseErr}
+		}
+		return "", baseErr
 	}
 
 	return StripThinkingTags(strings.TrimSpace(stdout.String())), nil

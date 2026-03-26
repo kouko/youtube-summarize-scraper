@@ -90,7 +90,11 @@ func (o *OllamaSummarizer) Summarize(text string, opts SummarizeOptions) (string
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ollama: unexpected status %d: %s", resp.StatusCode, string(respBody))
+		baseErr := fmt.Errorf("ollama: unexpected status %d: %s", resp.StatusCode, string(respBody))
+		if resp.StatusCode == http.StatusTooManyRequests || isQuotaMessage(string(respBody)) {
+			return "", &QuotaError{Provider: "ollama", Err: baseErr}
+		}
+		return "", baseErr
 	}
 
 	var result ollamaResponse

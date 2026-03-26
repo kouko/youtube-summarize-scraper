@@ -2,6 +2,7 @@ package summarizer
 
 import (
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -21,9 +22,61 @@ type Summarizer interface {
 	Summarize(text string, opts SummarizeOptions) (string, error)
 }
 
-// NewSummarizer creates a Summarizer backend based on the provider in cfg.
+// NewSummarizer creates a Summarizer backend based on the provider config.
+// When fallback providers are configured, it returns a FallbackSummarizer
+// that tries providers in order with circuit breaker auto-recovery.
 func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
-	switch cfg.Provider {
+	primary, err := newSingleProvider(cfg.Provider.Primary(), cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	fallbacks := cfg.Provider.Fallbacks()
+	if len(fallbacks) == 0 {
+		return primary, nil
+	}
+
+	// Build fallback chain with circuit breakers.
+	strategy := cfg.ProviderFallbackStrategy
+	cooldown := time.Duration(strategy.CooldownSeconds) * time.Second
+	if cooldown == 0 {
+		cooldown = 5 * time.Minute
+	}
+	threshold := strategy.FailureThreshold
+	if threshold <= 0 {
+		threshold = 1
+	}
+
+	entries := []providerEntry{{
+		name:    cfg.Provider.Primary(),
+		impl:    primary,
+		breaker: newCircuitBreaker(cfg.Provider.Primary(), threshold, cooldown),
+	}}
+
+	for _, name := range fallbacks {
+		fb, err := newSingleProvider(name, cfg)
+		if err != nil {
+			return nil, fmt.Errorf("fallback provider %q: %w", name, err)
+		}
+		entries = append(entries, providerEntry{
+			name:    name,
+			impl:    fb,
+			breaker: newCircuitBreaker(name, threshold, cooldown),
+		})
+	}
+
+	slog.Info("fallback summarizer initialized",
+		"primary", cfg.Provider.Primary(),
+		"fallbacks", fallbacks,
+		"cooldown", cooldown,
+	)
+
+	return &FallbackSummarizer{providers: entries}, nil
+}
+
+// newSingleProvider creates a single Summarizer for the named provider.
+func newSingleProvider(name string, cfg config.LLMConfig) (Summarizer, error) {
+	switch name {
 	case "ollama":
 		timeout := time.Duration(cfg.Ollama.Timeout) * time.Second
 		if timeout == 0 {
@@ -76,7 +129,7 @@ func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
 			timeout:  timeout,
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown LLM provider: %q", cfg.Provider)
+		return nil, fmt.Errorf("unknown LLM provider: %q", name)
 	}
 }
 
