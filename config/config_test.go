@@ -237,6 +237,83 @@ func TestReloadPartial_FileNotFound(t *testing.T) {
 	}
 }
 
+func TestLoad_Timezone(t *testing.T) {
+	yaml := `
+timezone: "Asia/Tokyo"
+output_dir: "./out"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Timezone != "Asia/Tokyo" {
+		t.Errorf("Timezone: got %q, want 'Asia/Tokyo'", cfg.Timezone)
+	}
+}
+
+func TestLoad_TimezoneEmpty(t *testing.T) {
+	yaml := `
+output_dir: "./out"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Timezone != "" {
+		t.Errorf("Timezone: got %q, want empty string", cfg.Timezone)
+	}
+}
+
+func TestReloadPartial_UpdatesTimezone(t *testing.T) {
+	initial := `
+timezone: "UTC"
+channels:
+  - url: "https://www.youtube.com/@ch1"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, initial); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Timezone != "UTC" {
+		t.Fatalf("initial Timezone: got %q, want 'UTC'", cfg.Timezone)
+	}
+
+	updated := `
+timezone: "Asia/Taipei"
+channels:
+  - url: "https://www.youtube.com/@ch1"
+`
+	if err := writeTestFile(path, updated); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := cfg.ReloadPartial(path); err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.Timezone != "Asia/Taipei" {
+		t.Errorf("Timezone after reload: got %q, want 'Asia/Taipei'", cfg.Timezone)
+	}
+}
+
 func writeTestFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
