@@ -64,9 +64,10 @@ func TestNewSingleProvider_DefaultTimeouts(t *testing.T) {
 		Ollama:       config.OllamaConfig{Model: "m", Endpoint: "http://x"},
 		ClaudeCode:   config.ClaudeCodeConfig{Model: "m"},
 		GeminiCLI:    config.GeminiCLIConfig{Model: "m"},
+		QwenCode:     config.QwenCodeConfig{Model: "m"},
 		OpenAICompat: config.OpenAICompatConfig{Endpoint: "http://x", Model: "m"},
 	}
-	for _, name := range []string{"ollama", "claude-code", "gemini-cli", "openai-compat"} {
+	for _, name := range []string{"ollama", "claude-code", "gemini-cli", "qwen-code", "openai-compat"} {
 		s, err := newSingleProvider(name, cfg)
 		if err != nil {
 			t.Fatalf("newSingleProvider(%q): %v", name, err)

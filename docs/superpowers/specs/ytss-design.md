@@ -23,7 +23,7 @@ ytss channel <URL or @handle> -n 5  # Summarize latest N videos from a channel
 ```
 --config, -c       Config file path (default: ./config.yaml)
 --output, -o       Output directory (default: ./ytss-output, overridable in config)
---llm              Override LLM backend (ollama / llamacpp / claude-api / claude-code / gemini-cli / openai-compat)
+--llm              Override LLM backend (ollama / llamacpp / claude-api / claude-code / gemini-cli / qwen-code / openai-compat)
 --cookie-file      Path to cookie.txt (Netscape format)
 --cookie-browser   Auto-extract cookie from browser (chrome / firefox / safari / edge / brave)
 --force            Force re-process even if output already exists (skip cache)
@@ -103,6 +103,10 @@ llm:
   gemini-cli:
     model: "auto"                    # Model alias (auto/pro/flash/flash-lite), reference to https://geminicli.com/docs/cli/cli-reference/#model-aliases for details
     path: ""                         # Path to gemini binary (default: search in PATH)
+    timeout: 900                     # Seconds per LLM request (default: 900 = 15min)
+  qwen-code:                         # Qwen Code CLI (gemini-cli fork, free 1000 req/day)
+    model: "coder-model"             # "coder-model" (free tier, server-routed) or "qwen3-coder-plus" / "qwen3.5-plus" (paid)
+    path: ""                         # Path to qwen binary (default: search in PATH)
     timeout: 900                     # Seconds per LLM request (default: 900 = 15min)
   openai-compat:                     # Any OpenAI-compatible server (oMLX, LM Studio, vLLM, etc.)
     endpoint: "http://localhost:8000/v1"
@@ -860,7 +864,7 @@ ytss/
 
 ### Key Design Decisions
 
-- **`summarizer` uses an interface** — all LLM backends implement `Summarize(text string, opts SummarizeOptions) (string, error)` where `SummarizeOptions` includes prompt template, max_tokens, and model name. The pipeline is responsible for assembling the final prompt (template + transcription) and orchestrating the three-stage LLM call sequence. CLI-based backends (gemini-cli) receive input via stdin pipe to avoid OS argument length limits
+- **`summarizer` uses an interface** — all LLM backends implement `Summarize(text string, opts SummarizeOptions) (string, error)` where `SummarizeOptions` includes prompt template, max_tokens, and model name. The pipeline is responsible for assembling the final prompt (template + transcription) and orchestrating the three-stage LLM call sequence. CLI-based backends (gemini-cli, qwen-code) receive input via stdin pipe to avoid OS argument length limits
 - **`embedded/` handles binary extraction** — checks `~/.ytss/bin/` at startup, extracts from embed if missing or version mismatch. When invoking `yt-dlp`, always pass `--ffmpeg-location <cache_dir>` to use the bundled ffmpeg
 - **`pipeline/` is the single orchestration point** — all three commands call into pipeline, differing only in input source
 
