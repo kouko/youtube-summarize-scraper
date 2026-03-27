@@ -20,7 +20,7 @@ type FallbackSummarizer struct {
 	providers []providerEntry
 }
 
-func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	var lastErr error
 
 	for _, p := range f.providers {
@@ -37,7 +37,7 @@ func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 		result, err := p.impl.Summarize(text, providerOpts)
 		if err == nil {
 			p.breaker.RecordSuccess()
-			return result, nil
+			return result, nil // result already contains actual provider/model
 		}
 
 		if IsQuotaError(err) {
@@ -57,7 +57,7 @@ func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 	}
 
 	if lastErr != nil {
-		return "", fmt.Errorf("all providers failed: %w", lastErr)
+		return SummarizeResult{}, fmt.Errorf("all providers failed: %w", lastErr)
 	}
-	return "", fmt.Errorf("no providers configured")
+	return SummarizeResult{}, fmt.Errorf("no providers configured")
 }

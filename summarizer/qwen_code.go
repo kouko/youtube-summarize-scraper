@@ -17,7 +17,7 @@ type QwenCodeSummarizer struct {
 	timeout    time.Duration
 }
 
-func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	model := q.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -30,7 +30,7 @@ func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 		var err error
 		binary, err = exec.LookPath("qwen")
 		if err != nil {
-			return "", fmt.Errorf("qwen-code: binary not found in PATH: %w", err)
+			return SummarizeResult{}, fmt.Errorf("qwen-code: binary not found in PATH: %w", err)
 		}
 	}
 
@@ -57,10 +57,14 @@ func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 		combined := stderr.String() + "\n" + stdout.String()
 		baseErr := fmt.Errorf("qwen-code: execution failed: %w\nstderr: %s", err, stderr.String())
 		if isQuotaMessage(combined) {
-			return "", &QuotaError{Provider: "qwen-code", Err: baseErr}
+			return SummarizeResult{}, &QuotaError{Provider: "qwen-code", Err: baseErr}
 		}
-		return "", baseErr
+		return SummarizeResult{}, baseErr
 	}
 
-	return StripThinkingTags(strings.TrimSpace(stdout.String())), nil
+	return SummarizeResult{
+		Text:     StripThinkingTags(strings.TrimSpace(stdout.String())),
+		Provider: "qwen-code",
+		Model:    model,
+	}, nil
 }

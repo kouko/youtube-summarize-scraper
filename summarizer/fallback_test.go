@@ -8,6 +8,7 @@ import (
 
 // mockSummarizer is a test double that returns pre-configured results.
 type mockSummarizer struct {
+	name     string // provider name for SummarizeResult
 	calls    int
 	results  []mockResult
 	lastOpts SummarizeOptions // captures the last opts received
@@ -18,18 +19,25 @@ type mockResult struct {
 	err  error
 }
 
-func (m *mockSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (m *mockSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	m.lastOpts = opts
 	idx := m.calls
 	m.calls++
 	if idx < len(m.results) {
-		return m.results[idx].text, m.results[idx].err
+		if m.results[idx].err != nil {
+			return SummarizeResult{}, m.results[idx].err
+		}
+		return SummarizeResult{
+			Text:     m.results[idx].text,
+			Provider: m.name,
+			Model:    "mock-model",
+		}, nil
 	}
-	return "", fmt.Errorf("no more mock results")
+	return SummarizeResult{}, fmt.Errorf("no more mock results")
 }
 
-func newMock(results ...mockResult) *mockSummarizer {
-	return &mockSummarizer{results: results}
+func newMock(name string, results ...mockResult) *mockSummarizer {
+	return &mockSummarizer{name: name, results: results}
 }
 
 func newFallback(entries ...providerEntry) *FallbackSummarizer {
@@ -45,8 +53,8 @@ func makeEntry(name string, mock *mockSummarizer) providerEntry {
 }
 
 func TestFallback_PrimarySucceeds(t *testing.T) {
-	primary := newMock(mockResult{text: "primary result"})
-	fallback := newMock(mockResult{text: "fallback result"})
+	primary := newMock("primary", mockResult{text: "primary result"})
+	fallback := newMock("fallback", mockResult{text: "fallback result"})
 
 	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
 
@@ -54,8 +62,11 @@ func TestFallback_PrimarySucceeds(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "primary result" {
-		t.Errorf("got %q, want %q", result, "primary result")
+	if result.Text != "primary result" {
+		t.Errorf("got %q, want %q", result.Text, "primary result")
+	}
+	if result.Provider != "primary" {
+		t.Errorf("provider: got %q, want %q", result.Provider, "primary")
 	}
 	if fallback.calls != 0 {
 		t.Error("fallback should not have been called")
@@ -63,8 +74,8 @@ func TestFallback_PrimarySucceeds(t *testing.T) {
 }
 
 func TestFallback_PrimaryQuotaError_UsesFallback(t *testing.T) {
-	primary := newMock(mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}})
-	fallback := newMock(mockResult{text: "fallback result"})
+	primary := newMock("primary", mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}})
+	fallback := newMock("fallback", mockResult{text: "fallback result"})
 
 	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
 
@@ -72,8 +83,11 @@ func TestFallback_PrimaryQuotaError_UsesFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "fallback result" {
-		t.Errorf("got %q, want %q", result, "fallback result")
+	if result.Text != "fallback result" {
+		t.Errorf("got %q, want %q", result.Text, "fallback result")
+	}
+	if result.Provider != "fallback" {
+		t.Errorf("provider: got %q, want %q", result.Provider, "fallback")
 	}
 	if primary.calls != 1 {
 		t.Error("primary should have been called once")
@@ -84,8 +98,8 @@ func TestFallback_PrimaryQuotaError_UsesFallback(t *testing.T) {
 }
 
 func TestFallback_AllProvidersQuotaError(t *testing.T) {
-	primary := newMock(mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}})
-	fallback := newMock(mockResult{err: &QuotaError{Provider: "fallback", Err: fmt.Errorf("429")}})
+	primary := newMock("primary", mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}})
+	fallback := newMock("fallback", mockResult{err: &QuotaError{Provider: "fallback", Err: fmt.Errorf("429")}})
 
 	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
 
@@ -96,11 +110,11 @@ func TestFallback_AllProvidersQuotaError(t *testing.T) {
 }
 
 func TestFallback_NonQuotaError_TriesFallbackWithoutOpeningCircuit(t *testing.T) {
-	primary := newMock(
+	primary := newMock("primary",
 		mockResult{err: fmt.Errorf("network timeout")},
 		mockResult{text: "primary works now"},
 	)
-	fallback := newMock(mockResult{text: "fallback result"})
+	fallback := newMock("fallback", mockResult{text: "fallback result"})
 
 	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
 
@@ -109,8 +123,8 @@ func TestFallback_NonQuotaError_TriesFallbackWithoutOpeningCircuit(t *testing.T)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "fallback result" {
-		t.Errorf("got %q, want %q", result, "fallback result")
+	if result.Text != "fallback result" {
+		t.Errorf("got %q, want %q", result.Text, "fallback result")
 	}
 
 	// Second call: primary should be tried again (circuit not opened).
@@ -118,8 +132,8 @@ func TestFallback_NonQuotaError_TriesFallbackWithoutOpeningCircuit(t *testing.T)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result != "primary works now" {
-		t.Errorf("got %q, want %q", result, "primary works now")
+	if result.Text != "primary works now" {
+		t.Errorf("got %q, want %q", result.Text, "primary works now")
 	}
 }
 
@@ -127,11 +141,11 @@ func TestFallback_PrimaryRecovery(t *testing.T) {
 	now := time.Now()
 
 	// Primary: first call quota error, second call succeeds.
-	primary := newMock(
+	primary := newMock("primary",
 		mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}},
 		mockResult{text: "primary recovered"},
 	)
-	fallback := newMock(
+	fallback := newMock("fallback",
 		mockResult{text: "fallback 1"},
 		mockResult{text: "fallback 2"},
 	)
@@ -147,8 +161,8 @@ func TestFallback_PrimaryRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call 1: unexpected error: %v", err)
 	}
-	if result != "fallback 1" {
-		t.Errorf("call 1: got %q, want %q", result, "fallback 1")
+	if result.Text != "fallback 1" {
+		t.Errorf("call 1: got %q, want %q", result.Text, "fallback 1")
 	}
 	if pEntry.breaker.State() != stateOpen {
 		t.Error("primary circuit should be open")
@@ -159,8 +173,8 @@ func TestFallback_PrimaryRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call 2: unexpected error: %v", err)
 	}
-	if result != "fallback 2" {
-		t.Errorf("call 2: got %q, want %q", result, "fallback 2")
+	if result.Text != "fallback 2" {
+		t.Errorf("call 2: got %q, want %q", result.Text, "fallback 2")
 	}
 
 	// Advance time past cooldown.
@@ -171,8 +185,11 @@ func TestFallback_PrimaryRecovery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("call 3: unexpected error: %v", err)
 	}
-	if result != "primary recovered" {
-		t.Errorf("call 3: got %q, want %q", result, "primary recovered")
+	if result.Text != "primary recovered" {
+		t.Errorf("call 3: got %q, want %q", result.Text, "primary recovered")
+	}
+	if result.Provider != "primary" {
+		t.Errorf("call 3: provider got %q, want %q", result.Provider, "primary")
 	}
 	if pEntry.breaker.State() != stateClosed {
 		t.Error("primary circuit should be closed after recovery")
@@ -180,8 +197,8 @@ func TestFallback_PrimaryRecovery(t *testing.T) {
 }
 
 func TestFallback_ModelNotPassedToFallbackProvider(t *testing.T) {
-	primary := newMock(mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}})
-	fallback := newMock(mockResult{text: "ok"})
+	primary := newMock("primary", mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}})
+	fallback := newMock("fallback", mockResult{text: "ok"})
 
 	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
 
@@ -206,5 +223,25 @@ func TestFallback_NoProviders(t *testing.T) {
 	_, err := f.Summarize("test", SummarizeOptions{})
 	if err == nil {
 		t.Fatal("expected error with no providers")
+	}
+}
+
+func TestFallback_ProviderInfoPropagated(t *testing.T) {
+	// Verify that when fallback handles the request, the result carries
+	// the actual provider's name, not the primary's.
+	primary := newMock("gemini-cli", mockResult{err: &QuotaError{Provider: "gemini-cli", Err: fmt.Errorf("429")}})
+	fallback := newMock("qwen-code", mockResult{text: "summary from qwen"})
+
+	f := newFallback(makeEntry("gemini-cli", primary), makeEntry("qwen-code", fallback))
+
+	result, err := f.Summarize("test", SummarizeOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Provider != "qwen-code" {
+		t.Errorf("provider: got %q, want %q", result.Provider, "qwen-code")
+	}
+	if result.Text != "summary from qwen" {
+		t.Errorf("text: got %q, want %q", result.Text, "summary from qwen")
 	}
 }

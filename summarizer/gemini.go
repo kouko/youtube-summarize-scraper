@@ -17,7 +17,7 @@ type GeminiCLISummarizer struct {
 	timeout    time.Duration
 }
 
-func (g *GeminiCLISummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (g *GeminiCLISummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	model := g.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -30,7 +30,7 @@ func (g *GeminiCLISummarizer) Summarize(text string, opts SummarizeOptions) (str
 		var err error
 		binary, err = exec.LookPath("gemini")
 		if err != nil {
-			return "", fmt.Errorf("gemini-cli: binary not found in PATH: %w", err)
+			return SummarizeResult{}, fmt.Errorf("gemini-cli: binary not found in PATH: %w", err)
 		}
 	}
 
@@ -59,10 +59,14 @@ func (g *GeminiCLISummarizer) Summarize(text string, opts SummarizeOptions) (str
 		combined := stderr.String() + "\n" + stdout.String()
 		baseErr := fmt.Errorf("gemini-cli: execution failed: %w\nstderr: %s", err, stderr.String())
 		if isQuotaMessage(combined) {
-			return "", &QuotaError{Provider: "gemini-cli", Err: baseErr}
+			return SummarizeResult{}, &QuotaError{Provider: "gemini-cli", Err: baseErr}
 		}
-		return "", baseErr
+		return SummarizeResult{}, baseErr
 	}
 
-	return StripThinkingTags(strings.TrimSpace(stdout.String())), nil
+	return SummarizeResult{
+		Text:     StripThinkingTags(strings.TrimSpace(stdout.String())),
+		Provider: "gemini-cli",
+		Model:    model,
+	}, nil
 }

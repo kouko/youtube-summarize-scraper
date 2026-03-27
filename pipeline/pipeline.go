@@ -539,19 +539,20 @@ func (p *Pipeline) runSummarization(
 	opts := summarizer.SummarizeOptions{
 		Prompt:    prompt,
 		MaxTokens: p.config.Summary.MaxTokens,
-		Model:     p.llmModel(),
+		Model:     "", // let each provider use its own configured model
 	}
 
 	// Stage 1: Main summary.
 	slog.Info("stage 1: generating summary", "video_id", meta.ID)
-	summaryText, err := p.summarizer.Summarize(transcriptText, opts)
+	summaryResult, err := p.summarizer.Summarize(transcriptText, opts)
 	if err != nil {
 		return fmt.Errorf("stage 1 summarization: %w", err)
 	}
+	summaryText := summaryResult.Text
 	if strings.TrimSpace(summaryText) == "" {
 		return fmt.Errorf("stage 1: LLM returned empty response — if using a thinking model (e.g., Qwen3.5), ensure think mode is disabled or increase max_tokens")
 	}
-	slog.Debug("stage 1 complete", "video_id", meta.ID, "response_length", len(summaryText))
+	slog.Debug("stage 1 complete", "video_id", meta.ID, "provider", summaryResult.Provider, "model", summaryResult.Model, "response_length", len(summaryText))
 
 	// Stage 2: Keywords (non-blocking).
 	var keywords []string
@@ -568,13 +569,12 @@ func (p *Pipeline) runSummarization(
 		kwOpts := summarizer.SummarizeOptions{
 			Prompt:    kwPrompt,
 			MaxTokens: p.config.Summary.MaxTokens,
-			Model:     p.llmModel(),
 		}
-		kwResponse, kwErr := p.summarizer.Summarize(summaryText, kwOpts)
+		kwResult, kwErr := p.summarizer.Summarize(summaryText, kwOpts)
 		if kwErr != nil {
 			slog.Warn("stage 2 keyword extraction failed", "video_id", meta.ID, "error", kwErr)
 		} else {
-			keywords = summarizer.ParseKeywords(kwResponse)
+			keywords = summarizer.ParseKeywords(kwResult.Text)
 		}
 	}
 
@@ -589,13 +589,12 @@ func (p *Pipeline) runSummarization(
 		mermaidOpts := summarizer.SummarizeOptions{
 			Prompt:    mermaidPrompt,
 			MaxTokens: p.config.Summary.MaxTokens,
-			Model:     p.llmModel(),
 		}
-		mermaidResponse, mermaidErr := p.summarizer.Summarize(summaryText, mermaidOpts)
+		mermaidResult, mermaidErr := p.summarizer.Summarize(summaryText, mermaidOpts)
 		if mermaidErr != nil {
 			slog.Warn("stage 3 mermaid generation failed", "video_id", meta.ID, "error", mermaidErr)
 		} else {
-			mermaidBlocks = summarizer.ValidateMermaidBlocks(mermaidResponse)
+			mermaidBlocks = summarizer.ValidateMermaidBlocks(mermaidResult.Text)
 			if len(mermaidBlocks) == 0 {
 				slog.Warn("stage 3 mermaid validation failed", "video_id", meta.ID)
 			} else {
@@ -604,11 +603,11 @@ func (p *Pipeline) runSummarization(
 		}
 	}
 
-	// Build summary frontmatter.
+	// Build summary frontmatter using actual provider/model from Stage 1.
 	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt, p.timezone)
 	fmData.Tags = keywords
-	fmData.LLMProvider = p.config.LLM.Provider.Primary()
-	fmData.LLMModel = p.llmModel()
+	fmData.LLMProvider = summaryResult.Provider
+	fmData.LLMModel = summaryResult.Model
 
 	// Enrich tags for Obsidian if enabled (LLM tags + channel + auto).
 	if p.config.Obsidian.Enabled {
@@ -977,14 +976,15 @@ func (p *Pipeline) runSummarizationPlaylist(
 	opts := summarizer.SummarizeOptions{
 		Prompt:    prompt,
 		MaxTokens: p.config.Summary.MaxTokens,
-		Model:     p.llmModel(),
+		Model:     "", // let each provider use its own configured model
 	}
 
 	slog.Info("stage 1: generating summary", "video_id", meta.ID)
-	summaryText, err := p.summarizer.Summarize(transcriptText, opts)
+	summaryResult, err := p.summarizer.Summarize(transcriptText, opts)
 	if err != nil {
 		return fmt.Errorf("stage 1 summarization: %w", err)
 	}
+	summaryText := summaryResult.Text
 	if strings.TrimSpace(summaryText) == "" {
 		return fmt.Errorf("stage 1: LLM returned empty response")
 	}
@@ -1004,13 +1004,12 @@ func (p *Pipeline) runSummarizationPlaylist(
 		kwOpts := summarizer.SummarizeOptions{
 			Prompt:    kwPrompt,
 			MaxTokens: p.config.Summary.MaxTokens,
-			Model:     p.llmModel(),
 		}
-		kwResponse, kwErr := p.summarizer.Summarize(summaryText, kwOpts)
+		kwResult, kwErr := p.summarizer.Summarize(summaryText, kwOpts)
 		if kwErr != nil {
 			slog.Warn("stage 2 keyword extraction failed", "video_id", meta.ID, "error", kwErr)
 		} else {
-			keywords = summarizer.ParseKeywords(kwResponse)
+			keywords = summarizer.ParseKeywords(kwResult.Text)
 		}
 	}
 
@@ -1025,13 +1024,12 @@ func (p *Pipeline) runSummarizationPlaylist(
 		mermaidOpts := summarizer.SummarizeOptions{
 			Prompt:    mermaidPrompt,
 			MaxTokens: p.config.Summary.MaxTokens,
-			Model:     p.llmModel(),
 		}
-		mermaidResponse, mermaidErr := p.summarizer.Summarize(summaryText, mermaidOpts)
+		mermaidResult, mermaidErr := p.summarizer.Summarize(summaryText, mermaidOpts)
 		if mermaidErr != nil {
 			slog.Warn("stage 3 mermaid generation failed", "video_id", meta.ID, "error", mermaidErr)
 		} else {
-			mermaidBlocks = summarizer.ValidateMermaidBlocks(mermaidResponse)
+			mermaidBlocks = summarizer.ValidateMermaidBlocks(mermaidResult.Text)
 			if len(mermaidBlocks) == 0 {
 				slog.Warn("stage 3 mermaid validation failed", "video_id", meta.ID)
 			} else {
@@ -1043,8 +1041,8 @@ func (p *Pipeline) runSummarizationPlaylist(
 	// Build summary frontmatter with playlist fields.
 	fmData := buildFrontmatterData(meta, channelHandle, subLang, subType, processedAt, p.timezone)
 	fmData.Tags = keywords
-	fmData.LLMProvider = p.config.LLM.Provider.Primary()
-	fmData.LLMModel = p.llmModel()
+	fmData.LLMProvider = summaryResult.Provider
+	fmData.LLMModel = summaryResult.Model
 	fmData.Playlist = playlist
 	fmData.PlaylistID = playlistID
 
@@ -1204,28 +1202,6 @@ func buildCookieArgs(cookie config.CookieConfig) []string {
 		return []string{"--cookies-from-browser", browser}
 	}
 	return nil
-}
-
-// llmModel returns the model name for the configured LLM provider.
-func (p *Pipeline) llmModel() string {
-	switch p.config.LLM.Provider.Primary() {
-	case "ollama":
-		return p.config.LLM.Ollama.Model
-	case "llamacpp":
-		return "llamacpp"
-	case "claude-api":
-		return p.config.LLM.ClaudeAPI.Model
-	case "claude-code":
-		return p.config.LLM.ClaudeCode.Model
-	case "gemini-cli":
-		return p.config.LLM.GeminiCLI.Model
-	case "qwen-code":
-		return p.config.LLM.QwenCode.Model
-	case "openai-compat":
-		return p.config.LLM.OpenAICompat.Model
-	default:
-		return p.config.LLM.Provider.Primary()
-	}
 }
 
 // buildFrontmatterData creates a FrontmatterData struct from video metadata.

@@ -25,7 +25,7 @@ type llamaCppResponse struct {
 	Content string `json:"content"`
 }
 
-func (l *LlamaCppSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (l *LlamaCppSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	combinedPrompt := resolvePrompt(text, opts)
 
 	reqBody := llamaCppRequest{
@@ -36,7 +36,7 @@ func (l *LlamaCppSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("llamacpp: marshal request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("llamacpp: marshal request: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -45,29 +45,33 @@ func (l *LlamaCppSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 	url := l.endpoint + "/completion"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("llamacpp: create request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("llamacpp: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("llamacpp: send request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("llamacpp: send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("llamacpp: read response: %w", err)
+		return SummarizeResult{}, fmt.Errorf("llamacpp: read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("llamacpp: unexpected status %d: %s", resp.StatusCode, string(respBody))
+		return SummarizeResult{}, fmt.Errorf("llamacpp: unexpected status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var result llamaCppResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("llamacpp: parse response: %w", err)
+		return SummarizeResult{}, fmt.Errorf("llamacpp: parse response: %w", err)
 	}
 
-	return StripThinkingTags(result.Content), nil
+	return SummarizeResult{
+		Text:     StripThinkingTags(result.Content),
+		Provider: "llamacpp",
+		Model:    "llamacpp",
+	}, nil
 }
