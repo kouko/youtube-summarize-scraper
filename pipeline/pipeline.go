@@ -1300,13 +1300,22 @@ func processedAtNow() string {
 // insertMermaidBlocksAfterFirstHeading inserts Mermaid code blocks into the summary.
 // Blocks whose Title exactly matches a #### heading are inserted after that section's content.
 // Unmatched blocks fall back to being inserted after the overview (before the second ### heading).
+// normalizeHeading strips leading # markers and whitespace from a markdown heading.
+// "#### 章節標題" → "章節標題", "### 章節標題" → "章節標題"
+func normalizeHeading(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimLeft(s, "#")
+	return strings.TrimSpace(s)
+}
+
 func insertMermaidBlocksAfterFirstHeading(summaryText string, blocks []summarizer.MermaidBlock) string {
 	lines := strings.Split(summaryText, "\n")
 
-	// Build a map of #### heading text → insertion line index.
-	// The insertion point is just before the next heading (### or ####) after the matched heading.
+	// Build a map of normalized heading text → insertion line index.
+	// Normalized = strip leading # markers so "### Title" and "#### Title" both key as "Title".
+	// This handles LLMs shifting heading levels (e.g., using ### instead of ####).
 	type sectionPos struct {
-		headingLine int // line index of the #### heading
+		headingLine int // line index of the heading
 		insertLine  int // line index to insert before (next heading or EOF)
 	}
 	sections := map[string]sectionPos{}
@@ -1319,7 +1328,7 @@ func insertMermaidBlocksAfterFirstHeading(summaryText string, blocks []summarize
 	}
 	for idx, hi := range headingIndices {
 		trimmed := strings.TrimSpace(lines[hi])
-		if !strings.HasPrefix(trimmed, "#### ") {
+		if !strings.HasPrefix(trimmed, "### ") && !strings.HasPrefix(trimmed, "#### ") {
 			continue
 		}
 		// Find the next heading (any level ### or ####) after this one.
@@ -1327,7 +1336,15 @@ func insertMermaidBlocksAfterFirstHeading(summaryText string, blocks []summarize
 		if idx+1 < len(headingIndices) {
 			insertAt = headingIndices[idx+1]
 		}
-		sections[trimmed] = sectionPos{headingLine: hi, insertLine: insertAt}
+		key := normalizeHeading(trimmed)
+		// Prefer #### over ### when both exist with the same text.
+		if existing, ok := sections[key]; ok {
+			existingTrimmed := strings.TrimSpace(lines[existing.headingLine])
+			if strings.HasPrefix(existingTrimmed, "#### ") {
+				continue // keep existing #### entry
+			}
+		}
+		sections[key] = sectionPos{headingLine: hi, insertLine: insertAt}
 	}
 
 	// Classify blocks into matched (with insertion line) and unmatched.
@@ -1338,8 +1355,8 @@ func insertMermaidBlocksAfterFirstHeading(summaryText string, blocks []summarize
 	var matched []insertion
 	var unmatched []summarizer.MermaidBlock
 	for _, b := range blocks {
-		title := strings.TrimSpace(b.Title)
-		if pos, ok := sections[title]; ok {
+		key := normalizeHeading(b.Title)
+		if pos, ok := sections[key]; ok {
 			matched = append(matched, insertion{line: pos.insertLine, block: b})
 		} else {
 			unmatched = append(unmatched, b)
