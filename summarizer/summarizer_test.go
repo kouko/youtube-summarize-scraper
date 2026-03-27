@@ -213,3 +213,50 @@ func TestStripThinkingTags(t *testing.T) {
 		}
 	}
 }
+
+func TestStripAgentArtifacts(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "fake function_calls block",
+			input: "前言\n<function_calls>\n<invoke_tool_name>Read</invoke_tool_name>\n<parameter name=\"path\">/some/path</parameter>\n</function_calls>\n\n### 概述\n摘要內容",
+			want:  "### 概述\n摘要內容",
+		},
+		{
+			name:  "preamble before heading",
+			input: "根據影片字幕內容，我為您生成完整的結構化摘要：\n\n### 概述\n摘要內容",
+			want:  "### 概述\n摘要內容",
+		},
+		{
+			name:  "no preamble - starts with heading",
+			input: "### 概述\n摘要內容",
+			want:  "### 概述\n摘要內容",
+		},
+		{
+			name:  "no heading - keywords output preserved",
+			input: "人工智慧\n機器學習\n深度學習",
+			want:  "人工智慧\n機器學習\n深度學習",
+		},
+		{
+			name:  "mermaid with preamble",
+			input: "我來幫您生成流程圖：\n\n#### 章節標題\n```mermaid\ngraph LR\nA-->B\n```",
+			want:  "#### 章節標題\n```mermaid\ngraph LR\nA-->B\n```",
+		},
+		{
+			name:  "combined thinking + agent artifacts + preamble",
+			input: "<think>planning</think>\n我來查看記憶。\n<function_calls>\n<invoke_tool_name>Glob</invoke_tool_name>\n</function_calls>\n根據內容：\n\n### 概述\n結果",
+			want:  "### 概述\n結果",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := StripThinkingTags(tt.input)
+			if got != tt.want {
+				t.Errorf("StripThinkingTags() =\n%q\nwant:\n%q", got, tt.want)
+			}
+		})
+	}
+}
