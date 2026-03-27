@@ -34,7 +34,7 @@ type ollamaResponse struct {
 	Response string `json:"response"`
 }
 
-func (o *OllamaSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (o *OllamaSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	model := o.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -61,7 +61,7 @@ func (o *OllamaSummarizer) Summarize(text string, opts SummarizeOptions) (string
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("ollama: marshal request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("ollama: marshal request: %w", err)
 	}
 
 	timeout := o.timeout
@@ -74,33 +74,37 @@ func (o *OllamaSummarizer) Summarize(text string, opts SummarizeOptions) (string
 	url := o.endpoint + "/api/generate"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("ollama: create request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("ollama: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("ollama: send request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("ollama: send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("ollama: read response: %w", err)
+		return SummarizeResult{}, fmt.Errorf("ollama: read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		baseErr := fmt.Errorf("ollama: unexpected status %d: %s", resp.StatusCode, string(respBody))
 		if resp.StatusCode == http.StatusTooManyRequests || isQuotaMessage(string(respBody)) {
-			return "", &QuotaError{Provider: "ollama", Err: baseErr}
+			return SummarizeResult{}, &QuotaError{Provider: "ollama", Err: baseErr}
 		}
-		return "", baseErr
+		return SummarizeResult{}, baseErr
 	}
 
 	var result ollamaResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("ollama: parse response: %w", err)
+		return SummarizeResult{}, fmt.Errorf("ollama: parse response: %w", err)
 	}
 
-	return StripThinkingTags(result.Response), nil
+	return SummarizeResult{
+		Text:     StripThinkingTags(result.Response),
+		Provider: "ollama",
+		Model:    model,
+	}, nil
 }

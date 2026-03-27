@@ -36,7 +36,7 @@ type claudeContentBlock struct {
 	Text string `json:"text"`
 }
 
-func (c *ClaudeSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (c *ClaudeSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	model := c.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -59,7 +59,7 @@ func (c *ClaudeSummarizer) Summarize(text string, opts SummarizeOptions) (string
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("claude: marshal request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("claude: marshal request: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
@@ -67,7 +67,7 @@ func (c *ClaudeSummarizer) Summarize(text string, opts SummarizeOptions) (string
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api.anthropic.com/v1/messages", bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("claude: create request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("claude: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("x-api-key", c.apiKey)
@@ -75,31 +75,35 @@ func (c *ClaudeSummarizer) Summarize(text string, opts SummarizeOptions) (string
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("claude: send request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("claude: send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("claude: read response: %w", err)
+		return SummarizeResult{}, fmt.Errorf("claude: read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		baseErr := fmt.Errorf("claude: unexpected status %d: %s", resp.StatusCode, string(respBody))
 		if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == 529 || isQuotaMessage(string(respBody)) {
-			return "", &QuotaError{Provider: "claude-api", Err: baseErr}
+			return SummarizeResult{}, &QuotaError{Provider: "claude-api", Err: baseErr}
 		}
-		return "", baseErr
+		return SummarizeResult{}, baseErr
 	}
 
 	var result claudeResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("claude: parse response: %w", err)
+		return SummarizeResult{}, fmt.Errorf("claude: parse response: %w", err)
 	}
 
 	if len(result.Content) == 0 {
-		return "", fmt.Errorf("claude: empty response content")
+		return SummarizeResult{}, fmt.Errorf("claude: empty response content")
 	}
 
-	return StripThinkingTags(result.Content[0].Text), nil
+	return SummarizeResult{
+		Text:     StripThinkingTags(result.Content[0].Text),
+		Provider: "claude-api",
+		Model:    model,
+	}, nil
 }

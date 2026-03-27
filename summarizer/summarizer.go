@@ -17,9 +17,17 @@ type SummarizeOptions struct {
 	Model     string
 }
 
+// SummarizeResult holds the output of a summarization request along with
+// metadata about which provider and model actually handled it.
+type SummarizeResult struct {
+	Text     string // the generated summary text
+	Provider string // actual provider that generated the response (e.g., "qwen-code")
+	Model    string // actual model used (e.g., "coder-model")
+}
+
 // Summarizer is the interface that all LLM backends must implement.
 type Summarizer interface {
-	Summarize(text string, opts SummarizeOptions) (string, error)
+	Summarize(text string, opts SummarizeOptions) (SummarizeResult, error)
 }
 
 // NewSummarizer creates a Summarizer backend based on the provider config.

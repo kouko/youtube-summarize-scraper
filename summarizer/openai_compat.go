@@ -43,7 +43,7 @@ type openaiError struct {
 	Message string `json:"message"`
 }
 
-func (o *OpenAICompatSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (o *OpenAICompatSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	model := o.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -61,7 +61,7 @@ func (o *OpenAICompatSummarizer) Summarize(text string, opts SummarizeOptions) (
 
 	body, err := json.Marshal(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("openai-compat: marshal request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("openai-compat: marshal request: %w", err)
 	}
 
 	timeout := o.timeout
@@ -74,7 +74,7 @@ func (o *OpenAICompatSummarizer) Summarize(text string, opts SummarizeOptions) (
 	url := strings.TrimRight(o.endpoint, "/") + "/chat/completions"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("openai-compat: create request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("openai-compat: create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	if o.apiKey != "" {
@@ -83,35 +83,39 @@ func (o *OpenAICompatSummarizer) Summarize(text string, opts SummarizeOptions) (
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("openai-compat: send request: %w", err)
+		return SummarizeResult{}, fmt.Errorf("openai-compat: send request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("openai-compat: read response: %w", err)
+		return SummarizeResult{}, fmt.Errorf("openai-compat: read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		baseErr := fmt.Errorf("openai-compat: HTTP %d: %s", resp.StatusCode, string(respBody))
 		if resp.StatusCode == http.StatusTooManyRequests || isQuotaMessage(string(respBody)) {
-			return "", &QuotaError{Provider: "openai-compat", Err: baseErr}
+			return SummarizeResult{}, &QuotaError{Provider: "openai-compat", Err: baseErr}
 		}
-		return "", baseErr
+		return SummarizeResult{}, baseErr
 	}
 
 	var result openaiResponse
 	if err := json.Unmarshal(respBody, &result); err != nil {
-		return "", fmt.Errorf("openai-compat: unmarshal response: %w", err)
+		return SummarizeResult{}, fmt.Errorf("openai-compat: unmarshal response: %w", err)
 	}
 
 	if result.Error != nil {
-		return "", fmt.Errorf("openai-compat: API error: %s", result.Error.Message)
+		return SummarizeResult{}, fmt.Errorf("openai-compat: API error: %s", result.Error.Message)
 	}
 
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("openai-compat: no choices in response")
+		return SummarizeResult{}, fmt.Errorf("openai-compat: no choices in response")
 	}
 
-	return StripThinkingTags(result.Choices[0].Message.Content), nil
+	return SummarizeResult{
+		Text:     StripThinkingTags(result.Choices[0].Message.Content),
+		Provider: "openai-compat",
+		Model:    model,
+	}, nil
 }

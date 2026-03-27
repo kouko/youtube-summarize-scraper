@@ -1,8 +1,8 @@
 Based on the video summary below, create Mermaid flowcharts showing the narrative logic and key relationships.
-Produce one diagram for each #### section in the summary that is suitable for visualization.
+Produce one diagram for each chapter section in the summary that is suitable for visualization.
 
 Output format:
-Each diagram corresponds to a #### section in the summary. The diagram heading must exactly match a #### heading from the summary (including the #### prefix).
+Each diagram corresponds to a chapter section in the summary. The diagram heading must use the #### prefix followed by the exact chapter title text from the summary.
 If a section is not suitable for a flowchart, you may skip it.
 No blank line between the heading and ```mermaid.
 

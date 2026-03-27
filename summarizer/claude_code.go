@@ -17,7 +17,7 @@ type ClaudeCodeSummarizer struct {
 	timeout    time.Duration
 }
 
-func (c *ClaudeCodeSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (c *ClaudeCodeSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	model := c.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -30,7 +30,7 @@ func (c *ClaudeCodeSummarizer) Summarize(text string, opts SummarizeOptions) (st
 		var err error
 		binary, err = exec.LookPath("claude")
 		if err != nil {
-			return "", fmt.Errorf("claude-code: binary not found in PATH: %w", err)
+			return SummarizeResult{}, fmt.Errorf("claude-code: binary not found in PATH: %w", err)
 		}
 	}
 
@@ -72,10 +72,14 @@ func (c *ClaudeCodeSummarizer) Summarize(text string, opts SummarizeOptions) (st
 		}
 		baseErr := fmt.Errorf("claude-code: execution failed: %w\noutput: %s", err, errMsg)
 		if isQuotaMessage(errMsg) {
-			return "", &QuotaError{Provider: "claude-code", Err: baseErr}
+			return SummarizeResult{}, &QuotaError{Provider: "claude-code", Err: baseErr}
 		}
-		return "", baseErr
+		return SummarizeResult{}, baseErr
 	}
 
-	return StripThinkingTags(strings.TrimSpace(stdout.String())), nil
+	return SummarizeResult{
+		Text:     StripThinkingTags(strings.TrimSpace(stdout.String())),
+		Provider: "claude-code",
+		Model:    model,
+	}, nil
 }

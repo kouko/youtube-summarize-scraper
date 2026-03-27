@@ -156,7 +156,7 @@ type rawMermaidBlock struct {
 	Code  string
 }
 
-// extractAllMermaidBlocks finds all ```mermaid blocks and their preceding #### titles.
+// extractAllMermaidBlocks finds all ```mermaid blocks and their preceding ### or #### titles.
 func extractAllMermaidBlocks(content string) []rawMermaidBlock {
 	const startMarker = "```mermaid"
 	const endMarker = "```"
@@ -164,13 +164,13 @@ func extractAllMermaidBlocks(content string) []rawMermaidBlock {
 	var blocks []rawMermaidBlock
 	lines := strings.Split(content, "\n")
 
-	// Track the last #### heading seen before each mermaid block.
+	// Track the last ### or #### heading seen before each mermaid block.
 	var lastHeading string
 
 	for i := 0; i < len(lines); i++ {
 		trimmed := strings.TrimSpace(lines[i])
 
-		if strings.HasPrefix(trimmed, "#### ") {
+		if strings.HasPrefix(trimmed, "### ") || strings.HasPrefix(trimmed, "#### ") {
 			lastHeading = trimmed
 			continue
 		}

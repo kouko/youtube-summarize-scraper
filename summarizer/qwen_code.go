@@ -17,7 +17,7 @@ type QwenCodeSummarizer struct {
 	timeout    time.Duration
 }
 
-func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (string, error) {
+func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	model := q.model
 	if opts.Model != "" {
 		model = opts.Model
@@ -30,7 +30,7 @@ func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 		var err error
 		binary, err = exec.LookPath("qwen")
 		if err != nil {
-			return "", fmt.Errorf("qwen-code: binary not found in PATH: %w", err)
+			return SummarizeResult{}, fmt.Errorf("qwen-code: binary not found in PATH: %w", err)
 		}
 	}
 
@@ -43,9 +43,16 @@ func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 
 	// qwen reads from stdin when no positional prompt is provided.
 	// -o text: plain text output format
-	// --approval-mode plan: read-only mode, prevents tool write operations
+	// --approval-mode default: normal mode (NOT "plan" which means "plan only"
+	//   in Qwen Code and causes the model to discuss instead of execute)
+	// --exclude-tools: disable all write-capable tools for safe text generation
 	// --allowed-mcp-server-names __none__: disable MCP servers
-	args := []string{"-m", model, "-o", "text", "--approval-mode", "plan", "--allowed-mcp-server-names", "__none__"}
+	args := []string{
+		"-m", model, "-o", "text",
+		"--approval-mode", "default",
+		"--exclude-tools", "write_file,edit,run_shell_command,save_memory,agent,skill,todo_write,exit_plan_mode",
+		"--allowed-mcp-server-names", "__none__",
+	}
 	cmd := exec.CommandContext(ctx, binary, args...)
 
 	var stdout, stderr bytes.Buffer
@@ -57,10 +64,14 @@ func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (stri
 		combined := stderr.String() + "\n" + stdout.String()
 		baseErr := fmt.Errorf("qwen-code: execution failed: %w\nstderr: %s", err, stderr.String())
 		if isQuotaMessage(combined) {
-			return "", &QuotaError{Provider: "qwen-code", Err: baseErr}
+			return SummarizeResult{}, &QuotaError{Provider: "qwen-code", Err: baseErr}
 		}
-		return "", baseErr
+		return SummarizeResult{}, baseErr
 	}
 
-	return StripThinkingTags(strings.TrimSpace(stdout.String())), nil
+	return SummarizeResult{
+		Text:     StripThinkingTags(strings.TrimSpace(stdout.String())),
+		Provider: "qwen-code",
+		Model:    model,
+	}, nil
 }
