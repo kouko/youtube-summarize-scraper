@@ -155,6 +155,7 @@ type LLMConfig struct {
 	ClaudeAPI                ClaudeAPIConfig        `yaml:"claude-api"`
 	ClaudeCode               ClaudeCodeConfig       `yaml:"claude-code"`
 	GeminiCLI                GeminiCLIConfig        `yaml:"gemini-cli"`
+	QwenCode                 QwenCodeConfig         `yaml:"qwen-code"`
 	OpenAICompat             OpenAICompatConfig     `yaml:"openai-compat"`
 }
 
@@ -183,6 +184,12 @@ type ClaudeCodeConfig struct {
 type GeminiCLIConfig struct {
 	Model   string `yaml:"model"`
 	Path    string `yaml:"path"`
+	Timeout int    `yaml:"timeout"` // Seconds per LLM request (default: 900)
+}
+
+type QwenCodeConfig struct {
+	Model   string `yaml:"model"`   // e.g. "coder-model" (free tier), "qwen3-coder-plus" (paid)
+	Path    string `yaml:"path"`    // Path to qwen binary (default: search in PATH)
 	Timeout int    `yaml:"timeout"` // Seconds per LLM request (default: 900)
 }
 
@@ -318,6 +325,10 @@ func DefaultConfig() *Config {
 				Model:   "auto",
 				Timeout: 900,
 			},
+			QwenCode: QwenCodeConfig{
+				Model:   "coder-model",
+				Timeout: 900,
+			},
 			OpenAICompat: OpenAICompatConfig{
 				Endpoint: "http://localhost:8000/v1",
 				Timeout:  900,
@@ -355,6 +366,7 @@ func (c *Config) expandPaths() {
 	c.Cookie.File = ExpandHome(c.Cookie.File)
 	c.LLM.ClaudeCode.Path = ExpandHome(c.LLM.ClaudeCode.Path)
 	c.LLM.GeminiCLI.Path = ExpandHome(c.LLM.GeminiCLI.Path)
+	c.LLM.QwenCode.Path = ExpandHome(c.LLM.QwenCode.Path)
 	c.Summary.SummaryPromptFile = ExpandHome(c.Summary.SummaryPromptFile)
 
 	for i := range c.Channels {

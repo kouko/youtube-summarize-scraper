@@ -53,7 +53,7 @@ cookie:
 
 # LLM settings
 llm:
-  provider: "ollama"                 # ollama / llamacpp / claude-api / claude-code / gemini-cli / openai-compat
+  provider: "ollama"                 # ollama / llamacpp / claude-api / claude-code / gemini-cli / qwen-code / openai-compat
                                      # Use a list for fallback chain (first = primary, rest = fallbacks):
                                      #   provider:
                                      #     - "gemini-cli"
@@ -79,6 +79,10 @@ llm:
   gemini-cli:
     model: "auto"                      # Model alias(auto/pro/flash/flash-lite), reference to https://geminicli.com/docs/cli/cli-reference/#model-aliases for details
     path: ""                           # Path to gemini binary (default: search in PATH)
+    timeout: 900                       # Seconds per LLM request (default: 900 = 15 min)
+  qwen-code:                           # Qwen Code CLI (gemini-cli fork, free 1000 req/day)
+    model: "coder-model"               # "coder-model" (free tier, server-routed) or "qwen3-coder-plus" / "qwen3.5-plus" (paid)
+    path: ""                           # Path to qwen binary (default: search in PATH)
     timeout: 900                       # Seconds per LLM request (default: 900 = 15 min)
   openai-compat:                       # Any OpenAI-compatible server (oMLX, LM Studio, vLLM, etc.)
     endpoint: "http://localhost:8000/v1"

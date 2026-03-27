@@ -24,9 +24,11 @@ This video falls in the "{{transcription_tier}}" tier. These are minimums — in
 ## Output Format
 
 Follow this format strictly. Do not skip any section.
+Output must start with "### Overview" — do not prepend any preamble, thinking process, greetings, or explanatory text.
 
 ### Overview
-Briefly describe the video's topic, target audience, and core conclusion or thesis, including the key evidence or reasoning that supports it.
+Write directly in article form — state the topic, core conclusion or thesis, and the key evidence or reasoning that supports it.
+Do not use meta-commentary openers like "This video discusses…", "The video covers…", or "In this video…" — the reader already knows this is a video summary, so state the content itself directly.
 
 ### Section Summary
 Divide the content into sections by topic shift. Each section:

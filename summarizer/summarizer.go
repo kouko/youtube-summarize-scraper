@@ -117,6 +117,16 @@ func newSingleProvider(name string, cfg config.LLMConfig) (Summarizer, error) {
 			binaryPath: cfg.GeminiCLI.Path,
 			timeout:    geminiTimeout,
 		}, nil
+	case "qwen-code":
+		qwenTimeout := time.Duration(cfg.QwenCode.Timeout) * time.Second
+		if qwenTimeout == 0 {
+			qwenTimeout = 15 * time.Minute
+		}
+		return &QwenCodeSummarizer{
+			model:      cfg.QwenCode.Model,
+			binaryPath: cfg.QwenCode.Path,
+			timeout:    qwenTimeout,
+		}, nil
 	case "openai-compat":
 		timeout := time.Duration(cfg.OpenAICompat.Timeout) * time.Second
 		if timeout == 0 {
@@ -145,9 +155,50 @@ func resolvePrompt(text string, opts SummarizeOptions) string {
 // Covers: <think>, <thinking>, <reflection> and their closing tags.
 var thinkingTagRe = regexp.MustCompile(`(?s)<(?:think|thinking|reflection)>.*?</(?:think|thinking|reflection)>`)
 
-// StripThinkingTags removes <think>...</think> blocks from LLM responses.
+// agentArtifactRe matches fake tool-call XML blocks that CLI-based models
+// (e.g., Gemini CLI, Qwen Code) sometimes emit in agent mode.
+// Covers: <function_calls>, <invoke_tool_name>, <invoke>, <parameter>, <*> and variants.
+var agentArtifactRe = regexp.MustCompile(`(?s)<(?:function_calls|invoke_tool_name|invoke|parameter|antml:\w+)[^>]*>.*?</(?:function_calls|invoke_tool_name|invoke|parameter|antml:\w+)>`)
+
+// StripThinkingTags removes <think>...</think> blocks and agent artifacts from LLM responses.
 // Some models (e.g., Qwen3.5) output thinking traces wrapped in these tags.
+// CLI-based models in agent mode may also emit fake tool-call XML blocks.
 func StripThinkingTags(response string) string {
 	result := thinkingTagRe.ReplaceAllString(response, "")
+	result = agentArtifactRe.ReplaceAllString(result, "")
+	result = stripPreambleBeforeContent(result)
 	return strings.TrimSpace(result)
+}
+
+// stripPreambleBeforeContent removes conversational preamble lines that appear
+// before the actual structured content. CLI-based models sometimes prepend lines
+// like "根據影片字幕內容，我為您生成完整的結構化摘要：" before the real output.
+// This function detects the first markdown heading (##/###/####) or mermaid code
+// fence and strips everything before it.
+func stripPreambleBeforeContent(response string) string {
+	trimmed := strings.TrimSpace(response)
+	if trimmed == "" {
+		return response
+	}
+
+	// If response already starts with markdown heading or code fence, no preamble.
+	if trimmed[0] == '#' || strings.HasPrefix(trimmed, "```") {
+		return response
+	}
+
+	// Find the first markdown heading (## or deeper).
+	headingIdx := -1
+	for _, prefix := range []string{"\n## ", "\n### ", "\n#### "} {
+		if idx := strings.Index(response, prefix); idx >= 0 {
+			if headingIdx < 0 || idx < headingIdx {
+				headingIdx = idx
+			}
+		}
+	}
+
+	if headingIdx >= 0 {
+		return response[headingIdx+1:] // +1 to skip the leading \n
+	}
+
+	return response
 }
