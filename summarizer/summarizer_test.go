@@ -28,6 +28,10 @@ func TestNewSingleProvider_AllProviders(t *testing.T) {
 			Model:   "auto",
 			Timeout: 900,
 		},
+		QwenCode: config.QwenCodeConfig{
+			Model:   "coder-model",
+			Timeout: 900,
+		},
 		OpenAICompat: config.OpenAICompatConfig{
 			Endpoint: "http://localhost:8000/v1",
 			Model:    "test-model",
@@ -35,7 +39,7 @@ func TestNewSingleProvider_AllProviders(t *testing.T) {
 		},
 	}
 
-	providers := []string{"ollama", "llamacpp", "claude-api", "claude-code", "gemini-cli", "openai-compat"}
+	providers := []string{"ollama", "llamacpp", "claude-api", "claude-code", "gemini-cli", "qwen-code", "openai-compat"}
 	for _, name := range providers {
 		s, err := newSingleProvider(name, cfg)
 		if err != nil {

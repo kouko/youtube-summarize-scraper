@@ -117,6 +117,16 @@ func newSingleProvider(name string, cfg config.LLMConfig) (Summarizer, error) {
 			binaryPath: cfg.GeminiCLI.Path,
 			timeout:    geminiTimeout,
 		}, nil
+	case "qwen-code":
+		qwenTimeout := time.Duration(cfg.QwenCode.Timeout) * time.Second
+		if qwenTimeout == 0 {
+			qwenTimeout = 15 * time.Minute
+		}
+		return &QwenCodeSummarizer{
+			model:      cfg.QwenCode.Model,
+			binaryPath: cfg.QwenCode.Path,
+			timeout:    qwenTimeout,
+		}, nil
 	case "openai-compat":
 		timeout := time.Duration(cfg.OpenAICompat.Timeout) * time.Second
 		if timeout == 0 {
