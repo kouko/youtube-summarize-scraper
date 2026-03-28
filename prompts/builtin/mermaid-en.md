@@ -7,13 +7,14 @@ If a section is not suitable for a flowchart, you may skip it.
 No blank line between the heading and ```mermaid.
 
 Strict rules:
-- First line must be graph with direction: graph LR (left-to-right) or graph TB (top-to-bottom), choose based on content structure
+- First line must be graph with direction: default to graph LR (left-to-right). Only use graph TB (top-to-bottom) when content has clear hierarchical or tree-like branching, and TB diagrams must not exceed 4 nodes
 - Node text format: Title<br/>━━━━━━<br/>• Point one<br/>• Point two<br/>• Point three, use bullet list for details, at least 2-3 points per node
 - Node format: UPPERCASE["<div style='text-align:left'>Title<br/>━━━━━━<br/>• Point one<br/>• Point two</div>"], wrap in div for left-align, e.g. A["<div style='text-align:left'>Introduction<br/>━━━━━━<br/>• Explain the background<br/>• State the core question</div>"]
 - Connection types: A --> B (main flow), A -.-> B (supplementary/optional), A ==> B (emphasis)
 - EVERY arrow MUST have a label explaining "why" or "how" nodes connect: A -->|causes| B. No bare arrows without labels. Examples: causation (leads to, causes), conditions (if success, if failure), method (via API), feedback (corrects). Keep labels to 2-6 words
 - 5-12 nodes per diagram
 - Choose topology based on content logic (branching, convergence, parallel paths, loops, etc.) — avoid making every diagram a simple linear chain
+- Avoid vertical straight chains of more than 3 nodes; if a TB diagram becomes a long chain, switch to LR or add branching
 - If the content is a linear narrative with no natural branching, merge related steps into a single node (use bullet points), increase per-node information density, and keep nodes to 3-6 to avoid long straight lines
 - Wrap in ```mermaid and ```
 - Output only diagram headings and Mermaid code blocks, no other explanation text
