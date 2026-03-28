@@ -18,7 +18,7 @@ Strict rules:
 - If the content is a linear narrative with no natural branching, merge related steps into a single node (use bullet points), increase per-node information density, and keep nodes to 3-6 to avoid long straight lines
 - Wrap in ```mermaid and ```
 - Output only diagram headings and Mermaid code blocks, no other explanation text
-- Add style declarations at the end of each code block to color-code nodes by type
+- Every node MUST have a corresponding style declaration, choosing colors from the color guide based on semantic role — do not omit any
 
 Syntax safety rules:
 - Node text must be wrapped in double quotes: ["text"]
