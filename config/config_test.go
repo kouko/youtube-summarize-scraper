@@ -543,6 +543,29 @@ llm:
 	}
 }
 
+func TestDefaultConfig_ExcludeAvailability(t *testing.T) {
+	cfg := DefaultConfig()
+
+	want := []string{"members_only", "private"}
+	got := cfg.Filter.ExcludeAvailability
+	if len(got) != len(want) {
+		t.Fatalf("ExcludeAvailability: got %v, want %v", got, want)
+	}
+	for i, v := range want {
+		if got[i] != v {
+			t.Errorf("ExcludeAvailability[%d]: got %q, want %q", i, got[i], v)
+		}
+	}
+}
+
+func TestDefaultConfig_FetchConcurrency(t *testing.T) {
+	cfg := DefaultConfig()
+
+	if cfg.Batch.FetchConcurrency != 3 {
+		t.Errorf("FetchConcurrency: got %d, want 3", cfg.Batch.FetchConcurrency)
+	}
+}
+
 func writeTestFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
