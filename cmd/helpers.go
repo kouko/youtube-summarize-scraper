@@ -45,6 +45,9 @@ func applyOverrides(cfg *config.Config) {
 	if intervalFlag > 0 {
 		cfg.Batch.WatchInterval = intervalFlag
 	}
+	if fetchConcurrency > 0 {
+		cfg.Batch.FetchConcurrency = fetchConcurrency
+	}
 }
 
 // setupLogging configures the default slog level.

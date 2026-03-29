@@ -112,3 +112,51 @@ func TestFilterVideos_LiveStatus(t *testing.T) {
 		t.Error("LiveStatus: 'live' should be filtered out")
 	}
 }
+
+func TestFilterVideos_ExcludeAvailability(t *testing.T) {
+	videos := []VideoMeta{
+		{ID: "public", Duration: 600, Availability: ""},
+		{ID: "members", Duration: 600, Availability: "members_only"},
+		{ID: "private", Duration: 600, Availability: "private"},
+		{ID: "premium", Duration: 600, Availability: "premium_only"},
+		{ID: "unlisted", Duration: 600, Availability: "unlisted"},
+	}
+	filter := config.FilterConfig{
+		ExcludeAvailability: []string{"members_only", "private"},
+	}
+	got := FilterVideos(videos, filter)
+	if len(got) != 3 {
+		t.Errorf("ExcludeAvailability: got %d videos, want 3", len(got))
+	}
+	ids := map[string]bool{}
+	for _, v := range got {
+		ids[v.ID] = true
+	}
+	if !ids["public"] {
+		t.Error("ExcludeAvailability: 'public' should be included")
+	}
+	if !ids["premium"] {
+		t.Error("ExcludeAvailability: 'premium' should be included (not in exclude list)")
+	}
+	if !ids["unlisted"] {
+		t.Error("ExcludeAvailability: 'unlisted' should be included")
+	}
+	if ids["members"] {
+		t.Error("ExcludeAvailability: 'members' should be filtered out")
+	}
+	if ids["private"] {
+		t.Error("ExcludeAvailability: 'private' should be filtered out")
+	}
+}
+
+func TestFilterVideos_ExcludeAvailabilityEmpty(t *testing.T) {
+	videos := []VideoMeta{
+		{ID: "members", Duration: 600, Availability: "members_only"},
+		{ID: "public", Duration: 600, Availability: ""},
+	}
+	// Empty exclude list = no availability filtering.
+	got := FilterVideos(videos, config.FilterConfig{})
+	if len(got) != 2 {
+		t.Errorf("ExcludeAvailabilityEmpty: got %d videos, want 2", len(got))
+	}
+}
