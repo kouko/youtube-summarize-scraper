@@ -125,11 +125,12 @@ type Config struct {
 }
 
 type BatchConfig struct {
-	RandomOrder   bool `yaml:"random_order"`   // Shuffle channel processing order
-	DelayMin      int  `yaml:"delay_min"`      // Min seconds delay between channels
-	DelayMax      int  `yaml:"delay_max"`      // Max seconds delay between channels
-	Watch         bool `yaml:"watch"`           // Enable watch mode (loop)
-	WatchInterval int  `yaml:"watch_interval"` // Minutes between iterations (default: 10)
+	RandomOrder      bool `yaml:"random_order"`      // Shuffle channel processing order
+	DelayMin         int  `yaml:"delay_min"`          // Min seconds delay between channels
+	DelayMax         int  `yaml:"delay_max"`          // Max seconds delay between channels
+	Watch            bool `yaml:"watch"`              // Enable watch mode (loop)
+	WatchInterval    int  `yaml:"watch_interval"`     // Minutes between iterations (default: 10)
+	FetchConcurrency int  `yaml:"fetch_concurrency"` // Max parallel yt-dlp list fetches (default: 3)
 }
 
 type WhisperConfig struct {
@@ -220,9 +221,10 @@ type MermaidConfig struct {
 }
 
 type FilterConfig struct {
-	Types       []string `yaml:"types"`
-	MinDuration int      `yaml:"min_duration"`
-	MaxDuration int      `yaml:"max_duration"`
+	Types               []string `yaml:"types"`
+	MinDuration         int      `yaml:"min_duration"`
+	MaxDuration         int      `yaml:"max_duration"`
+	ExcludeAvailability []string `yaml:"exclude_availability"`
 }
 
 type ObsidianConfig struct {
@@ -347,11 +349,13 @@ func DefaultConfig() *Config {
 			},
 		},
 		Filter: FilterConfig{
-			Types: []string{"video", "live", "short"},
+			Types:               []string{"video", "live", "short"},
+			ExcludeAvailability: []string{"members_only", "private"},
 		},
 		Batch: BatchConfig{
-			RandomOrder:   true,
-			WatchInterval: 10,
+			RandomOrder:      true,
+			WatchInterval:    10,
+			FetchConcurrency: 3,
 		},
 	}
 }
