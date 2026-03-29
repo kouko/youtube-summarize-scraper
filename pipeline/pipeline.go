@@ -486,7 +486,8 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	transcriptionFM := output.BuildTranscriptionFrontmatter(fmData)
 
 	transcriptionPath := filepath.Join(videoDir, filePrefix+"transcription.md")
-	transcriptionContent := transcriptionFM + "\n" + transcriptText + "\n"
+	videoEmbed := "![](" + meta.URL + ")\n\n"
+	transcriptionContent := transcriptionFM + videoEmbed + transcriptText + "\n"
 	if err := os.WriteFile(transcriptionPath, []byte(transcriptionContent), 0o644); err != nil {
 		return fmt.Errorf("writing transcription file: %w", err)
 	}
@@ -625,7 +626,8 @@ func (p *Pipeline) runSummarization(
 	}
 
 	summaryPath := filepath.Join(videoDir, filePrefix+"summary.md")
-	summaryContent := summaryFM + "\n" + summaryBody + "\n"
+	videoEmbed := "![](" + meta.URL + ")\n\n"
+	summaryContent := summaryFM + videoEmbed + summaryBody + "\n"
 
 	if err := os.WriteFile(summaryPath, []byte(summaryContent), 0o644); err != nil {
 		return fmt.Errorf("writing summary file: %w", err)
@@ -920,7 +922,8 @@ func (p *Pipeline) processVideoInPlaylist(
 
 	transcriptionFM := output.BuildTranscriptionFrontmatter(fmData)
 	transcriptionPath := filepath.Join(videoDir, filePrefix+"transcription.md")
-	transcriptionContent := transcriptionFM + "\n" + transcriptText + "\n"
+	videoEmbed := "![](" + meta.URL + ")\n\n"
+	transcriptionContent := transcriptionFM + videoEmbed + transcriptText + "\n"
 	if err := os.WriteFile(transcriptionPath, []byte(transcriptionContent), 0o644); err != nil {
 		return fmt.Errorf("writing transcription file: %w", err)
 	}
@@ -1061,7 +1064,8 @@ func (p *Pipeline) runSummarizationPlaylist(
 	}
 
 	summaryPath := filepath.Join(videoDir, filePrefix+"summary.md")
-	summaryContent := summaryFM + "\n" + summaryBody + "\n"
+	videoEmbed := "![](" + meta.URL + ")\n\n"
+	summaryContent := summaryFM + videoEmbed + summaryBody + "\n"
 
 	if err := os.WriteFile(summaryPath, []byte(summaryContent), 0o644); err != nil {
 		return fmt.Errorf("writing summary file: %w", err)
