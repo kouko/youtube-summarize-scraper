@@ -23,11 +23,18 @@ import (
 	"github.com/kouko/youtube-summarize-scraper/transcriber"
 )
 
+// videoFetcher abstracts fetcher operations for testability.
+type videoFetcher interface {
+	FetchVideoMeta(videoURL string) (*fetcher.VideoMeta, error)
+	FetchChannelTab(tabURL string, limit int) ([]fetcher.VideoMeta, error)
+	FetchPlaylistVideos(playlistURL string, limit int, cookieArgs []string) ([]fetcher.VideoMeta, string, error)
+}
+
 // Pipeline wires together all processing modules.
 type Pipeline struct {
 	config      *config.Config
 	binPaths    *embedded.BinPaths
-	fetcher     *fetcher.Fetcher
+	fetcher     videoFetcher
 	subtitle    *subtitle.Downloader
 	transcriber *transcriber.Transcriber
 	summarizer  summarizer.Summarizer
