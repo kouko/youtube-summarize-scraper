@@ -653,7 +653,11 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	transcriptionFM := output.BuildTranscriptionFrontmatter(fmData)
 
 	transcriptionPath := filepath.Join(videoDir, filePrefix+"transcription.md")
-	videoEmbed := "![](" + meta.URL + ")\n\n"
+	embedEnabled := channelCfg == nil && p.config.VideoEmbed || channelCfg != nil && p.config.EffectiveVideoEmbed(*channelCfg)
+	var videoEmbed string
+	if embedEnabled {
+		videoEmbed = "![](" + meta.URL + ")\n\n"
+	}
 	transcriptionContent := transcriptionFM + videoEmbed + transcriptText + "\n"
 	if err := os.WriteFile(transcriptionPath, []byte(transcriptionContent), 0o644); err != nil {
 		return fmt.Errorf("writing transcription file: %w", err)
@@ -793,7 +797,11 @@ func (p *Pipeline) runSummarization(
 	}
 
 	summaryPath := filepath.Join(videoDir, filePrefix+"summary.md")
-	videoEmbed := "![](" + meta.URL + ")\n\n"
+	embedEnabled := channelCfg == nil && p.config.VideoEmbed || channelCfg != nil && p.config.EffectiveVideoEmbed(*channelCfg)
+	var videoEmbed string
+	if embedEnabled {
+		videoEmbed = "![](" + meta.URL + ")\n\n"
+	}
 	summaryContent := summaryFM + videoEmbed + summaryBody + "\n"
 
 	if err := os.WriteFile(summaryPath, []byte(summaryContent), 0o644); err != nil {
@@ -1086,7 +1094,10 @@ func (p *Pipeline) processVideoInPlaylist(
 
 	transcriptionFM := output.BuildTranscriptionFrontmatter(fmData)
 	transcriptionPath := filepath.Join(videoDir, filePrefix+"transcription.md")
-	videoEmbed := "![](" + meta.URL + ")\n\n"
+	var videoEmbed string
+	if p.config.EffectivePlaylistVideoEmbed(*playlistCfg) {
+		videoEmbed = "![](" + meta.URL + ")\n\n"
+	}
 	transcriptionContent := transcriptionFM + videoEmbed + transcriptText + "\n"
 	if err := os.WriteFile(transcriptionPath, []byte(transcriptionContent), 0o644); err != nil {
 		return fmt.Errorf("writing transcription file: %w", err)
@@ -1228,7 +1239,11 @@ func (p *Pipeline) runSummarizationPlaylist(
 	}
 
 	summaryPath := filepath.Join(videoDir, filePrefix+"summary.md")
-	videoEmbed := "![](" + meta.URL + ")\n\n"
+	embedEnabled := channelCfg == nil && p.config.VideoEmbed || channelCfg != nil && p.config.EffectiveVideoEmbed(*channelCfg)
+	var videoEmbed string
+	if embedEnabled {
+		videoEmbed = "![](" + meta.URL + ")\n\n"
+	}
 	summaryContent := summaryFM + videoEmbed + summaryBody + "\n"
 
 	if err := os.WriteFile(summaryPath, []byte(summaryContent), 0o644); err != nil {
@@ -1322,6 +1337,7 @@ func playlistToChannelCfg(pl *config.PlaylistConfig) *config.ChannelConfig {
 		URL:               pl.URL,
 		Count:             pl.Count,
 		SummaryPromptFile: pl.SummaryPromptFile,
+		VideoEmbed:        pl.VideoEmbed,
 		Cookie:            pl.Cookie,
 		CopyTo:            pl.CopyTo,
 	}

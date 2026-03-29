@@ -566,6 +566,185 @@ func TestDefaultConfig_FetchConcurrency(t *testing.T) {
 	}
 }
 
+func TestDefaultConfig_VideoEmbed(t *testing.T) {
+	cfg := DefaultConfig()
+	if !cfg.VideoEmbed {
+		t.Error("VideoEmbed: default should be true")
+	}
+}
+
+func TestLoad_VideoEmbedExplicitFalse(t *testing.T) {
+	yaml := `video_embed: false`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VideoEmbed {
+		t.Error("VideoEmbed: should be false when explicitly set")
+	}
+}
+
+func TestLoad_VideoEmbedOmitted(t *testing.T) {
+	yaml := `default_count: 3`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.VideoEmbed {
+		t.Error("VideoEmbed: should remain true when omitted from YAML")
+	}
+}
+
+func TestEffectiveVideoEmbed_GlobalDefault(t *testing.T) {
+	cfg := DefaultConfig()
+	ch := ChannelConfig{URL: "https://www.youtube.com/@ch"}
+
+	// Global true, no per-channel override → true.
+	if !cfg.EffectiveVideoEmbed(ch) {
+		t.Error("expected true (global default)")
+	}
+
+	// Global false, no per-channel override → false.
+	cfg.VideoEmbed = false
+	if cfg.EffectiveVideoEmbed(ch) {
+		t.Error("expected false (global override)")
+	}
+}
+
+func TestEffectiveVideoEmbed_PerChannelOverride(t *testing.T) {
+	cfg := DefaultConfig() // VideoEmbed: true
+
+	f := false
+	ch := ChannelConfig{VideoEmbed: &f}
+	if cfg.EffectiveVideoEmbed(ch) {
+		t.Error("expected false (per-channel override)")
+	}
+
+	tr := true
+	cfg.VideoEmbed = false
+	ch.VideoEmbed = &tr
+	if !cfg.EffectiveVideoEmbed(ch) {
+		t.Error("expected true (per-channel override over global false)")
+	}
+}
+
+func TestEffectivePlaylistVideoEmbed_GlobalDefault(t *testing.T) {
+	cfg := DefaultConfig()
+	pl := PlaylistConfig{URL: "https://www.youtube.com/playlist?list=WL"}
+
+	if !cfg.EffectivePlaylistVideoEmbed(pl) {
+		t.Error("expected true (global default)")
+	}
+
+	cfg.VideoEmbed = false
+	if cfg.EffectivePlaylistVideoEmbed(pl) {
+		t.Error("expected false (global override)")
+	}
+}
+
+func TestEffectivePlaylistVideoEmbed_PerPlaylistOverride(t *testing.T) {
+	cfg := DefaultConfig()
+
+	f := false
+	pl := PlaylistConfig{VideoEmbed: &f}
+	if cfg.EffectivePlaylistVideoEmbed(pl) {
+		t.Error("expected false (per-playlist override)")
+	}
+
+	tr := true
+	cfg.VideoEmbed = false
+	pl.VideoEmbed = &tr
+	if !cfg.EffectivePlaylistVideoEmbed(pl) {
+		t.Error("expected true (per-playlist override over global false)")
+	}
+}
+
+func TestLoad_PerChannelVideoEmbed(t *testing.T) {
+	yaml := `
+video_embed: true
+channels:
+  - url: "https://www.youtube.com/@ch-a"
+    video_embed: false
+  - url: "https://www.youtube.com/@ch-b"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Channel A: explicit false.
+	if cfg.EffectiveVideoEmbed(cfg.Channels[0]) {
+		t.Error("channel-a: expected false")
+	}
+	// Channel B: no override → global true.
+	if !cfg.EffectiveVideoEmbed(cfg.Channels[1]) {
+		t.Error("channel-b: expected true (global default)")
+	}
+}
+
+func TestLoad_PerPlaylistVideoEmbed(t *testing.T) {
+	yaml := `
+video_embed: true
+playlists:
+  - url: "https://www.youtube.com/playlist?list=PL1"
+    video_embed: false
+  - url: "https://www.youtube.com/playlist?list=PL2"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if cfg.EffectivePlaylistVideoEmbed(cfg.Playlists[0]) {
+		t.Error("playlist-1: expected false")
+	}
+	if !cfg.EffectivePlaylistVideoEmbed(cfg.Playlists[1]) {
+		t.Error("playlist-2: expected true (global default)")
+	}
+}
+
+func TestReloadPartial_UpdatesVideoEmbed(t *testing.T) {
+	initial := `video_embed: true`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, initial); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.VideoEmbed {
+		t.Fatal("initial VideoEmbed should be true")
+	}
+
+	updated := `video_embed: false`
+	if err := writeTestFile(path, updated); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.ReloadPartial(path); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.VideoEmbed {
+		t.Error("VideoEmbed should be false after reload")
+	}
+}
+
 func writeTestFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
