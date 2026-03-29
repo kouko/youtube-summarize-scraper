@@ -5,12 +5,9 @@ class Ytss < Formula
   license "MIT"
 
   on_macos do
-    if Hardware::CPU.arm?
+    on_arm do
       url "https://github.com/kouko/youtube-summarize-scraper/releases/download/v#{version}/ytss-darwin-arm64.tar.gz"
       sha256 "PLACEHOLDER_DARWIN_ARM64"
-    else
-      url "https://github.com/kouko/youtube-summarize-scraper/releases/download/v#{version}/ytss-darwin-amd64.tar.gz"
-      sha256 "PLACEHOLDER_DARWIN_AMD64"
     end
   end
 

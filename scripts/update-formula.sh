@@ -28,11 +28,10 @@ get_sha() {
 }
 
 SHA_DARWIN_ARM64=$(get_sha "darwin-arm64")
-SHA_DARWIN_AMD64=$(get_sha "darwin-amd64")
 SHA_LINUX_AMD64=$(get_sha "linux-amd64")
 SHA_LINUX_ARM64=$(get_sha "linux-arm64")
 
-for var in SHA_DARWIN_ARM64 SHA_DARWIN_AMD64 SHA_LINUX_AMD64 SHA_LINUX_ARM64; do
+for var in SHA_DARWIN_ARM64 SHA_LINUX_AMD64 SHA_LINUX_ARM64; do
   if [[ -z "${!var}" ]]; then
     echo "Error: could not find SHA256 for ${var} in $CHECKSUMS_FILE" >&2
     exit 1
@@ -47,12 +46,9 @@ class Ytss < Formula
   license "MIT"
 
   on_macos do
-    if Hardware::CPU.arm?
+    on_arm do
       url "https://github.com/kouko/youtube-summarize-scraper/releases/download/v#{version}/ytss-darwin-arm64.tar.gz"
       sha256 "${SHA_DARWIN_ARM64}"
-    else
-      url "https://github.com/kouko/youtube-summarize-scraper/releases/download/v#{version}/ytss-darwin-amd64.tar.gz"
-      sha256 "${SHA_DARWIN_AMD64}"
     end
   end
 
@@ -78,6 +74,5 @@ RUBY
 
 echo "Updated $FORMULA_FILE to v${VERSION}"
 echo "  darwin-arm64: ${SHA_DARWIN_ARM64}"
-echo "  darwin-amd64: ${SHA_DARWIN_AMD64}"
 echo "  linux-amd64:  ${SHA_LINUX_AMD64}"
 echo "  linux-arm64:  ${SHA_LINUX_ARM64}"
