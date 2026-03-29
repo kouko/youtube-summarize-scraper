@@ -18,6 +18,11 @@ preferred_languages:
 # Default video count per channel tab (e.g., 5 = up to 5 videos + 5 streams + 5 shorts)
 default_count: 5
 
+# Embed YouTube video link in transcription/summary markdown (default: true)
+# Uses ![](url) syntax; renderers like Obsidian display it as an embedded player.
+# Can be overridden per-channel or per-playlist.
+video_embed: true
+
 # Whisper settings
 whisper:
   model_dir: "~/.ytss/models"
@@ -138,6 +143,7 @@ playlists:
   - url: "https://www.youtube.com/playlist?list=WL"
     name: "稍後觀看"              # Display name (optional, auto-detected)
     count: 10
+    # video_embed: false            # Disable video embed for this playlist
     # cookie:                      # Per-playlist cookie (optional)
     #   browser: "chrome"
     #   chrome_profile: "Profile 1"
@@ -146,6 +152,7 @@ playlists:
 channels:
   - url: "https://www.youtube.com/@channel-a"
     count: 10                        # Per tab (override default_count)
+    # video_embed: false              # Disable video embed for this channel
     # summary_prompt_file: "./prompts/tech-summary.md"  # Per-channel prompt
     # filter:
     #   types: ["video"]

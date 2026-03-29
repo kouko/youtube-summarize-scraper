@@ -119,6 +119,7 @@ type Config struct {
 	Summary            SummaryConfig   `yaml:"summary"`
 	Filter             FilterConfig    `yaml:"filter"`
 	Batch              BatchConfig     `yaml:"batch"`
+	VideoEmbed         bool            `yaml:"video_embed"`
 	Obsidian           ObsidianConfig  `yaml:"obsidian"`
 	Playlists          []PlaylistConfig `yaml:"playlists"`
 	Channels           []ChannelConfig  `yaml:"channels"`
@@ -245,6 +246,7 @@ type ChannelConfig struct {
 	URL              string        `yaml:"url"`
 	Count            int           `yaml:"count"`
 	SummaryPromptFile string       `yaml:"summary_prompt_file"`
+	VideoEmbed       *bool         `yaml:"video_embed"`
 	Filter           *FilterConfig `yaml:"filter"`
 	Cookie           *CookieConfig `yaml:"cookie"`
 	CopyTo           *CopyToConfig `yaml:"copy_to"`
@@ -255,6 +257,7 @@ type PlaylistConfig struct {
 	Name             string        `yaml:"name"`
 	Count            int           `yaml:"count"`
 	SummaryPromptFile string       `yaml:"summary_prompt_file"`
+	VideoEmbed       *bool         `yaml:"video_embed"`
 	Cookie           *CookieConfig `yaml:"cookie"`
 	CopyTo           *CopyToConfig `yaml:"copy_to"`
 }
@@ -352,6 +355,7 @@ func DefaultConfig() *Config {
 			Types:               []string{"video", "live", "short"},
 			ExcludeAvailability: []string{"members_only", "private"},
 		},
+		VideoEmbed: true,
 		Batch: BatchConfig{
 			RandomOrder:      true,
 			WatchInterval:    10,
@@ -401,6 +405,20 @@ func (c *Config) EffectiveFilter(ch ChannelConfig) FilterConfig {
 	return c.Filter
 }
 
+func (c *Config) EffectiveVideoEmbed(ch ChannelConfig) bool {
+	if ch.VideoEmbed != nil {
+		return *ch.VideoEmbed
+	}
+	return c.VideoEmbed
+}
+
+func (c *Config) EffectivePlaylistVideoEmbed(pl PlaylistConfig) bool {
+	if pl.VideoEmbed != nil {
+		return *pl.VideoEmbed
+	}
+	return c.VideoEmbed
+}
+
 // ReloadPartial re-reads the config file and updates only the fields that are
 // safe to change at runtime: channels, playlists, filter, batch, default_count,
 // and obsidian settings. LLM, whisper, and cookie settings are preserved since
@@ -419,6 +437,7 @@ func (c *Config) ReloadPartial(path string) error {
 	c.DefaultCount = fresh.DefaultCount
 	c.Timezone = fresh.Timezone
 	c.Obsidian = fresh.Obsidian
+	c.VideoEmbed = fresh.VideoEmbed
 	c.OutputDir = fresh.OutputDir
 	c.PreferredLanguages = fresh.PreferredLanguages
 
