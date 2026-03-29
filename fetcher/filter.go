@@ -18,7 +18,24 @@ func FilterVideos(videos []VideoMeta, filter config.FilterConfig) []VideoMeta {
 		if filter.MaxDuration > 0 && v.Duration > float64(filter.MaxDuration) {
 			continue
 		}
+		if isExcludedAvailability(v.Availability, filter.ExcludeAvailability) {
+			continue
+		}
 		result = append(result, v)
 	}
 	return result
+}
+
+// isExcludedAvailability returns true if the video's availability matches
+// any value in the exclude list.
+func isExcludedAvailability(availability string, excludeList []string) bool {
+	if availability == "" || len(excludeList) == 0 {
+		return false
+	}
+	for _, ea := range excludeList {
+		if availability == ea {
+			return true
+		}
+	}
+	return false
 }
