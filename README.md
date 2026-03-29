@@ -18,7 +18,21 @@ A Go CLI tool that batch-processes YouTube channels to download subtitles, trans
 
 ## Installation
 
-### Prerequisites
+### Homebrew (macOS / Linux)
+
+```bash
+brew install kouko/tap/ytss
+```
+
+Upgrade to the latest version:
+
+```bash
+brew upgrade ytss
+```
+
+### Build from Source
+
+#### Prerequisites
 
 Build dependencies (only needed for building, not for running):
 
@@ -31,7 +45,7 @@ brew install cmake nasm
 sudo apt install build-essential cmake nasm pkg-config
 ```
 
-### Build
+#### Build
 
 ```bash
 git clone https://github.com/kouko/youtube-summarize-scraper.git

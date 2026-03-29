@@ -16,9 +16,15 @@ jobs:
           - os: macos-14
             goos: darwin
             goarch: arm64
+          - os: macos-13
+            goos: darwin
+            goarch: amd64
           - os: ubuntu-latest
             goos: linux
             goarch: amd64
+          - os: ubuntu-24.04-arm
+            goos: linux
+            goarch: arm64
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -57,14 +63,14 @@ jobs:
       - name: Run tests
         run: go test ./...
 
-      - name: Rename binary
-        run: mv ytss ytss-${{ matrix.goos }}-${{ matrix.goarch }}
+      - name: Package binary
+        run: tar czf ytss-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz ytss
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ytss-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: ytss-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ytss-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz
 
   release:
     needs: build
@@ -79,9 +85,9 @@ jobs:
       - name: Prepare release files
         run: |
           mkdir -p release
-          find artifacts -type f -name 'ytss-*' -exec cp {} release/ \;
+          find artifacts -type f -name '*.tar.gz' -exec cp {} release/ \;
           cd release
-          sha256sum ytss-* > checksums.txt
+          sha256sum *.tar.gz > checksums.txt
           cat checksums.txt
 
       - name: Create GitHub Release
@@ -89,3 +95,40 @@ jobs:
         with:
           files: release/*
           generate_release_notes: true
+
+  update-homebrew:
+    needs: release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source repo
+        uses: actions/checkout@v4
+
+      - name: Download release checksums
+        run: |
+          BASE_URL="https://github.com/kouko/youtube-summarize-scraper/releases/download/${{ github.ref_name }}"
+          curl -sL "${BASE_URL}/checksums.txt" -o checksums.txt
+          cat checksums.txt
+
+      - name: Checkout homebrew-tap
+        uses: actions/checkout@v4
+        with:
+          repository: kouko/homebrew-tap
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          path: homebrew-tap
+
+      - name: Update formula
+        run: |
+          VERSION="${{ github.ref_name }}"
+          VERSION="${VERSION#v}"
+          bash scripts/update-formula.sh "$VERSION" checksums.txt homebrew-tap/Formula/ytss.rb
+
+      - name: Commit and push
+        run: |
+          cd homebrew-tap
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/ytss.rb
+          git diff --cached --quiet && echo "No changes" && exit 0
+          git commit -m "ytss ${{ github.ref_name }}"
+          git push
