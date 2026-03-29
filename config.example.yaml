@@ -108,6 +108,12 @@ filter:
   types: ["video", "live", "short"]  # video / live / short (default: all types)
   min_duration: 0                    # Min seconds (0 = no filter)
   max_duration: 0                    # Max seconds (0 = no limit)
+  exclude_availability:              # Exclude videos by availability (default: ["members_only", "private"])
+    - members_only                   # YouTube channel membership content
+    - private                        # Private videos
+    # - subscriber_only              # Channel subscriber-only content
+    # - premium_only                 # YouTube Premium exclusive
+    # - needs_auth                   # Requires authentication
 
 # Batch processing settings
 batch:
@@ -116,6 +122,7 @@ batch:
   delay_max: 0                     # Max seconds delay between channels (default: 0)
   watch: false                     # Enable watch mode (default: false, use --watch flag)
   watch_interval: 10               # Minutes between watch iterations (default: 10)
+  fetch_concurrency: 3             # Max parallel yt-dlp list fetches (default: 3)
 
 # Obsidian integration (optional)
 obsidian:
