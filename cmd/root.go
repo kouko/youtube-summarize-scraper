@@ -13,8 +13,9 @@ var (
 	forceFlag     bool
 	dryRun        bool
 	verbose       bool
-	watchFlag     bool
-	intervalFlag  int
+	watchFlag        bool
+	intervalFlag     int
+	fetchConcurrency int
 )
 
 var rootCmd = &cobra.Command{
@@ -43,4 +44,5 @@ func init() {
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose logging")
 	rootCmd.PersistentFlags().BoolVar(&watchFlag, "watch", false, "run in watch mode (check for new videos periodically)")
 	rootCmd.PersistentFlags().IntVar(&intervalFlag, "interval", 0, "watch interval in minutes (overrides config, default: 10)")
+	rootCmd.PersistentFlags().IntVar(&fetchConcurrency, "fetch-concurrency", 0, "max parallel yt-dlp list fetches (overrides config, default: 3)")
 }

@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/kouko/youtube-summarize-scraper/config"
@@ -134,73 +136,157 @@ func (p *Pipeline) RebuildIndex() {
 
 // ProcessBatch iterates all playlists and channels from config, processes each, and aggregates stats.
 // Playlists are processed first, then channels.
+// batchSource holds the result of a parallel video-list fetch for one
+// playlist or channel, along with the config needed for Phase 2 processing.
+type batchSource struct {
+	// Shared fields.
+	videos []fetcher.VideoMeta
+	err    error
+
+	// Channel source (nil for playlists).
+	channelURL string
+	channelCfg *config.ChannelConfig
+
+	// Playlist source (nil for channels).
+	playlistURL  string
+	playlistCfg  *config.PlaylistConfig
+	playlistID   string
+	playlistName string
+}
+
+func (s *batchSource) isPlaylist() bool { return s.playlistCfg != nil }
+
 func (p *Pipeline) ProcessBatch() (*Stats, error) {
 	total := &Stats{}
 
-	// --- Process playlists first ---
+	// --- Build source list (playlists + channels) ---
 	playlists := make([]config.PlaylistConfig, len(p.config.Playlists))
 	copy(playlists, p.config.Playlists)
-
-	if p.config.Batch.RandomOrder && len(playlists) > 1 {
-		rand.Shuffle(len(playlists), func(i, j int) {
-			playlists[i], playlists[j] = playlists[j], playlists[i]
-		})
-		slog.Info("shuffled playlist order")
-	}
-
-	for i, pl := range playlists {
-		if p.stopped() {
-			slog.Info("batch interrupted by shutdown signal")
-			return total, nil
-		}
-		count := pl.Count
-		if count <= 0 {
-			count = p.config.DefaultCount
-		}
-		slog.Info("processing playlist", "url", pl.URL, "count", count)
-
-		stats, err := p.ProcessPlaylist(pl.URL, count, &pl)
-		if err != nil {
-			slog.Error("playlist processing failed", "url", pl.URL, "error", err)
-			continue
-		}
-
-		total.Success += stats.Success
-		total.Skipped += stats.Skipped
-		total.Failed += stats.Failed
-		total.Errors = append(total.Errors, stats.Errors...)
-
-		// Random delay between playlists (except after the last one before channels).
-		hasMore := i < len(playlists)-1 || len(p.config.Channels) > 0
-		if hasMore && p.config.Batch.DelayMax > 0 {
-			p.randomDelay()
-		}
-	}
-
-	// --- Process channels ---
-	// Copy channels slice to avoid mutating config.
 	channels := make([]config.ChannelConfig, len(p.config.Channels))
 	copy(channels, p.config.Channels)
 
-	// Shuffle channel order if configured.
-	if p.config.Batch.RandomOrder && len(channels) > 1 {
-		rand.Shuffle(len(channels), func(i, j int) {
-			channels[i], channels[j] = channels[j], channels[i]
-		})
-		slog.Info("shuffled channel order")
+	if p.config.Batch.RandomOrder {
+		if len(playlists) > 1 {
+			rand.Shuffle(len(playlists), func(i, j int) {
+				playlists[i], playlists[j] = playlists[j], playlists[i]
+			})
+			slog.Info("shuffled playlist order")
+		}
+		if len(channels) > 1 {
+			rand.Shuffle(len(channels), func(i, j int) {
+				channels[i], channels[j] = channels[j], channels[i]
+			})
+			slog.Info("shuffled channel order")
+		}
 	}
 
-	for i, ch := range channels {
+	// Allocate result slots: playlists first, then channels.
+	sources := make([]batchSource, len(playlists)+len(channels))
+	for i := range playlists {
+		sources[i] = batchSource{
+			playlistURL: playlists[i].URL,
+			playlistCfg: &playlists[i],
+		}
+	}
+	for i := range channels {
+		sources[len(playlists)+i] = batchSource{
+			channelURL: channels[i].URL,
+			channelCfg: &channels[i],
+		}
+	}
+
+	// --- Phase 1: Parallel video-list fetching ---
+	concurrency := p.config.Batch.FetchConcurrency
+	if concurrency <= 0 {
+		concurrency = 3
+	}
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+
+	slog.Info("phase 1: fetching video lists in parallel",
+		"playlists", len(playlists),
+		"channels", len(channels),
+		"concurrency", concurrency,
+	)
+
+	totalSources := len(sources)
+	var fetchedCount atomic.Int32
+
+	for idx := range sources {
+		if p.stopped() {
+			break
+		}
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			if p.stopped() {
+				return
+			}
+
+			s := &sources[i]
+			if s.isPlaylist() {
+				p.fetchPlaylistList(s)
+			} else {
+				p.fetchChannelList(s)
+			}
+
+			n := fetchedCount.Add(1)
+			if s.err == nil {
+				if s.isPlaylist() {
+					slog.Info(fmt.Sprintf("[%d/%d] fetched playlist", n, totalSources),
+						"url", s.playlistURL, "name", s.playlistName, "videos", len(s.videos))
+				} else {
+					slog.Info(fmt.Sprintf("[%d/%d] fetched channel", n, totalSources),
+						"url", s.channelURL, "videos", len(s.videos))
+				}
+			}
+		}(idx)
+	}
+	wg.Wait()
+
+	if p.stopped() {
+		slog.Info("batch interrupted by shutdown signal")
+		return total, nil
+	}
+
+	// --- Phase 2: Sequential video processing ---
+	slog.Info("phase 2: processing videos sequentially")
+
+	for i := range sources {
 		if p.stopped() {
 			slog.Info("batch interrupted by shutdown signal")
 			return total, nil
 		}
-		count := p.config.EffectiveCount(ch)
-		slog.Info("processing channel", "url", ch.URL, "count", count)
 
-		stats, err := p.ProcessChannel(ch.URL, count, &ch)
+		s := &sources[i]
+		if s.err != nil {
+			if s.isPlaylist() {
+				slog.Error("playlist fetch failed", "url", s.playlistURL, "error", s.err)
+			} else {
+				slog.Error("channel fetch failed", "url", s.channelURL, "error", s.err)
+			}
+			continue
+		}
+
+		var stats *Stats
+		var err error
+		if s.isPlaylist() {
+			plDir := output.PlaylistDir(p.config.OutputDir, s.playlistID, s.playlistName)
+			slog.Info("processing playlist", "url", s.playlistURL, "name", s.playlistName, "videos", len(s.videos))
+			stats, err = p.processPlaylistVideos(s.videos, s.playlistID, s.playlistName, plDir, s.playlistCfg)
+		} else {
+			slog.Info("processing channel", "url", s.channelURL, "videos", len(s.videos))
+			stats, err = p.processChannelVideos(s.videos, s.channelCfg)
+		}
 		if err != nil {
-			slog.Error("channel processing failed", "url", ch.URL, "error", err)
+			if s.isPlaylist() {
+				slog.Error("playlist processing failed", "url", s.playlistURL, "error", err)
+			} else {
+				slog.Error("channel processing failed", "url", s.channelURL, "error", err)
+			}
 			continue
 		}
 
@@ -209,8 +295,8 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 		total.Failed += stats.Failed
 		total.Errors = append(total.Errors, stats.Errors...)
 
-		// Random delay between channels (except after the last one).
-		if i < len(channels)-1 && p.config.Batch.DelayMax > 0 {
+		// Random delay between sources (except after the last one).
+		if i < len(sources)-1 && p.config.Batch.DelayMax > 0 {
 			p.randomDelay()
 		}
 	}
@@ -220,7 +306,6 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 		for _, ch := range p.config.Channels {
 			handle := strings.TrimPrefix(ch.URL, "https://www.youtube.com/")
 			handle = strings.TrimPrefix(handle, "@")
-			// Extract handle from URL variants (e.g., /channel/..., /@handle, etc.)
 			if idx := strings.LastIndex(handle, "/"); idx >= 0 {
 				handle = handle[idx+1:]
 			}
@@ -242,6 +327,75 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 	)
 
 	return total, nil
+}
+
+// fetchPlaylistList fetches the video list for a playlist source (Phase 1).
+func (p *Pipeline) fetchPlaylistList(s *batchSource) {
+	count := s.playlistCfg.Count
+	if count <= 0 {
+		count = p.config.DefaultCount
+	}
+
+	cookieArgs := p.resolveCookieArgs(s.playlistCfg.Cookie)
+	videos, autoTitle, err := p.fetcher.FetchPlaylistVideos(s.playlistURL, count, cookieArgs)
+	if err != nil {
+		// Retry with global cookies.
+		globalArgs := p.globalCookieArgs()
+		if len(globalArgs) > 0 && !cookieArgsEqual(cookieArgs, globalArgs) {
+			slog.Info("retrying playlist fetch with global cookies", "url", s.playlistURL)
+			videos, autoTitle, err = p.fetcher.FetchPlaylistVideos(s.playlistURL, count, globalArgs)
+		}
+		if err != nil {
+			s.err = fmt.Errorf("fetching playlist videos: %w", err)
+			return
+		}
+	}
+
+	// Resolve playlist name.
+	name := s.playlistCfg.Name
+	if name == "" {
+		name = autoTitle
+	}
+	playlistID := extractPlaylistID(s.playlistURL)
+	if name == "" {
+		name = playlistID
+	}
+
+	// Apply global filter.
+	videos = fetcher.FilterVideos(videos, p.config.Filter)
+	if len(videos) > count {
+		videos = videos[:count]
+	}
+
+	s.videos = videos
+	s.playlistID = playlistID
+	s.playlistName = name
+}
+
+// fetchChannelList fetches the video list for a channel source (Phase 1).
+func (p *Pipeline) fetchChannelList(s *batchSource) {
+	count := p.config.EffectiveCount(*s.channelCfg)
+	filterCfg := p.config.EffectiveFilter(*s.channelCfg)
+	tabSuffixes := fetcher.ChannelTabSuffixes(filterCfg.Types)
+
+	var allVideos []fetcher.VideoMeta
+	for _, suffix := range tabSuffixes {
+		tabURL := s.channelURL + suffix
+		videos, err := p.fetcher.FetchChannelTab(tabURL, count)
+		if err != nil {
+			s.err = fmt.Errorf("fetching %s: %w", tabURL, err)
+			return
+		}
+		slog.Info("fetched channel tab", "tab", suffix, "fetched", len(videos), "limit", count)
+
+		tabFiltered := fetcher.FilterVideos(videos, filterCfg)
+		if len(tabFiltered) > count {
+			tabFiltered = tabFiltered[:count]
+		}
+		allVideos = append(allVideos, tabFiltered...)
+	}
+
+	s.videos = allVideos
 }
 
 // ProcessChannel fetches videos from a channel, applies filters, and processes each video.
@@ -269,16 +423,17 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 	}
 	slog.Info("total filtered videos across tabs", "count", len(filtered))
 
+	return p.processChannelVideos(filtered, channelCfg)
+}
+
+// processChannelVideos processes pre-fetched channel videos sequentially.
+func (p *Pipeline) processChannelVideos(videos []fetcher.VideoMeta, channelCfg *config.ChannelConfig) (*Stats, error) {
 	stats := &Stats{}
-	for i, meta := range filtered {
-		// Smart skip: if video already processed anywhere, skip.
-		// Note: flat-playlist metadata lacks channel/upload_date/title,
-		// so we cannot compute targetDir here. ProcessVideo handles
-		// full metadata fetch, directory creation, and resume internally.
+	for i, meta := range videos {
 		if !p.force {
 			existingDir := p.index.FindVideoDir(meta.ID)
 			if existingDir != "" && p.index.HasFile(meta.ID, "summary.md") {
-				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (already processed)", i+1, len(filtered), meta.ID),
+				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (already processed)", i+1, len(videos), meta.ID),
 					"title", meta.Title,
 				)
 				stats.Skipped++
@@ -286,7 +441,7 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 			}
 		}
 
-		slog.Info(fmt.Sprintf("[%d/%d] %s - processing", i+1, len(filtered), meta.ID),
+		slog.Info(fmt.Sprintf("[%d/%d] %s - processing", i+1, len(videos), meta.ID),
 			"title", meta.Title,
 		)
 
@@ -688,16 +843,18 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 	// Determine playlist output directory.
 	plDir := output.PlaylistDir(p.config.OutputDir, playlistID, playlistName)
 
+	return p.processPlaylistVideos(videos, playlistID, playlistName, plDir, playlistCfg)
+}
+
+// processPlaylistVideos processes pre-fetched playlist videos sequentially.
+func (p *Pipeline) processPlaylistVideos(videos []fetcher.VideoMeta, playlistID, playlistName, plDir string, playlistCfg *config.PlaylistConfig) (*Stats, error) {
 	stats := &Stats{}
 	for i, meta := range videos {
 		// Smart skip with cross-directory copy support.
-		// Note: flat-playlist metadata lacks channel/upload_date, so we
-		// cannot compute targetDir here. Use FindVideoDir + path check instead.
 		if !p.force {
 			existingDir := p.index.FindVideoDir(meta.ID)
 			if existingDir != "" && p.index.HasFile(meta.ID, "summary.md") {
 				if strings.HasPrefix(existingDir, plDir+string(filepath.Separator)) {
-					// Already in this playlist dir: skip.
 					slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (complete)", i+1, len(videos), meta.ID),
 						"title", meta.Title,
 					)
@@ -727,7 +884,6 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 		)
 
 		// Fetch full metadata.
-		// Preserve approximate date from flat-playlist as fallback.
 		metaCopy := meta
 		approxUploadDate := metaCopy.UploadDate
 		approxTimestamp := metaCopy.Timestamp
@@ -738,7 +894,6 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 			if err != nil {
 				slog.Warn("failed to fetch full metadata, continuing with partial data",
 					"video_id", metaCopy.ID, "error", err)
-				// Restore approximate date if available.
 				metaCopy.UploadDate = approxUploadDate
 				metaCopy.Timestamp = approxTimestamp
 			} else {
@@ -746,7 +901,6 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 			}
 		}
 
-		// Derive channel handle and target dir from full metadata.
 		channelHandle := deriveChannelHandle(&metaCopy)
 
 		convertedDate := output.ConvertUploadDate(metaCopy.UploadDate, metaCopy.Timestamp, p.timezone)
@@ -767,7 +921,6 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 		}
 		p.index.Add(metaCopy.ID, targetDir)
 
-		// Process the video using the playlist-aware wrapper.
 		if err := p.processVideoInPlaylist(&metaCopy, channelHandle, targetDir, playlistName, playlistID, playlistCfg); err != nil {
 			if IsSkipped(err) {
 				stats.Skipped++
@@ -786,7 +939,6 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 			}
 		} else {
 			stats.Success++
-			// Post-processing: copy_to
 			if playlistCfg != nil && playlistCfg.CopyTo != nil {
 				fp := output.VideoFilePrefix(convertedDate, metaCopy.ID)
 				p.executeCopyTo(playlistCfg.CopyTo, targetDir, fp, &metaCopy, channelHandle, playlistName, playlistID)
