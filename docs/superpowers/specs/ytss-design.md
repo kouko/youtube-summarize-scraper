@@ -129,11 +129,19 @@ summary:
   mermaid:
     enabled: true                    # Enable Mermaid flowchart generation (default: true)
 
-# Video filter settings
+# Video filter settings (global default)
+# Per-channel "filter:" overrides the ENTIRE block, not individual fields.
+# If a channel defines its own filter, all global filter settings are ignored for that channel.
 filter:
   types: ["video", "live", "short"]  # video / live / short (default: all types)
   min_duration: 0                    # Min seconds (0 = no filter)
   max_duration: 0                    # Max seconds (0 = no limit)
+  exclude_availability:              # Exclude videos by availability (default: ["members_only", "private"])
+    - members_only                   # YouTube channel membership content
+    - private                        # Private videos
+    # - subscriber_only              # Channel subscriber-only content
+    # - premium_only                 # YouTube Premium exclusive
+    # - needs_auth                   # Requires authentication
 
 # Obsidian integration (optional)
 obsidian:
@@ -150,9 +158,10 @@ channels:
     cookie:                          # Per-channel cookie (optional, overrides global)
       browser: "chrome"
       chrome_profile: "Profile 2"
-    filter:                          # Per-channel filter override
+    filter:                          # Per-channel filter override (replaces ENTIRE global filter)
       types: ["video"]               # This channel: videos only
       min_duration: 60
+      exclude_availability: []       # Allow all availability types (override global exclude)
   - url: "https://www.youtube.com/@channel-b"
   - url: "https://www.youtube.com/@channel-c"
 
@@ -303,7 +312,7 @@ Uses a two-phase approach: fast listing via `--flat-playlist`, then on-demand fu
    - Multiple types → one request per tab (e.g., `["video", "live"]` → `/videos` + `/streams`)
    - Unset or all types → `/videos` + `/streams` + `/shorts` (three requests)
 2. **Each tab is fetched independently with its own count quota.** `yt-dlp --flat-playlist --dump-json --playlist-end N <tab_url>` — fetches lightweight metadata (id, title, duration, description). N = `count`. Type filtering is handled at the URL tab level, so no over-fetch buffer is needed.
-3. Per tab: filter out `is_upcoming` and `is_live` streams (cannot be downloaded), apply `min_duration` / `max_duration` filter, then take the first `count` videos.
+3. Per tab: filter out `is_upcoming` and `is_live` streams (cannot be downloaded), apply `min_duration` / `max_duration` filter, apply `exclude_availability` filter (default: skip `members_only` and `private`), then take the first `count` videos.
 4. Merge results from all tabs for processing.
 
 **Note:** `count` means "N videos per enabled tab", not "N total". For example, `count: 5` with 3 tabs (videos + streams + shorts) processes up to 15 videos.
@@ -332,7 +341,7 @@ Playlists are processed before channels in `ytss run`. Each playlist uses `yt-dl
 
 **Processing flow:**
 1. `yt-dlp --flat-playlist --dump-json <playlist_url>` (with cookie if configured)
-2. Apply global duration filter (`filter.min_duration` / `filter.max_duration`)
+2. Apply global filter (`min_duration` / `max_duration` / `exclude_availability`)
 3. Take first N videos (playlist order preserved)
 4. Per video: global skip check → fetch full metadata → ProcessVideo
 5. Random delay between playlists (batch settings)
