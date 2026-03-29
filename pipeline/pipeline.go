@@ -379,12 +379,14 @@ func (p *Pipeline) fetchChannelList(s *batchSource) {
 	tabSuffixes := fetcher.ChannelTabSuffixes(filterCfg.Types)
 
 	var allVideos []fetcher.VideoMeta
+	var tabErrors []error
 	for _, suffix := range tabSuffixes {
 		tabURL := s.channelURL + suffix
 		videos, err := p.fetcher.FetchChannelTab(tabURL, count)
 		if err != nil {
-			s.err = fmt.Errorf("fetching %s: %w", tabURL, err)
-			return
+			slog.Warn("failed to fetch channel tab, skipping", "tab", suffix, "url", tabURL, "error", err)
+			tabErrors = append(tabErrors, err)
+			continue
 		}
 		slog.Info("fetched channel tab", "tab", suffix, "fetched", len(videos), "limit", count)
 
@@ -395,6 +397,10 @@ func (p *Pipeline) fetchChannelList(s *batchSource) {
 		allVideos = append(allVideos, tabFiltered...)
 	}
 
+	if len(allVideos) == 0 && len(tabErrors) > 0 {
+		s.err = fmt.Errorf("all channel tabs failed for %s", s.channelURL)
+		return
+	}
 	s.videos = allVideos
 }
 
@@ -407,11 +413,14 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 	// Fetch each tab independently: each tab gets its own count quota.
 	// Type filtering is handled at the URL tab level, so no over-fetch buffer needed.
 	var filtered []fetcher.VideoMeta
+	var tabErrors []error
 	for _, suffix := range tabSuffixes {
 		tabURL := channelURL + suffix
 		videos, err := p.fetcher.FetchChannelTab(tabURL, count)
 		if err != nil {
-			return nil, fmt.Errorf("fetching %s: %w", tabURL, err)
+			slog.Warn("failed to fetch channel tab, skipping", "tab", suffix, "url", tabURL, "error", err)
+			tabErrors = append(tabErrors, err)
+			continue
 		}
 		slog.Info("fetched channel tab", "tab", suffix, "fetched", len(videos), "limit", count)
 
@@ -420,6 +429,9 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 			tabFiltered = tabFiltered[:count]
 		}
 		filtered = append(filtered, tabFiltered...)
+	}
+	if len(filtered) == 0 && len(tabErrors) > 0 {
+		return nil, fmt.Errorf("all channel tabs failed for %s", channelURL)
 	}
 	slog.Info("total filtered videos across tabs", "count", len(filtered))
 
