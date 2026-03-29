@@ -297,8 +297,8 @@ func DefaultConfig() *Config {
 				"large-v3":        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
 				"large-v3-turbo":  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
 				"belle-zh":        "https://huggingface.co/BELLE-2/Belle-whisper-large-v3-turbo-zh-ggml/resolve/main/ggml-model.bin",
-				"kotoba-ja":       "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-model.bin",
-				"kotoba-ja-q5":    "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-model-q5.bin",
+				"kotoba-ja":       "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-kotoba-whisper-v2.0.bin",
+				"kotoba-ja-q5":    "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-kotoba-whisper-v2.0-q5_0.bin",
 			},
 		},
 		LLM: LLMConfig{
