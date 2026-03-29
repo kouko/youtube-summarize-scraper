@@ -372,47 +372,13 @@ func (p *Pipeline) fetchPlaylistList(s *batchSource) {
 	s.playlistName = name
 }
 
-// fetchChannelList fetches the video list for a channel source (Phase 1).
-func (p *Pipeline) fetchChannelList(s *batchSource) {
-	count := p.config.EffectiveCount(*s.channelCfg)
-	filterCfg := p.config.EffectiveFilter(*s.channelCfg)
+// fetchAllTabs fetches and filters videos from all configured channel tabs.
+// Individual tab failures are logged as warnings and skipped; an error is
+// returned only when all tabs fail.
+func (p *Pipeline) fetchAllTabs(channelURL string, count int, filterCfg config.FilterConfig) ([]fetcher.VideoMeta, error) {
 	tabSuffixes := fetcher.ChannelTabSuffixes(filterCfg.Types)
 
 	var allVideos []fetcher.VideoMeta
-	var tabErrors []error
-	for _, suffix := range tabSuffixes {
-		tabURL := s.channelURL + suffix
-		videos, err := p.fetcher.FetchChannelTab(tabURL, count)
-		if err != nil {
-			slog.Warn("failed to fetch channel tab, skipping", "tab", suffix, "url", tabURL, "error", err)
-			tabErrors = append(tabErrors, err)
-			continue
-		}
-		slog.Info("fetched channel tab", "tab", suffix, "fetched", len(videos), "limit", count)
-
-		tabFiltered := fetcher.FilterVideos(videos, filterCfg)
-		if len(tabFiltered) > count {
-			tabFiltered = tabFiltered[:count]
-		}
-		allVideos = append(allVideos, tabFiltered...)
-	}
-
-	if len(allVideos) == 0 && len(tabErrors) > 0 {
-		s.err = fmt.Errorf("all channel tabs failed for %s", s.channelURL)
-		return
-	}
-	s.videos = allVideos
-}
-
-// ProcessChannel fetches videos from a channel, applies filters, and processes each video.
-func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *config.ChannelConfig) (*Stats, error) {
-	// Determine which channel tabs to fetch based on filter types.
-	filterCfg := p.config.EffectiveFilter(*channelCfg)
-	tabSuffixes := fetcher.ChannelTabSuffixes(filterCfg.Types)
-
-	// Fetch each tab independently: each tab gets its own count quota.
-	// Type filtering is handled at the URL tab level, so no over-fetch buffer needed.
-	var filtered []fetcher.VideoMeta
 	var tabErrors []error
 	for _, suffix := range tabSuffixes {
 		tabURL := channelURL + suffix
@@ -422,19 +388,41 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 			tabErrors = append(tabErrors, err)
 			continue
 		}
-		slog.Info("fetched channel tab", "tab", suffix, "fetched", len(videos), "limit", count)
+		slog.Info("fetched channel tab", "tab", suffix, "url", tabURL, "fetched", len(videos), "limit", count)
 
 		tabFiltered := fetcher.FilterVideos(videos, filterCfg)
 		if len(tabFiltered) > count {
 			tabFiltered = tabFiltered[:count]
 		}
-		filtered = append(filtered, tabFiltered...)
+		allVideos = append(allVideos, tabFiltered...)
 	}
-	if len(filtered) == 0 && len(tabErrors) > 0 {
+
+	if len(allVideos) == 0 && len(tabErrors) > 0 {
 		return nil, fmt.Errorf("all channel tabs failed for %s", channelURL)
 	}
-	slog.Info("total filtered videos across tabs", "count", len(filtered))
+	return allVideos, nil
+}
 
+// fetchChannelList fetches the video list for a channel source (Phase 1).
+func (p *Pipeline) fetchChannelList(s *batchSource) {
+	count := p.config.EffectiveCount(*s.channelCfg)
+	filterCfg := p.config.EffectiveFilter(*s.channelCfg)
+	videos, err := p.fetchAllTabs(s.channelURL, count, filterCfg)
+	if err != nil {
+		s.err = err
+		return
+	}
+	s.videos = videos
+}
+
+// ProcessChannel fetches videos from a channel, applies filters, and processes each video.
+func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *config.ChannelConfig) (*Stats, error) {
+	filterCfg := p.config.EffectiveFilter(*channelCfg)
+	filtered, err := p.fetchAllTabs(channelURL, count, filterCfg)
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("total filtered videos across tabs", "count", len(filtered))
 	return p.processChannelVideos(filtered, channelCfg)
 }
 
