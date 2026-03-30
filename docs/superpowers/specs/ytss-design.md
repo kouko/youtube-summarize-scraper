@@ -130,8 +130,9 @@ summary:
     enabled: true                    # Enable Mermaid flowchart generation (default: true)
 
 # Video filter settings (global default)
-# Per-channel "filter:" overrides the ENTIRE block, not individual fields.
-# If a channel defines its own filter, all global filter settings are ignored for that channel.
+# Per-channel/per-playlist "filter:" uses field-level merge with the global filter.
+# Only explicitly set fields override the global value; omitted fields inherit from global.
+# Pointer-based override (FilterOverride) distinguishes "not set" (nil) from "set to zero/empty".
 filter:
   types: ["video", "live", "short"]  # video / live / short (default: all types)
   min_duration: 0                    # Min seconds (0 = no filter)
@@ -158,10 +159,11 @@ channels:
     cookie:                          # Per-channel cookie (optional, overrides global)
       browser: "chrome"
       chrome_profile: "Profile 2"
-    filter:                          # Per-channel filter override (replaces ENTIRE global filter)
-      types: ["video"]               # This channel: videos only
-      min_duration: 60
-      exclude_availability: []       # Allow all availability types (override global exclude)
+    filter:                          # Per-channel filter override (field-level merge with global)
+      types: ["video"]               # This channel: videos only (overrides global types)
+      min_duration: 60               # Overrides global min_duration
+      # max_duration: omitted → inherits global value
+      exclude_availability: []       # Explicitly empty → allow all availability types
   - url: "https://www.youtube.com/@channel-b"
   - url: "https://www.youtube.com/@channel-c"
 
@@ -174,6 +176,9 @@ playlists:
     cookie:                       # Per-playlist cookie (optional, overrides global)
       browser: "chrome"
       chrome_profile: "Profile 1"
+    filter:                       # Per-playlist filter override (field-level merge with global)
+      min_duration: 0             # Explicitly 0 → no duration filter for this playlist
+      # Other fields inherit from global
   - url: "https://www.youtube.com/playlist?list=PLxxxxx"
 ```
 
@@ -341,7 +346,7 @@ Playlists are processed before channels in `ytss run`. Each playlist uses `yt-dl
 
 **Processing flow:**
 1. `yt-dlp --flat-playlist --dump-json <playlist_url>` (with cookie if configured)
-2. Apply global filter (`min_duration` / `max_duration` / `exclude_availability`)
+2. Apply effective filter (global merged with per-playlist override: `min_duration` / `max_duration` / `exclude_availability`)
 3. Take first N videos (playlist order preserved)
 4. Per video: global skip check → fetch full metadata → ProcessVideo
 5. Random delay between playlists (batch settings)

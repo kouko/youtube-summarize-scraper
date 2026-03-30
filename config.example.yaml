@@ -109,8 +109,9 @@ summary:
     enabled: true
 
 # Video filter settings (global default)
-# Per-channel "filter:" overrides the ENTIRE block, not individual fields.
-# If a channel defines its own filter, all global filter settings are ignored for that channel.
+# Per-channel/per-playlist "filter:" uses field-level merge with the global filter.
+# Only explicitly set fields override the global value; omitted fields inherit from global.
+# Example: setting only "min_duration: 60" in a channel filter inherits global types and exclude_availability.
 filter:
   types: ["video", "live", "short"]  # video / live / short (default: all types)
   min_duration: 0                    # Min seconds (0 = no filter)
@@ -144,6 +145,8 @@ playlists:
     name: "稍後觀看"              # Display name (optional, auto-detected)
     count: 10
     # video_embed: false            # Disable video embed for this playlist
+    # filter:                       # Per-playlist filter override (field-level merge)
+    #   min_duration: 0             # Override global min_duration
     # cookie:                      # Per-playlist cookie (optional)
     #   browser: "chrome"
     #   chrome_profile: "Profile 1"
@@ -154,9 +157,10 @@ channels:
     count: 10                        # Per tab (override default_count)
     # video_embed: false              # Disable video embed for this channel
     # summary_prompt_file: "./prompts/tech-summary.md"  # Per-channel prompt
-    # filter:
-    #   types: ["video"]
-    #   min_duration: 60
+    # filter:                           # Per-channel filter override (field-level merge)
+    #   types: ["video"]               # Override global types
+    #   min_duration: 60               # Override global min_duration
+    #   # Other fields (max_duration, exclude_availability) inherit from global
     # copy_to:                       # Copy files after processing
     #   path: "/path/to/vault/YouTube/{channel_name}/{upload_date}__{title}"
     #   files: ["summary", "transcription"]

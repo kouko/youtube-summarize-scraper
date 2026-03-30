@@ -361,8 +361,8 @@ func (p *Pipeline) fetchPlaylistList(s *batchSource) {
 		name = playlistID
 	}
 
-	// Apply global filter.
-	videos = fetcher.FilterVideos(videos, p.config.Filter)
+	// Apply effective filter (global merged with per-playlist override).
+	videos = fetcher.FilterVideos(videos, p.config.EffectivePlaylistFilter(*s.playlistCfg))
 	if len(videos) > count {
 		videos = videos[:count]
 	}
@@ -853,8 +853,8 @@ func (p *Pipeline) ProcessPlaylist(playlistURL string, count int, playlistCfg *c
 		"total", len(videos),
 	)
 
-	// Apply global filter (duration, live status) to playlist videos.
-	videos = fetcher.FilterVideos(videos, p.config.Filter)
+	// Apply effective filter (global merged with per-playlist override).
+	videos = fetcher.FilterVideos(videos, p.config.EffectivePlaylistFilter(*playlistCfg))
 
 	if len(videos) > count {
 		videos = videos[:count]
@@ -1338,6 +1338,7 @@ func playlistToChannelCfg(pl *config.PlaylistConfig) *config.ChannelConfig {
 		Count:             pl.Count,
 		SummaryPromptFile: pl.SummaryPromptFile,
 		VideoEmbed:        pl.VideoEmbed,
+		Filter:            pl.Filter,
 		Cookie:            pl.Cookie,
 		CopyTo:            pl.CopyTo,
 	}
