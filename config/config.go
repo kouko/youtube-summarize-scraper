@@ -228,6 +228,15 @@ type FilterConfig struct {
 	ExcludeAvailability []string `yaml:"exclude_availability"`
 }
 
+// FilterOverride allows per-channel/playlist partial filter overrides.
+// nil fields mean "inherit from global"; non-nil fields (even zero/empty) mean "override".
+type FilterOverride struct {
+	Types               *[]string `yaml:"types"`
+	MinDuration         *int      `yaml:"min_duration"`
+	MaxDuration         *int      `yaml:"max_duration"`
+	ExcludeAvailability *[]string `yaml:"exclude_availability"`
+}
+
 type ObsidianConfig struct {
 	Enabled     bool     `yaml:"enabled"`
 	AutoTags    []string `yaml:"auto_tags"`
@@ -247,19 +256,20 @@ type ChannelConfig struct {
 	Count            int           `yaml:"count"`
 	SummaryPromptFile string       `yaml:"summary_prompt_file"`
 	VideoEmbed       *bool         `yaml:"video_embed"`
-	Filter           *FilterConfig `yaml:"filter"`
-	Cookie           *CookieConfig `yaml:"cookie"`
-	CopyTo           *CopyToConfig `yaml:"copy_to"`
+	Filter           *FilterOverride `yaml:"filter"`
+	Cookie           *CookieConfig   `yaml:"cookie"`
+	CopyTo           *CopyToConfig   `yaml:"copy_to"`
 }
 
 type PlaylistConfig struct {
-	URL              string        `yaml:"url"`
-	Name             string        `yaml:"name"`
-	Count            int           `yaml:"count"`
-	SummaryPromptFile string       `yaml:"summary_prompt_file"`
-	VideoEmbed       *bool         `yaml:"video_embed"`
-	Cookie           *CookieConfig `yaml:"cookie"`
-	CopyTo           *CopyToConfig `yaml:"copy_to"`
+	URL              string          `yaml:"url"`
+	Name             string          `yaml:"name"`
+	Count            int             `yaml:"count"`
+	SummaryPromptFile string         `yaml:"summary_prompt_file"`
+	VideoEmbed       *bool           `yaml:"video_embed"`
+	Filter           *FilterOverride `yaml:"filter"`
+	Cookie           *CookieConfig   `yaml:"cookie"`
+	CopyTo           *CopyToConfig   `yaml:"copy_to"`
 }
 
 func Load(path string) (*Config, error) {
@@ -398,11 +408,34 @@ func (c *Config) EffectiveCount(ch ChannelConfig) int {
 	return c.DefaultCount
 }
 
-func (c *Config) EffectiveFilter(ch ChannelConfig) FilterConfig {
-	if ch.Filter != nil {
-		return *ch.Filter
+// mergeFilter applies a FilterOverride on top of the global FilterConfig.
+// nil fields in the override are inherited from base; non-nil fields (even
+// zero/empty) override the base value.
+func mergeFilter(base FilterConfig, over *FilterOverride) FilterConfig {
+	if over == nil {
+		return base
 	}
-	return c.Filter
+	if over.Types != nil {
+		base.Types = *over.Types
+	}
+	if over.MinDuration != nil {
+		base.MinDuration = *over.MinDuration
+	}
+	if over.MaxDuration != nil {
+		base.MaxDuration = *over.MaxDuration
+	}
+	if over.ExcludeAvailability != nil {
+		base.ExcludeAvailability = *over.ExcludeAvailability
+	}
+	return base
+}
+
+func (c *Config) EffectiveFilter(ch ChannelConfig) FilterConfig {
+	return mergeFilter(c.Filter, ch.Filter)
+}
+
+func (c *Config) EffectivePlaylistFilter(pl PlaylistConfig) FilterConfig {
+	return mergeFilter(c.Filter, pl.Filter)
 }
 
 func (c *Config) EffectiveVideoEmbed(ch ChannelConfig) bool {
