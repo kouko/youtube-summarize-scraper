@@ -48,6 +48,10 @@ jobs:
       - name: Build whisper-cli
         run: bash scripts/build-whisper.sh ${{ matrix.goos }} ${{ matrix.goarch }}
 
+      - name: Audit embedded binaries for dyld load problems
+        if: matrix.goos == 'darwin'
+        run: bash scripts/audit-embedded-binaries.sh embedded/bin/${{ matrix.goos }}-${{ matrix.goarch }}
+
       - name: Build binary
         run: |
           VERSION=${{ github.ref_name }}
