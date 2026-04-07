@@ -4,10 +4,10 @@ GOARCH ?= $(shell uname -m | sed 's/x86_64/amd64/' | sed 's/aarch64/arm64/')
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
 LDFLAGS := -X main.version=$(VERSION)
 
-.PHONY: all build clean download-deps build-deps deps build-all
+.PHONY: all build clean download-deps build-deps deps build-all audit-embedded
 
 # Default: build for current platform
-all: deps build
+all: deps audit-embedded build
 
 # Download/build all external dependencies for current platform
 deps: download-deps build-deps
@@ -21,6 +21,15 @@ build-deps:
 	@bash scripts/build-ffmpeg.sh $(GOOS) $(GOARCH)
 	@echo "==> Building whisper-cli for $(GOOS)-$(GOARCH)..."
 	@bash scripts/build-whisper.sh $(GOOS) $(GOARCH)
+
+# Audit every binary under embedded/bin/<platform>/ for dyld load
+# problems. Currently macOS-only (uses otool); the script skips
+# gracefully on other platforms. Catches build-host-specific rpath
+# entries, unresolved @rpath deps, and absolute-path deps outside
+# /usr/lib + /System/Library.
+audit-embedded:
+	@echo "==> Auditing embedded binaries for dyld load problems..."
+	@bash scripts/audit-embedded-binaries.sh embedded/bin/$(GOOS)-$(GOARCH)
 
 # Build the Go binary
 build:
