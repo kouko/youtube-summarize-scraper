@@ -78,6 +78,21 @@ CONFIGURE_FLAGS=(
     --disable-network
     --disable-debug
     --disable-runtime-cpudetect
+    # Disable autodetection of external libraries that might exist on the
+    # build host but not on end-user machines. Without these flags
+    # ffmpeg's ./configure happily picks up Homebrew-installed libs
+    # (e.g. libX11) and bakes their absolute paths into the resulting
+    # binary, which then fails with
+    # "Library not loaded: /opt/homebrew/opt/libx11/lib/..." on user
+    # machines that don't have libx11 installed via Homebrew.
+    # ytss only uses ffmpeg for audio/subtitle conversion, none of these
+    # video-display features are needed.
+    --disable-xlib
+    --disable-libxcb
+    --disable-libxcb-shm
+    --disable-libxcb-shape
+    --disable-libxcb-xfixes
+    --disable-sdl2
     # Enable what we need
     --enable-small
 )
