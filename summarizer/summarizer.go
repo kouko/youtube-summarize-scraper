@@ -125,6 +125,15 @@ func newSingleProvider(name string, cfg config.LLMConfig) (Summarizer, error) {
 			binaryPath: cfg.GeminiCLI.Path,
 			timeout:    geminiTimeout,
 		}, nil
+	case "antigravity-cli":
+		antigravityTimeout := time.Duration(cfg.Antigravity.Timeout) * time.Second
+		if antigravityTimeout == 0 {
+			antigravityTimeout = 15 * time.Minute
+		}
+		return &AntigravityCLISummarizer{
+			binaryPath: cfg.Antigravity.Path,
+			timeout:    antigravityTimeout,
+		}, nil
 	case "qwen-code":
 		qwenTimeout := time.Duration(cfg.QwenCode.Timeout) * time.Second
 		if qwenTimeout == 0 {

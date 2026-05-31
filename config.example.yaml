@@ -58,7 +58,7 @@ cookie:
 
 # LLM settings
 llm:
-  provider: "ollama"                 # ollama / llamacpp / claude-api / claude-code / gemini-cli / qwen-code / openai-compat
+  provider: "ollama"                 # ollama / llamacpp / claude-api / claude-code / gemini-cli / antigravity-cli / qwen-code / openai-compat
                                      # Use a list for fallback chain (first = primary, rest = fallbacks):
                                      #   provider:
                                      #     - "gemini-cli"
@@ -85,6 +85,11 @@ llm:
     model: "auto"                      # Model alias(auto/pro/flash/flash-lite), reference to https://geminicli.com/docs/cli/cli-reference/#model-aliases for details
     path: ""                           # Path to gemini binary (default: search in PATH)
     timeout: 900                       # Seconds per LLM request (default: 900 = 15 min)
+  antigravity-cli:                     # Google Antigravity CLI (`agy`), Gemini CLI's successor
+    path: ""                           # Path to agy binary (default: search in PATH)
+    timeout: 900                       # Seconds per LLM request (default: 900 = 15 min)
+                                       # NOTE: agy has no per-call model flag; the model is set
+                                       # interactively via /model and persists across sessions.
   qwen-code:                           # Qwen Code CLI (gemini-cli fork, free 1000 req/day)
     model: "coder-model"               # "coder-model" (free tier, server-routed) or "qwen3-coder-plus" / "qwen3.5-plus" (paid)
     path: ""                           # Path to qwen binary (default: search in PATH)

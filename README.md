@@ -8,7 +8,7 @@ A Go CLI tool that batch-processes YouTube channels to download subtitles, trans
 - 4-step cascading subtitle download (manual → auto → fallback)
 - Automatic audio transcription via whisper.cpp when no subtitles available
 - Language-specialized whisper models (kotoba-ja, belle-zh)
-- Pluggable LLM backends: Ollama, llama.cpp, Claude API, Claude Code, Gemini CLI, Qwen Code, OpenAI-compatible
+- Pluggable LLM backends: Ollama, llama.cpp, Claude API, Claude Code, Gemini CLI, Antigravity CLI, Qwen Code, OpenAI-compatible
 - Three-stage LLM pipeline: summary → keywords → Mermaid flowchart
 - Built-in prompt templates in English, Traditional Chinese, Japanese
 - Skip already-processed videos (glob-based detection)
@@ -103,7 +103,7 @@ See [config.example.yaml](config.example.yaml) for all available options.
 |------|-------------|
 | `-c, --config` | Config file path (default: `./config.yaml`) |
 | `-o, --output` | Output directory (overrides config) |
-| `--llm` | Override LLM backend (`ollama`/`llamacpp`/`claude-api`/`claude-code`/`gemini-cli`/`qwen-code`/`openai-compat`) |
+| `--llm` | Override LLM backend (`ollama`/`llamacpp`/`claude-api`/`claude-code`/`gemini-cli`/`antigravity-cli`/`qwen-code`/`openai-compat`) |
 | `--cookie-file` | Path to cookie.txt (Netscape format) |
 | `--cookie-browser` | Extract cookie from browser (`chrome`/`firefox`/`safari`/`edge`/`brave`) |
 | `--force` | Force re-process even if output exists |

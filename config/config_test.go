@@ -1329,3 +1329,14 @@ playlists:
 func writeTestFile(path, content string) error {
 	return os.WriteFile(path, []byte(content), 0644)
 }
+
+func TestExpandPaths_AntigravityPath(t *testing.T) {
+	// All CLI-backend binary paths must support ~ expansion; antigravity-cli
+	// included (regression: it was initially omitted from expandPaths).
+	c := &Config{}
+	c.LLM.Antigravity.Path = "~/bin/agy"
+	c.expandPaths()
+	if got, want := c.LLM.Antigravity.Path, ExpandHome("~/bin/agy"); got != want {
+		t.Errorf("Antigravity.Path not expanded: got %q, want %q", got, want)
+	}
+}
