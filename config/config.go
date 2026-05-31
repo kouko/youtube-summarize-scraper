@@ -157,6 +157,7 @@ type LLMConfig struct {
 	ClaudeAPI                ClaudeAPIConfig        `yaml:"claude-api"`
 	ClaudeCode               ClaudeCodeConfig       `yaml:"claude-code"`
 	GeminiCLI                GeminiCLIConfig        `yaml:"gemini-cli"`
+	Antigravity              AntigravityCLIConfig   `yaml:"antigravity-cli"`
 	QwenCode                 QwenCodeConfig         `yaml:"qwen-code"`
 	OpenAICompat             OpenAICompatConfig     `yaml:"openai-compat"`
 }
@@ -186,6 +187,15 @@ type ClaudeCodeConfig struct {
 type GeminiCLIConfig struct {
 	Model   string `yaml:"model"`
 	Path    string `yaml:"path"`
+	Timeout int    `yaml:"timeout"` // Seconds per LLM request (default: 900)
+}
+
+// AntigravityCLIConfig configures the Google Antigravity CLI (`agy`) backend.
+// agy print mode has no per-call model flag (the model is chosen interactively
+// via /model and persists across sessions), so there is intentionally no Model
+// field here.
+type AntigravityCLIConfig struct {
+	Path    string `yaml:"path"`    // Path to agy binary (default: search in PATH)
 	Timeout int    `yaml:"timeout"` // Seconds per LLM request (default: 900)
 }
 
@@ -340,6 +350,9 @@ func DefaultConfig() *Config {
 				Model:   "auto",
 				Timeout: 900,
 			},
+			Antigravity: AntigravityCLIConfig{
+				Timeout: 900,
+			},
 			QwenCode: QwenCodeConfig{
 				Model:   "coder-model",
 				Timeout: 900,
@@ -384,6 +397,7 @@ func (c *Config) expandPaths() {
 	c.Cookie.File = ExpandHome(c.Cookie.File)
 	c.LLM.ClaudeCode.Path = ExpandHome(c.LLM.ClaudeCode.Path)
 	c.LLM.GeminiCLI.Path = ExpandHome(c.LLM.GeminiCLI.Path)
+	c.LLM.Antigravity.Path = ExpandHome(c.LLM.Antigravity.Path)
 	c.LLM.QwenCode.Path = ExpandHome(c.LLM.QwenCode.Path)
 	c.Summary.SummaryPromptFile = ExpandHome(c.Summary.SummaryPromptFile)
 

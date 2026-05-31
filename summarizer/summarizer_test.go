@@ -51,6 +51,19 @@ func TestNewSingleProvider_AllProviders(t *testing.T) {
 	}
 }
 
+func TestNewSingleProvider_Antigravity(t *testing.T) {
+	cfg := config.LLMConfig{
+		Antigravity: config.AntigravityCLIConfig{Timeout: 900},
+	}
+	s, err := newSingleProvider("antigravity-cli", cfg)
+	if err != nil {
+		t.Fatalf("newSingleProvider(antigravity-cli): %v", err)
+	}
+	if _, ok := s.(*AntigravityCLISummarizer); !ok {
+		t.Fatalf("expected *AntigravityCLISummarizer, got %T", s)
+	}
+}
+
 func TestNewSingleProvider_Unknown(t *testing.T) {
 	_, err := newSingleProvider("nonexistent", config.LLMConfig{})
 	if err == nil {

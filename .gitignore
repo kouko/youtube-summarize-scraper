@@ -12,6 +12,9 @@ config.yaml
 # Runtime output (video files, subtitles, summaries)
 /ytss-output/
 
+# Antigravity CLI (agy) per-conversation state written into the working directory
+.antigravitycli/
+
 # IDE
 .idea/
 .vscode/
