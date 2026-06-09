@@ -154,8 +154,16 @@ func (idx *VideoIndex) StatCheck(videoID, suffix string) bool {
 	return false
 }
 
-// Add registers a new video directory in the index.
+// Add registers a video directory in the index. If the video is already
+// indexed (e.g. discovered by BuildIndex at startup), its recorded file flags
+// are preserved and only the directory is updated — otherwise re-adding a
+// known video before the resume check would wipe its transcription.md flag and
+// silently defeat the resume path.
 func (idx *VideoIndex) Add(videoID, dir string) {
+	if entry, ok := idx.entries[videoID]; ok {
+		entry.Dir = dir
+		return
+	}
 	idx.entries[videoID] = &VideoEntry{
 		Dir:   dir,
 		Files: make(map[string]bool),

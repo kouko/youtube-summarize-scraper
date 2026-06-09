@@ -196,6 +196,36 @@ func TestHasFile_Index_VideoNotInIndex(t *testing.T) {
 	}
 }
 
+func TestAdd_PreservesKnownFilesOnReAdd(t *testing.T) {
+	tmp := t.TempDir()
+	createVideoDir(t, tmp, "@ch", "2024-01-01__v1__title", []string{
+		"2024-01-01__v1__transcription.md",
+	})
+	idx := BuildIndex(tmp)
+	if !idx.HasFile("v1", "transcription.md") {
+		t.Fatal("precondition: transcription.md should be indexed")
+	}
+	dir := idx.FindVideoDir("v1")
+
+	// ProcessVideo calls Add(id, dir) before its resume check. Add must NOT
+	// wipe the already-indexed transcription.md flag, or the resume path
+	// (has transcription, no summary) can never fire — defeating resume and
+	// forcing a full re-download/re-transcribe on the next run.
+	idx.Add("v1", dir)
+
+	if !idx.HasFile("v1", "transcription.md") {
+		t.Error("Add must preserve previously-indexed files for an existing video")
+	}
+}
+
+func TestAdd_NewEntryStartsWithNoFiles(t *testing.T) {
+	idx := BuildIndex(t.TempDir())
+	idx.Add("vNew", "/some/dir")
+	if idx.HasFile("vNew", "summary.md") || idx.HasFile("vNew", "transcription.md") {
+		t.Error("a freshly added video should have no recorded files")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // IsProcessed
 // ---------------------------------------------------------------------------
