@@ -67,7 +67,7 @@ func TestAntigravityCLISummarize_PassesPromptViaStdin(t *testing.T) {
 func TestAntigravityCLISummarize_ArgsHaveNoModelFlag(t *testing.T) {
 	// agy print mode has no per-call model flag; assert we send -p and
 	// --print-timeout but never -m/--model.
-	fake := writeFakeAgy(t, `printf '%s' "$*"` + "\n")
+	fake := writeFakeAgy(t, `printf '%s' "$*"`+"\n")
 
 	s := &AntigravityCLISummarizer{binaryPath: fake, timeout: time.Minute}
 	res, err := s.Summarize("x", SummarizeOptions{Model: "gemini-3-pro"})

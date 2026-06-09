@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Provide go:embed placeholder
+        # embedded/bin ships only .gitkeep in git; the real binaries (yt-dlp,
+        # ffmpeg, whisper-cli) are fetched/built at release time. `//go:embed
+        # bin` excludes dotfiles, so without a non-dot file the embedded
+        # package fails to compile ("contains no embeddable files"). The unit
+        # tests never exec the real binaries, so an empty placeholder is enough
+        # to let every package build and test.
+        run: touch embedded/bin/ci-placeholder
+
+      - name: Check formatting (gofmt)
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::These files are not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (race)
+        run: go test -race ./...

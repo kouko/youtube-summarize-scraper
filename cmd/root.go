@@ -5,14 +5,14 @@ import (
 )
 
 var (
-	cfgFile       string
-	outputDir     string
-	llmOverride   string
-	cookieFile    string
-	cookieBrowser string
-	forceFlag     bool
-	dryRun        bool
-	verbose       bool
+	cfgFile          string
+	outputDir        string
+	llmOverride      string
+	cookieFile       string
+	cookieBrowser    string
+	forceFlag        bool
+	dryRun           bool
+	verbose          bool
 	watchFlag        bool
 	intervalFlag     int
 	fetchConcurrency int

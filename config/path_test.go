@@ -86,23 +86,23 @@ channels:
 	}
 
 	checks := map[string]string{
-		"OutputDir":                    filepath.Join(home, "ytss-output"),
-		"Cookie.File":                 filepath.Join(home, "cookies.txt"),
-		"LLM.ClaudeCode.Path":         filepath.Join(home, "bin/claude"),
-		"LLM.GeminiCLI.Path":          filepath.Join(home, "bin/gemini"),
-		"Summary.SummaryPromptFile":    filepath.Join(home, "prompts/summary.md"),
+		"OutputDir":                     filepath.Join(home, "ytss-output"),
+		"Cookie.File":                   filepath.Join(home, "cookies.txt"),
+		"LLM.ClaudeCode.Path":           filepath.Join(home, "bin/claude"),
+		"LLM.GeminiCLI.Path":            filepath.Join(home, "bin/gemini"),
+		"Summary.SummaryPromptFile":     filepath.Join(home, "prompts/summary.md"),
 		"Channels[0].SummaryPromptFile": filepath.Join(home, "prompts/channel.md"),
-		"Channels[0].CopyTo.Path":     filepath.Join(home, "notes/youtube"),
+		"Channels[0].CopyTo.Path":       filepath.Join(home, "notes/youtube"),
 	}
 
 	actuals := map[string]string{
-		"OutputDir":                    cfg.OutputDir,
-		"Cookie.File":                 cfg.Cookie.File,
-		"LLM.ClaudeCode.Path":         cfg.LLM.ClaudeCode.Path,
-		"LLM.GeminiCLI.Path":          cfg.LLM.GeminiCLI.Path,
-		"Summary.SummaryPromptFile":    cfg.Summary.SummaryPromptFile,
+		"OutputDir":                     cfg.OutputDir,
+		"Cookie.File":                   cfg.Cookie.File,
+		"LLM.ClaudeCode.Path":           cfg.LLM.ClaudeCode.Path,
+		"LLM.GeminiCLI.Path":            cfg.LLM.GeminiCLI.Path,
+		"Summary.SummaryPromptFile":     cfg.Summary.SummaryPromptFile,
 		"Channels[0].SummaryPromptFile": cfg.Channels[0].SummaryPromptFile,
-		"Channels[0].CopyTo.Path":     cfg.Channels[0].CopyTo.Path,
+		"Channels[0].CopyTo.Path":       cfg.Channels[0].CopyTo.Path,
 	}
 
 	for name, want := range checks {

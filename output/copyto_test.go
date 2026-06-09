@@ -227,10 +227,10 @@ func TestExecuteCopyTo_CustomFilename(t *testing.T) {
 
 func TestNormalizeCopyToVars(t *testing.T) {
 	tests := []struct {
-		name       string
-		input      CopyToVars
-		wantDate   string
-		wantTitle  string
+		name      string
+		input     CopyToVars
+		wantDate  string
+		wantTitle string
 	}{
 		{
 			name: "all fields present",
