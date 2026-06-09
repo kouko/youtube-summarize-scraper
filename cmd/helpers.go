@@ -63,8 +63,8 @@ func setupLogging(verboseFlag bool) {
 
 // printStats prints the completion summary from pipeline Stats.
 func printStats(stats *pipeline.Stats) {
-	fmt.Printf("completed: %d success, %d skipped, %d failed\n",
-		stats.Success, stats.Skipped, stats.Failed)
+	fmt.Printf("completed: %d success, %d skipped, %d partial, %d failed\n",
+		stats.Success, stats.Skipped, stats.Partial, stats.Failed)
 
 	if verbose && len(stats.Errors) > 0 {
 		fmt.Println("\nFailed videos:")

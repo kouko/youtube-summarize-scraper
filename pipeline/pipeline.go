@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"math/rand/v2"
@@ -50,6 +51,11 @@ type Pipeline struct {
 type Stats struct {
 	Success int
 	Skipped int
+	// Partial counts videos whose transcription was produced but whose
+	// summarization failed (e.g. all LLM providers out of quota). These are
+	// not lost: a later run resumes summarization. Kept separate from Success
+	// (the summary is missing) and from Failed (the transcript is usable).
+	Partial int
 	Failed  int
 	Errors  []VideoError
 }
@@ -299,6 +305,7 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 
 		total.Success += stats.Success
 		total.Skipped += stats.Skipped
+		total.Partial += stats.Partial
 		total.Failed += stats.Failed
 		total.Errors = append(total.Errors, stats.Errors...)
 
@@ -330,6 +337,7 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 	slog.Info("batch complete",
 		"success", total.Success,
 		"skipped", total.Skipped,
+		"partial", total.Partial,
 		"failed", total.Failed,
 	)
 
@@ -453,23 +461,25 @@ func (p *Pipeline) processChannelVideos(videos []fetcher.VideoMeta, channelCfg *
 		)
 
 		metaCopy := meta
-		if err := p.ProcessVideo(&metaCopy, channelCfg); err != nil {
-			if IsSkipped(err) {
-				stats.Skipped++
-			} else {
-				slog.Error("video processing failed",
-					"video_id", meta.ID,
-					"title", meta.Title,
-					"error", err,
-				)
-				stats.Failed++
-				stats.Errors = append(stats.Errors, VideoError{
-					VideoID: meta.ID,
-					Title:   meta.Title,
-					Err:     err,
-				})
-			}
-		} else {
+		err := p.ProcessVideo(&metaCopy, channelCfg)
+		switch classifyResult(err) {
+		case bucketSkipped:
+			stats.Skipped++
+		case bucketPartial:
+			stats.Partial++
+		case bucketFailed:
+			slog.Error("video processing failed",
+				"video_id", meta.ID,
+				"title", meta.Title,
+				"error", err,
+			)
+			stats.Failed++
+			stats.Errors = append(stats.Errors, VideoError{
+				VideoID: meta.ID,
+				Title:   meta.Title,
+				Err:     err,
+			})
+		case bucketSuccess:
 			stats.Success++
 			// Post-processing: copy_to
 			if channelCfg != nil && channelCfg.CopyTo != nil {
@@ -562,6 +572,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 						subLang := resolveVideoLanguage(meta)
 						if err := p.runSummarization(meta, channelCfg, channelHandle, videoDir, filePrefix, transcriptText, subLang, "resumed", processedAtNow()); err != nil {
 							slog.Warn("summarization failed on resume", "video_id", meta.ID, "error", err)
+							return fmt.Errorf("%w: %v", errPartial, err)
 						}
 					}
 					slog.Info("resume complete", "video_id", meta.ID)
@@ -664,6 +675,7 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 		if err := p.runSummarization(meta, channelCfg, channelHandle, videoDir, filePrefix, transcriptText, subLang, subType, processedAt); err != nil {
 			slog.Warn("summarization failed, transcription still produced",
 				"video_id", meta.ID, "error", err)
+			return fmt.Errorf("%w: %v", errPartial, err)
 		}
 	}
 
@@ -936,23 +948,25 @@ func (p *Pipeline) processPlaylistVideos(videos []fetcher.VideoMeta, playlistID,
 		}
 		p.index.Add(metaCopy.ID, targetDir)
 
-		if err := p.processVideoInPlaylist(&metaCopy, channelHandle, targetDir, playlistName, playlistID, playlistCfg); err != nil {
-			if IsSkipped(err) {
-				stats.Skipped++
-			} else {
-				slog.Error("video processing failed",
-					"video_id", metaCopy.ID,
-					"title", metaCopy.Title,
-					"error", err,
-				)
-				stats.Failed++
-				stats.Errors = append(stats.Errors, VideoError{
-					VideoID: metaCopy.ID,
-					Title:   metaCopy.Title,
-					Err:     err,
-				})
-			}
-		} else {
+		err := p.processVideoInPlaylist(&metaCopy, channelHandle, targetDir, playlistName, playlistID, playlistCfg)
+		switch classifyResult(err) {
+		case bucketSkipped:
+			stats.Skipped++
+		case bucketPartial:
+			stats.Partial++
+		case bucketFailed:
+			slog.Error("video processing failed",
+				"video_id", metaCopy.ID,
+				"title", metaCopy.Title,
+				"error", err,
+			)
+			stats.Failed++
+			stats.Errors = append(stats.Errors, VideoError{
+				VideoID: metaCopy.ID,
+				Title:   metaCopy.Title,
+				Err:     err,
+			})
+		case bucketSuccess:
 			stats.Success++
 			if playlistCfg != nil && playlistCfg.CopyTo != nil {
 				fp := output.VideoFilePrefix(convertedDate, metaCopy.ID)
@@ -1000,6 +1014,7 @@ func (p *Pipeline) processVideoInPlaylist(
 						channelCfg := playlistToChannelCfg(playlistCfg)
 						if err := p.runSummarizationPlaylist(meta, channelCfg, channelHandle, videoDir, filePrefix, transcriptText, subLang, "resumed", processedAtNow(), playlist, playlistID); err != nil {
 							slog.Warn("summarization failed on resume", "video_id", meta.ID, "error", err)
+							return fmt.Errorf("%w: %v", errPartial, err)
 						}
 					}
 					slog.Info("resume complete", "video_id", meta.ID)
@@ -1105,6 +1120,7 @@ func (p *Pipeline) processVideoInPlaylist(
 		if err := p.runSummarizationPlaylist(meta, channelCfg, channelHandle, videoDir, filePrefix, transcriptText, subLang, subType, processedAt, playlist, playlistID); err != nil {
 			slog.Warn("summarization failed, transcription still produced",
 				"video_id", meta.ID, "error", err)
+			return fmt.Errorf("%w: %v", errPartial, err)
 		}
 	}
 
@@ -1345,6 +1361,43 @@ var errSkipped = fmt.Errorf("skipped")
 // IsSkipped returns true if the error is the sentinel skipped error.
 func IsSkipped(err error) bool {
 	return err == errSkipped
+}
+
+// errPartial is a sentinel signaling that a video was partially processed:
+// its transcription was written but summarization failed (e.g. all LLM
+// providers out of quota). It is wrapped with the underlying cause via %w,
+// so detection uses errors.Is rather than equality.
+var errPartial = errors.New("partial: transcription produced but summarization failed")
+
+// IsPartial returns true if err is (or wraps) the partial sentinel.
+func IsPartial(err error) bool {
+	return errors.Is(err, errPartial)
+}
+
+// resultBucket classifies a single video's processing outcome for Stats.
+type resultBucket int
+
+const (
+	bucketSuccess resultBucket = iota
+	bucketSkipped
+	bucketPartial
+	bucketFailed
+)
+
+// classifyResult maps a ProcessVideo return value to its stats bucket.
+// Order matters: skipped and partial are sentinels checked before the
+// catch-all failed bucket.
+func classifyResult(err error) resultBucket {
+	switch {
+	case err == nil:
+		return bucketSuccess
+	case IsSkipped(err):
+		return bucketSkipped
+	case IsPartial(err):
+		return bucketPartial
+	default:
+		return bucketFailed
+	}
 }
 
 // deriveChannelHandle extracts the channel handle from VideoMeta.
