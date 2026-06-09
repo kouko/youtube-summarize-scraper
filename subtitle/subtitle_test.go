@@ -53,8 +53,8 @@ This is a test
 			expected: "Hello world\nThis is a test",
 		},
 		{
-			name: "SRT with CRLF line endings",
-			input: "1\r\n00:00:00,000 --> 00:00:05,000\r\nHello world\r\n\r\n2\r\n00:00:05,000 --> 00:00:10,000\r\nThis is a test\r\n",
+			name:     "SRT with CRLF line endings",
+			input:    "1\r\n00:00:00,000 --> 00:00:05,000\r\nHello world\r\n\r\n2\r\n00:00:05,000 --> 00:00:10,000\r\nThis is a test\r\n",
 			expected: "Hello world\nThis is a test",
 		},
 		{

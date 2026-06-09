@@ -18,8 +18,8 @@ const cacheDir = ".ytss/bin"
 
 // BinPaths holds resolved paths to embedded tool binaries.
 type BinPaths struct {
-	YtDlp     string
-	FFmpeg    string
+	YtDlp      string
+	FFmpeg     string
 	WhisperCLI string
 }
 

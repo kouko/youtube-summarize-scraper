@@ -97,9 +97,9 @@ func resolveTemplate(template string, vars CopyToVars, fileType string) string {
 
 	// Progressive shortening: channel_name → playlist_name → title.
 	type field struct {
-		raw      *string                   // pointer to the sanitized value
-		src      string                    // original raw value from vars
-		sanitize func(string, int) string  // sanitizer function
+		raw      *string                  // pointer to the sanitized value
+		src      string                   // original raw value from vars
+		sanitize func(string, int) string // sanitizer function
 	}
 	fields := []field{
 		{&channelName, vars.ChannelName, SanitizeTitle},
@@ -220,4 +220,3 @@ func ExecuteCopyTo(cfg config.CopyToConfig, videoDir string, filePrefix string, 
 	}
 	return nil
 }
-

@@ -194,14 +194,14 @@ func TestValidateMermaid(t *testing.T) {
 		wantHas   string // substring expected in result
 	}{
 		{
-			name: "valid graph TD",
-			input: "Here is the flowchart:\n```mermaid\ngraph TD\n    A[\"Start\"] --> B[\"End\"]\n```\n",
+			name:      "valid graph TD",
+			input:     "Here is the flowchart:\n```mermaid\ngraph TD\n    A[\"Start\"] --> B[\"End\"]\n```\n",
 			wantValid: true,
 			wantHas:   "graph TD",
 		},
 		{
-			name: "valid flowchart",
-			input: "```mermaid\nflowchart TD\n    A[\"Start\"] --> B[\"Middle\"] --> C[\"End\"]\n```",
+			name:      "valid flowchart",
+			input:     "```mermaid\nflowchart TD\n    A[\"Start\"] --> B[\"Middle\"] --> C[\"End\"]\n```",
 			wantValid: true,
 			wantHas:   "flowchart TD",
 		},
