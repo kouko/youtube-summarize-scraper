@@ -54,11 +54,21 @@ func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
 	if threshold <= 0 {
 		threshold = 1
 	}
+	rateLimitCooldown := time.Duration(strategy.RateLimitCooldownSeconds) * time.Second
+	if rateLimitCooldown == 0 {
+		rateLimitCooldown = 60 * time.Second
+	}
+
+	makeBreaker := func(name string) *CircuitBreaker {
+		cb := newCircuitBreaker(name, threshold, cooldown)
+		cb.rateLimitCooldown = rateLimitCooldown
+		return cb
+	}
 
 	entries := []providerEntry{{
 		name:    cfg.Provider.Primary(),
 		impl:    primary,
-		breaker: newCircuitBreaker(cfg.Provider.Primary(), threshold, cooldown),
+		breaker: makeBreaker(cfg.Provider.Primary()),
 	}}
 
 	for _, name := range fallbacks {
@@ -69,7 +79,7 @@ func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
 		entries = append(entries, providerEntry{
 			name:    name,
 			impl:    fb,
-			breaker: newCircuitBreaker(name, threshold, cooldown),
+			breaker: makeBreaker(name),
 		})
 	}
 

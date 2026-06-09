@@ -377,6 +377,7 @@ llm:
   provider_fallback_strategy:
     cooldown_seconds: 600
     failure_threshold: 3
+    rate_limit_cooldown_seconds: 90
 `
 	path := t.TempDir() + "/config.yaml"
 	if err := writeTestFile(path, yamlContent); err != nil {
@@ -393,6 +394,9 @@ llm:
 	}
 	if cfg.LLM.ProviderFallbackStrategy.FailureThreshold != 3 {
 		t.Errorf("FailureThreshold: got %d, want 3", cfg.LLM.ProviderFallbackStrategy.FailureThreshold)
+	}
+	if cfg.LLM.ProviderFallbackStrategy.RateLimitCooldownSeconds != 90 {
+		t.Errorf("RateLimitCooldownSeconds: got %d, want 90", cfg.LLM.ProviderFallbackStrategy.RateLimitCooldownSeconds)
 	}
 }
 
@@ -419,6 +423,9 @@ func TestProviderList_Default(t *testing.T) {
 	}
 	if cfg.LLM.ProviderFallbackStrategy.CooldownSeconds != 300 {
 		t.Errorf("Default cooldown: got %d, want 300", cfg.LLM.ProviderFallbackStrategy.CooldownSeconds)
+	}
+	if cfg.LLM.ProviderFallbackStrategy.RateLimitCooldownSeconds != 60 {
+		t.Errorf("Default rate-limit cooldown: got %d, want 60", cfg.LLM.ProviderFallbackStrategy.RateLimitCooldownSeconds)
 	}
 }
 
@@ -748,7 +755,7 @@ func TestReloadPartial_UpdatesVideoEmbed(t *testing.T) {
 
 // --- FilterOverride merge tests ---
 
-func ptrInt(v int) *int          { return &v }
+func ptrInt(v int) *int               { return &v }
 func ptrStrings(v []string) *[]string { return &v }
 
 func TestEffectiveFilter_NilOverride(t *testing.T) {

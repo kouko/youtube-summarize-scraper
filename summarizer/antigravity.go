@@ -58,8 +58,8 @@ func (a *AntigravityCLISummarizer) Summarize(text string, opts SummarizeOptions)
 	if err := cmd.Run(); err != nil {
 		combined := stderr.String() + "\n" + stdout.String()
 		baseErr := fmt.Errorf("antigravity-cli: execution failed: %w\nstderr: %s", err, stderr.String())
-		if isQuotaMessage(combined) {
-			return SummarizeResult{}, &QuotaError{Provider: "antigravity-cli", Err: baseErr}
+		if qe := quotaErrorFrom("antigravity-cli", baseErr, 0, combined, "", time.Now()); qe != nil {
+			return SummarizeResult{}, qe
 		}
 		return SummarizeResult{}, baseErr
 	}

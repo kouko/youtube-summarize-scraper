@@ -63,8 +63,8 @@ func (q *QwenCodeSummarizer) Summarize(text string, opts SummarizeOptions) (Summ
 	if err := cmd.Run(); err != nil {
 		combined := stderr.String() + "\n" + stdout.String()
 		baseErr := fmt.Errorf("qwen-code: execution failed: %w\nstderr: %s", err, stderr.String())
-		if isQuotaMessage(combined) {
-			return SummarizeResult{}, &QuotaError{Provider: "qwen-code", Err: baseErr}
+		if qe := quotaErrorFrom("qwen-code", baseErr, 0, combined, "", time.Now()); qe != nil {
+			return SummarizeResult{}, qe
 		}
 		return SummarizeResult{}, baseErr
 	}

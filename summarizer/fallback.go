@@ -40,10 +40,10 @@ func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (Summ
 			return result, nil // result already contains actual provider/model
 		}
 
-		if IsQuotaError(err) {
-			p.breaker.RecordFailure()
+		if qe := asQuotaError(err); qe != nil {
+			p.breaker.RecordQuotaFailure(qe.RetryAfter, qe.Kind)
 			slog.Warn("provider quota exceeded, trying fallback",
-				"provider", p.name, "error", err)
+				"provider", p.name, "kind", qe.Kind, "retry_after", qe.RetryAfter, "error", err)
 			lastErr = err
 			continue
 		}

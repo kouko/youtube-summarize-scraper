@@ -56,8 +56,12 @@ func (p ProviderList) String() string {
 
 // FallbackStrategyConfig controls how the provider fallback chain behaves.
 type FallbackStrategyConfig struct {
-	CooldownSeconds  int `yaml:"cooldown_seconds"`  // Seconds before retrying a failed provider (default: 300)
-	FailureThreshold int `yaml:"failure_threshold"`  // Quota errors before skipping a provider (default: 1)
+	CooldownSeconds  int `yaml:"cooldown_seconds"`  // Seconds before retrying an exhausted provider (default: 300)
+	FailureThreshold int `yaml:"failure_threshold"` // Quota errors before skipping a provider (default: 1)
+	// RateLimitCooldownSeconds is the shorter cooldown for transient rate-limit
+	// errors (HTTP 429/529, "too many requests") when the server gives no
+	// Retry-After hint (default: 60). A server-advised Retry-After always wins.
+	RateLimitCooldownSeconds int `yaml:"rate_limit_cooldown_seconds"`
 }
 
 // SetPrimary replaces the primary provider while keeping fallbacks.
@@ -109,38 +113,38 @@ func (p ProviderList) Contains(name string) bool {
 }
 
 type Config struct {
-	OutputDir          string          `yaml:"output_dir"`
-	PreferredLanguages []string        `yaml:"preferred_languages"`
-	DefaultCount       int             `yaml:"default_count"`
-	Timezone           string          `yaml:"timezone"`
-	Whisper            WhisperConfig   `yaml:"whisper"`
-	Cookie             CookieConfig    `yaml:"cookie"`
-	LLM                LLMConfig       `yaml:"llm"`
-	Summary            SummaryConfig   `yaml:"summary"`
-	Filter             FilterConfig    `yaml:"filter"`
-	Batch              BatchConfig     `yaml:"batch"`
-	VideoEmbed         bool            `yaml:"video_embed"`
-	Obsidian           ObsidianConfig  `yaml:"obsidian"`
+	OutputDir          string           `yaml:"output_dir"`
+	PreferredLanguages []string         `yaml:"preferred_languages"`
+	DefaultCount       int              `yaml:"default_count"`
+	Timezone           string           `yaml:"timezone"`
+	Whisper            WhisperConfig    `yaml:"whisper"`
+	Cookie             CookieConfig     `yaml:"cookie"`
+	LLM                LLMConfig        `yaml:"llm"`
+	Summary            SummaryConfig    `yaml:"summary"`
+	Filter             FilterConfig     `yaml:"filter"`
+	Batch              BatchConfig      `yaml:"batch"`
+	VideoEmbed         bool             `yaml:"video_embed"`
+	Obsidian           ObsidianConfig   `yaml:"obsidian"`
 	Playlists          []PlaylistConfig `yaml:"playlists"`
 	Channels           []ChannelConfig  `yaml:"channels"`
 }
 
 type BatchConfig struct {
 	RandomOrder      bool `yaml:"random_order"`      // Shuffle channel processing order
-	DelayMin         int  `yaml:"delay_min"`          // Min seconds delay between channels
-	DelayMax         int  `yaml:"delay_max"`          // Max seconds delay between channels
-	Watch            bool `yaml:"watch"`              // Enable watch mode (loop)
-	WatchInterval    int  `yaml:"watch_interval"`     // Minutes between iterations (default: 10)
+	DelayMin         int  `yaml:"delay_min"`         // Min seconds delay between channels
+	DelayMax         int  `yaml:"delay_max"`         // Max seconds delay between channels
+	Watch            bool `yaml:"watch"`             // Enable watch mode (loop)
+	WatchInterval    int  `yaml:"watch_interval"`    // Minutes between iterations (default: 10)
 	FetchConcurrency int  `yaml:"fetch_concurrency"` // Max parallel yt-dlp list fetches (default: 3)
 }
 
 type WhisperConfig struct {
-	ModelDir           string            `yaml:"model_dir"`
-	DefaultModel       string            `yaml:"default_model"`
-	LanguageModels     map[string]string `yaml:"language_models"`
-	ModelSources       map[string]string `yaml:"model_sources"`
-	TranscribeTimeout  int              `yaml:"transcribe_timeout"`
-	DownloadTimeout    int              `yaml:"download_timeout"`
+	ModelDir          string            `yaml:"model_dir"`
+	DefaultModel      string            `yaml:"default_model"`
+	LanguageModels    map[string]string `yaml:"language_models"`
+	ModelSources      map[string]string `yaml:"model_sources"`
+	TranscribeTimeout int               `yaml:"transcribe_timeout"`
+	DownloadTimeout   int               `yaml:"download_timeout"`
 }
 
 type CookieConfig struct {
@@ -213,12 +217,12 @@ type OpenAICompatConfig struct {
 }
 
 type SummaryConfig struct {
-	Language        string         `yaml:"language"`
-	Prompt          string         `yaml:"prompt"`
-	SummaryPromptFile string       `yaml:"summary_prompt_file"`
-	MaxTokens       int            `yaml:"max_tokens"`
-	Keywords        KeywordsConfig `yaml:"keywords"`
-	Mermaid         MermaidConfig  `yaml:"mermaid"`
+	Language          string         `yaml:"language"`
+	Prompt            string         `yaml:"prompt"`
+	SummaryPromptFile string         `yaml:"summary_prompt_file"`
+	MaxTokens         int            `yaml:"max_tokens"`
+	Keywords          KeywordsConfig `yaml:"keywords"`
+	Mermaid           MermaidConfig  `yaml:"mermaid"`
 }
 
 type KeywordsConfig struct {
@@ -256,30 +260,30 @@ type ObsidianConfig struct {
 
 type CopyToConfig struct {
 	Path      string   `yaml:"path"`
-	Files     []string `yaml:"files"`     // "summary", "transcription", "subtitle"
-	Filename  string   `yaml:"filename"`  // template with variables
+	Files     []string `yaml:"files"`    // "summary", "transcription", "subtitle"
+	Filename  string   `yaml:"filename"` // template with variables
 	Overwrite bool     `yaml:"overwrite"`
 }
 
 type ChannelConfig struct {
-	URL              string        `yaml:"url"`
-	Count            int           `yaml:"count"`
-	SummaryPromptFile string       `yaml:"summary_prompt_file"`
-	VideoEmbed       *bool         `yaml:"video_embed"`
-	Filter           *FilterOverride `yaml:"filter"`
-	Cookie           *CookieConfig   `yaml:"cookie"`
-	CopyTo           *CopyToConfig   `yaml:"copy_to"`
+	URL               string          `yaml:"url"`
+	Count             int             `yaml:"count"`
+	SummaryPromptFile string          `yaml:"summary_prompt_file"`
+	VideoEmbed        *bool           `yaml:"video_embed"`
+	Filter            *FilterOverride `yaml:"filter"`
+	Cookie            *CookieConfig   `yaml:"cookie"`
+	CopyTo            *CopyToConfig   `yaml:"copy_to"`
 }
 
 type PlaylistConfig struct {
-	URL              string          `yaml:"url"`
-	Name             string          `yaml:"name"`
-	Count            int             `yaml:"count"`
-	SummaryPromptFile string         `yaml:"summary_prompt_file"`
-	VideoEmbed       *bool           `yaml:"video_embed"`
-	Filter           *FilterOverride `yaml:"filter"`
-	Cookie           *CookieConfig   `yaml:"cookie"`
-	CopyTo           *CopyToConfig   `yaml:"copy_to"`
+	URL               string          `yaml:"url"`
+	Name              string          `yaml:"name"`
+	Count             int             `yaml:"count"`
+	SummaryPromptFile string          `yaml:"summary_prompt_file"`
+	VideoEmbed        *bool           `yaml:"video_embed"`
+	Filter            *FilterOverride `yaml:"filter"`
+	Cookie            *CookieConfig   `yaml:"cookie"`
+	CopyTo            *CopyToConfig   `yaml:"copy_to"`
 }
 
 func Load(path string) (*Config, error) {
@@ -313,22 +317,23 @@ func DefaultConfig() *Config {
 			TranscribeTimeout: 30,
 			DownloadTimeout:   10,
 			ModelSources: map[string]string{
-				"tiny":            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
-				"base":            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
-				"small":           "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
-				"medium":          "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
-				"large-v3":        "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
-				"large-v3-turbo":  "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
-				"belle-zh":        "https://huggingface.co/BELLE-2/Belle-whisper-large-v3-turbo-zh-ggml/resolve/main/ggml-model.bin",
-				"kotoba-ja":       "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-kotoba-whisper-v2.0.bin",
-				"kotoba-ja-q5":    "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-kotoba-whisper-v2.0-q5_0.bin",
+				"tiny":           "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
+				"base":           "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
+				"small":          "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.bin",
+				"medium":         "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.bin",
+				"large-v3":       "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin",
+				"large-v3-turbo": "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo.bin",
+				"belle-zh":       "https://huggingface.co/BELLE-2/Belle-whisper-large-v3-turbo-zh-ggml/resolve/main/ggml-model.bin",
+				"kotoba-ja":      "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-kotoba-whisper-v2.0.bin",
+				"kotoba-ja-q5":   "https://huggingface.co/kotoba-tech/kotoba-whisper-v2.0-ggml/resolve/main/ggml-kotoba-whisper-v2.0-q5_0.bin",
 			},
 		},
 		LLM: LLMConfig{
 			Provider: ProviderList{"ollama"},
 			ProviderFallbackStrategy: FallbackStrategyConfig{
-				CooldownSeconds:  300,
-				FailureThreshold: 1,
+				CooldownSeconds:          300,
+				FailureThreshold:         1,
+				RateLimitCooldownSeconds: 60,
 			},
 			Ollama: OllamaConfig{
 				Model:    "llama3",

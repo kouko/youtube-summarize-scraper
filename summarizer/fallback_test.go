@@ -255,6 +255,45 @@ func TestFallback_HalfOpenNonQuotaError_DoesNotStrandProvider(t *testing.T) {
 	}
 }
 
+func TestFallback_RetryAfterDrivesCooldown(t *testing.T) {
+	now := time.Now()
+
+	// Primary fails with a quota error carrying a 120s Retry-After, then recovers.
+	primary := newMock("primary",
+		mockResult{err: &QuotaError{
+			Provider:   "primary",
+			Err:        fmt.Errorf("429"),
+			Kind:       KindRateLimit,
+			RetryAfter: 120 * time.Second,
+		}},
+		mockResult{text: "primary recovered"},
+	)
+	fallback := newMock("fallback",
+		mockResult{text: "fallback 1"},
+		mockResult{text: "fallback 2"},
+	)
+
+	pEntry := makeEntry("primary", primary) // default cooldown 5m
+	pEntry.breaker.nowFunc = func() time.Time { return now }
+	f := newFallback(pEntry, makeEntry("fallback", fallback))
+
+	// Call 1: quota error with 120s advice → open with a 120s cooldown.
+	if _, err := f.Summarize("t", SummarizeOptions{}); err != nil {
+		t.Fatalf("call 1: %v", err)
+	}
+
+	// At 121s (> advised 120s, but < default 5m) the primary must be probed
+	// again — proving the server-advised Retry-After overrode the 5m default.
+	now = now.Add(121 * time.Second)
+	result, err := f.Summarize("t", SummarizeOptions{})
+	if err != nil {
+		t.Fatalf("call 2: %v", err)
+	}
+	if result.Provider != "primary" {
+		t.Errorf("provider got %q, want %q (Retry-After not honored)", result.Provider, "primary")
+	}
+}
+
 func TestFallback_ModelNotPassedToFallbackProvider(t *testing.T) {
 	primary := newMock("primary", mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}})
 	fallback := newMock("fallback", mockResult{text: "ok"})

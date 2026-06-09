@@ -27,6 +27,10 @@ func (s circuitState) String() string {
 	}
 }
 
+// defaultMaxCooldown caps a server-advised Retry-After so a malformed or
+// hostile value cannot block a provider for an unbounded time.
+const defaultMaxCooldown = time.Hour
+
 // CircuitBreaker tracks provider health and prevents repeated calls to a
 // provider that is known to be unavailable (e.g., quota exhausted).
 //
@@ -42,18 +46,30 @@ type CircuitBreaker struct {
 	failures    int
 	threshold   int
 	lastFailure time.Time
-	cooldown    time.Duration
-	provider    string
-	nowFunc     func() time.Time // injectable clock for testing
+	// cooldown is the default/exhausted-kind cooldown set at construction.
+	cooldown time.Duration
+	// rateLimitCooldown is used for KindRateLimit failures with no Retry-After.
+	// Defaults to cooldown so single-cooldown behavior is preserved unless a
+	// caller (production config) sets a shorter value.
+	rateLimitCooldown time.Duration
+	// maxCooldown caps an honored Retry-After.
+	maxCooldown time.Duration
+	// activeCooldown is the cooldown chosen for the current open period.
+	activeCooldown time.Duration
+	provider       string
+	nowFunc        func() time.Time // injectable clock for testing
 }
 
 func newCircuitBreaker(provider string, threshold int, cooldown time.Duration) *CircuitBreaker {
 	return &CircuitBreaker{
-		state:     stateClosed,
-		threshold: threshold,
-		cooldown:  cooldown,
-		provider:  provider,
-		nowFunc:   time.Now,
+		state:             stateClosed,
+		threshold:         threshold,
+		cooldown:          cooldown,
+		rateLimitCooldown: cooldown, // overridden by production config when set
+		maxCooldown:       defaultMaxCooldown,
+		activeCooldown:    cooldown,
+		provider:          provider,
+		nowFunc:           time.Now,
 	}
 }
 
@@ -66,10 +82,10 @@ func (cb *CircuitBreaker) Allow() bool {
 	case stateClosed:
 		return true
 	case stateOpen:
-		if cb.nowFunc().Sub(cb.lastFailure) >= cb.cooldown {
+		if cb.nowFunc().Sub(cb.lastFailure) >= cb.activeCooldown {
 			cb.state = stateHalfOpen
 			slog.Info("provider cooldown expired, probing recovery",
-				"provider", cb.provider, "cooldown", cb.cooldown)
+				"provider", cb.provider, "cooldown", cb.activeCooldown)
 			return true
 		}
 		return false
@@ -110,12 +126,22 @@ func (cb *CircuitBreaker) RecordInconclusive() {
 		cb.state = stateOpen
 		cb.lastFailure = cb.nowFunc()
 		slog.Info("provider probe inconclusive (non-quota error), re-arming cooldown",
-			"provider", cb.provider, "cooldown", cb.cooldown)
+			"provider", cb.provider, "cooldown", cb.activeCooldown)
 	}
 }
 
-// RecordFailure signals that a request failed with a quota/rate-limit error.
+// RecordFailure signals that a request failed with a quota/rate-limit error,
+// using the default (exhausted) cooldown. Retained for callers/tests that do
+// not carry Retry-After/kind detail.
 func (cb *CircuitBreaker) RecordFailure() {
+	cb.RecordQuotaFailure(0, KindExhausted)
+}
+
+// RecordQuotaFailure signals a quota/rate-limit failure and, on opening,
+// chooses the cooldown for this open period: the server-advised retryAfter
+// (capped at maxCooldown) when known, otherwise a kind-based default
+// (rateLimitCooldown for a transient throttle, cooldown for exhaustion).
+func (cb *CircuitBreaker) RecordQuotaFailure(retryAfter time.Duration, kind QuotaErrorKind) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
@@ -124,13 +150,29 @@ func (cb *CircuitBreaker) RecordFailure() {
 		prev := cb.state
 		cb.state = stateOpen
 		cb.lastFailure = cb.nowFunc()
+		cb.activeCooldown = cb.chooseCooldown(retryAfter, kind)
 		if prev != stateOpen {
 			slog.Warn("provider circuit opened",
 				"provider", cb.provider,
 				"failures", cb.failures,
-				"cooldown", cb.cooldown)
+				"kind", kind,
+				"cooldown", cb.activeCooldown)
 		}
 	}
+}
+
+// chooseCooldown resolves the cooldown for an open period. Caller holds cb.mu.
+func (cb *CircuitBreaker) chooseCooldown(retryAfter time.Duration, kind QuotaErrorKind) time.Duration {
+	if retryAfter > 0 {
+		if retryAfter > cb.maxCooldown {
+			return cb.maxCooldown
+		}
+		return retryAfter
+	}
+	if kind == KindRateLimit {
+		return cb.rateLimitCooldown
+	}
+	return cb.cooldown
 }
 
 // State returns the current circuit state (for testing/logging).

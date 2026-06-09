@@ -142,6 +142,67 @@ func TestCircuitBreaker_InconclusiveWhenClosed_IsNoOp(t *testing.T) {
 	}
 }
 
+func TestCircuitBreaker_RetryAfterHonored(t *testing.T) {
+	now := time.Now()
+	cb := newCircuitBreaker("test", 1, 5*time.Minute) // default cooldown 5m
+	cb.nowFunc = func() time.Time { return now }
+
+	// Server advised a 45s wait — the breaker must honor it, not the 5m default.
+	cb.RecordQuotaFailure(45*time.Second, KindRateLimit)
+	if cb.State() != stateOpen {
+		t.Fatal("should open on quota failure")
+	}
+
+	now = now.Add(44 * time.Second)
+	if cb.Allow() {
+		t.Error("should still block 1s before the advised Retry-After")
+	}
+	now = now.Add(2 * time.Second) // 46s total
+	if !cb.Allow() {
+		t.Error("should allow probe once the advised Retry-After elapses")
+	}
+}
+
+func TestCircuitBreaker_RateLimitVsExhaustedCooldown(t *testing.T) {
+	now := time.Now()
+	cb := newCircuitBreaker("test", 1, 300*time.Second) // exhausted/default cooldown
+	cb.rateLimitCooldown = 60 * time.Second
+	cb.nowFunc = func() time.Time { return now }
+
+	// Rate-limit kind, no Retry-After → 60s cooldown.
+	cb.RecordQuotaFailure(0, KindRateLimit)
+	now = now.Add(61 * time.Second)
+	if !cb.Allow() {
+		t.Error("rate-limit should recover after rateLimitCooldown (60s)")
+	}
+	cb.RecordSuccess() // close again
+
+	// Exhausted kind, no Retry-After → 300s cooldown.
+	cb.RecordQuotaFailure(0, KindExhausted)
+	now = now.Add(61 * time.Second)
+	if cb.Allow() {
+		t.Error("exhausted should NOT recover after only 61s")
+	}
+	now = now.Add(300 * time.Second)
+	if !cb.Allow() {
+		t.Error("exhausted should recover after the full cooldown (300s)")
+	}
+}
+
+func TestCircuitBreaker_RetryAfterCappedAtMax(t *testing.T) {
+	now := time.Now()
+	cb := newCircuitBreaker("test", 1, 5*time.Minute)
+	cb.maxCooldown = time.Hour
+	cb.nowFunc = func() time.Time { return now }
+
+	// An absurd 5h advice must be capped at maxCooldown (1h).
+	cb.RecordQuotaFailure(5*time.Hour, KindExhausted)
+	now = now.Add(61 * time.Minute)
+	if !cb.Allow() {
+		t.Error("Retry-After should be capped at maxCooldown, allowing a probe after 1h")
+	}
+}
+
 func TestCircuitState_String(t *testing.T) {
 	tests := []struct {
 		state circuitState
