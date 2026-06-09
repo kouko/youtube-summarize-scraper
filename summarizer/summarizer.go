@@ -15,6 +15,13 @@ type SummarizeOptions struct {
 	Prompt    string
 	MaxTokens int
 	Model     string
+	// AllowEmpty marks a request where an empty response can be legitimate
+	// (e.g. keywords/mermaid stages — not every summary needs a diagram). The
+	// fallback chain still fails over on empty, but does NOT count it toward
+	// opening the provider's circuit, so a minor-stage empty can't sideline a
+	// provider whose main-summary stage is healthy. Defaults to false (empty is
+	// a failure — correct for the main summary).
+	AllowEmpty bool
 }
 
 // SummarizeResult holds the output of a summarization request along with
@@ -58,10 +65,15 @@ func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
 	if rateLimitCooldown == 0 {
 		rateLimitCooldown = 60 * time.Second
 	}
+	emptyThreshold := strategy.EmptyResponseThreshold
+	if emptyThreshold == 0 {
+		emptyThreshold = defaultEmptyThreshold
+	}
 
 	makeBreaker := func(name string) *CircuitBreaker {
 		cb := newCircuitBreaker(name, threshold, cooldown)
 		cb.rateLimitCooldown = rateLimitCooldown
+		cb.emptyThreshold = emptyThreshold
 		return cb
 	}
 

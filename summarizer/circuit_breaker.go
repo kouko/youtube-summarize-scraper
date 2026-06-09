@@ -31,6 +31,10 @@ func (s circuitState) String() string {
 // hostile value cannot block a provider for an unbounded time.
 const defaultMaxCooldown = time.Hour
 
+// defaultEmptyThreshold is how many consecutive empty responses open the
+// circuit when not overridden by config.
+const defaultEmptyThreshold = 3
+
 // CircuitBreaker tracks provider health and prevents repeated calls to a
 // provider that is known to be unavailable (e.g., quota exhausted).
 //
@@ -56,8 +60,14 @@ type CircuitBreaker struct {
 	maxCooldown time.Duration
 	// activeCooldown is the cooldown chosen for the current open period.
 	activeCooldown time.Duration
-	provider       string
-	nowFunc        func() time.Time // injectable clock for testing
+	// emptyThreshold is how many CONSECUTIVE empty responses open the circuit.
+	// A single empty only fails over (it can't be proven to be exhaustion); a
+	// persistent streak (e.g. agy with quota exhausted) is treated as degraded.
+	emptyThreshold int
+	// emptyCount tracks the current consecutive-empty streak; reset on success.
+	emptyCount int
+	provider   string
+	nowFunc    func() time.Time // injectable clock for testing
 }
 
 func newCircuitBreaker(provider string, threshold int, cooldown time.Duration) *CircuitBreaker {
@@ -68,6 +78,7 @@ func newCircuitBreaker(provider string, threshold int, cooldown time.Duration) *
 		rateLimitCooldown: cooldown, // overridden by production config when set
 		maxCooldown:       defaultMaxCooldown,
 		activeCooldown:    cooldown,
+		emptyThreshold:    defaultEmptyThreshold,
 		provider:          provider,
 		nowFunc:           time.Now,
 	}
@@ -108,6 +119,45 @@ func (cb *CircuitBreaker) RecordSuccess() {
 	}
 	cb.state = stateClosed
 	cb.failures = 0
+	cb.emptyCount = 0
+}
+
+// RecordEmptyResponse counts a 2xx-but-empty response (success with no text).
+// A single empty does not open the circuit — it can't be proven to be quota
+// exhaustion — so the chain just fails over. But emptyThreshold CONSECUTIVE
+// empties mark the provider degraded and open the circuit with the exhausted
+// cooldown, so a persistently-empty backend (e.g. agy with quota used up) is
+// skipped for the cooldown instead of being retried on every request.
+//
+// The streak resets ONLY on a real success (RecordSuccess) — deliberately NOT
+// on an intervening error: a quota error or network blip between two empties
+// doesn't prove the backend started producing real output, so collapsing the
+// streak there would let a backend that interleaves silent-empties with the
+// occasional classifiable error escape the empty circuit forever.
+//
+// emptyThreshold <= 0 disables this entirely (empty only ever fails over).
+func (cb *CircuitBreaker) RecordEmptyResponse() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	cb.emptyCount++
+	if cb.emptyThreshold > 0 && cb.emptyCount >= cb.emptyThreshold {
+		prev := cb.state
+		cb.state = stateOpen
+		cb.lastFailure = cb.nowFunc()
+		cb.activeCooldown = cb.cooldown // persistent emptiness ≈ exhaustion
+		if prev != stateOpen {
+			slog.Warn("provider circuit opened (consecutive empty responses)",
+				"provider", cb.provider, "empties", cb.emptyCount, "cooldown", cb.activeCooldown)
+		}
+		return
+	}
+	// Below threshold: an empty probe during half-open must still re-arm the
+	// cooldown so it isn't stranded (mirrors RecordInconclusive).
+	if cb.state == stateHalfOpen {
+		cb.state = stateOpen
+		cb.lastFailure = cb.nowFunc()
+	}
 }
 
 // RecordInconclusive signals that a probe request failed for a reason

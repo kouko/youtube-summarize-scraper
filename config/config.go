@@ -62,6 +62,13 @@ type FallbackStrategyConfig struct {
 	// errors (HTTP 429/529, "too many requests") when the server gives no
 	// Retry-After hint (default: 60). A server-advised Retry-After always wins.
 	RateLimitCooldownSeconds int `yaml:"rate_limit_cooldown_seconds"`
+	// EmptyResponseThreshold is how many CONSECUTIVE empty responses from a
+	// provider open its circuit (default: 3). A single empty only fails over to
+	// the next provider; a persistent streak (e.g. a CLI backend that exits 0
+	// with no output when its quota is exhausted) is treated as degraded and
+	// skipped for cooldown_seconds. A negative value disables it (empty only
+	// ever fails over).
+	EmptyResponseThreshold int `yaml:"empty_response_threshold"`
 }
 
 // SetPrimary replaces the primary provider while keeping fallbacks.
@@ -334,6 +341,7 @@ func DefaultConfig() *Config {
 				CooldownSeconds:          300,
 				FailureThreshold:         1,
 				RateLimitCooldownSeconds: 60,
+				EmptyResponseThreshold:   3,
 			},
 			Ollama: OllamaConfig{
 				Model:    "llama3",
