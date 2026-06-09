@@ -69,6 +69,11 @@ llm:
   #   failure_threshold: 1             # Quota errors before skipping a provider (default: 1)
   #   rate_limit_cooldown_seconds: 60  # Shorter cooldown for transient rate limits / 429 (default: 60).
   #                                    # A server Retry-After header always overrides both (capped at 1h).
+  #   empty_response_threshold: 3      # Consecutive empty responses before opening a provider's circuit
+  #                                    # (default: 3). A single empty only fails over; a persistent streak
+  #                                    # (e.g. a CLI backend exiting 0 with no output when quota is used up)
+  #                                    # is skipped for cooldown_seconds instead of retried every request.
+  #                                    # Set to a negative value to disable (empty only ever fails over).
   ollama:
     model: "llama3"
     endpoint: "http://localhost:11434"

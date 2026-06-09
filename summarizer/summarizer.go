@@ -58,10 +58,15 @@ func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
 	if rateLimitCooldown == 0 {
 		rateLimitCooldown = 60 * time.Second
 	}
+	emptyThreshold := strategy.EmptyResponseThreshold
+	if emptyThreshold == 0 {
+		emptyThreshold = defaultEmptyThreshold
+	}
 
 	makeBreaker := func(name string) *CircuitBreaker {
 		cb := newCircuitBreaker(name, threshold, cooldown)
 		cb.rateLimitCooldown = rateLimitCooldown
+		cb.emptyThreshold = emptyThreshold
 		return cb
 	}
 

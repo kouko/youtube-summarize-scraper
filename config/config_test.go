@@ -378,6 +378,7 @@ llm:
     cooldown_seconds: 600
     failure_threshold: 3
     rate_limit_cooldown_seconds: 90
+    empty_response_threshold: 5
 `
 	path := t.TempDir() + "/config.yaml"
 	if err := writeTestFile(path, yamlContent); err != nil {
@@ -397,6 +398,9 @@ llm:
 	}
 	if cfg.LLM.ProviderFallbackStrategy.RateLimitCooldownSeconds != 90 {
 		t.Errorf("RateLimitCooldownSeconds: got %d, want 90", cfg.LLM.ProviderFallbackStrategy.RateLimitCooldownSeconds)
+	}
+	if cfg.LLM.ProviderFallbackStrategy.EmptyResponseThreshold != 5 {
+		t.Errorf("EmptyResponseThreshold: got %d, want 5", cfg.LLM.ProviderFallbackStrategy.EmptyResponseThreshold)
 	}
 }
 
@@ -426,6 +430,9 @@ func TestProviderList_Default(t *testing.T) {
 	}
 	if cfg.LLM.ProviderFallbackStrategy.RateLimitCooldownSeconds != 60 {
 		t.Errorf("Default rate-limit cooldown: got %d, want 60", cfg.LLM.ProviderFallbackStrategy.RateLimitCooldownSeconds)
+	}
+	if cfg.LLM.ProviderFallbackStrategy.EmptyResponseThreshold != 3 {
+		t.Errorf("Default empty-response threshold: got %d, want 3", cfg.LLM.ProviderFallbackStrategy.EmptyResponseThreshold)
 	}
 }
 

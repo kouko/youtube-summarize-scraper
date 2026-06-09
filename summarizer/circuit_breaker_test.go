@@ -203,6 +203,112 @@ func TestCircuitBreaker_RetryAfterCappedAtMax(t *testing.T) {
 	}
 }
 
+func TestCircuitBreaker_OpensAfterConsecutiveEmpties(t *testing.T) {
+	now := time.Now()
+	cb := newCircuitBreaker("test", 1, 5*time.Minute)
+	cb.emptyThreshold = 3
+	cb.nowFunc = func() time.Time { return now }
+
+	cb.RecordEmptyResponse()
+	cb.RecordEmptyResponse()
+	if cb.State() != stateClosed {
+		t.Fatalf("should stay closed below empty threshold, got %v", cb.State())
+	}
+	cb.RecordEmptyResponse() // 3rd consecutive → open
+	if cb.State() != stateOpen {
+		t.Fatalf("should open after 3 consecutive empties, got %v", cb.State())
+	}
+
+	// Opens with the exhausted (default) cooldown.
+	now = now.Add(4 * time.Minute)
+	if cb.Allow() {
+		t.Error("should still be cooling down before the exhausted cooldown elapses")
+	}
+	now = now.Add(2 * time.Minute) // 6m total
+	if !cb.Allow() {
+		t.Error("should probe once the cooldown elapses")
+	}
+}
+
+func TestCircuitBreaker_SingleEmptyDoesNotOpen(t *testing.T) {
+	cb := newCircuitBreaker("test", 1, time.Minute)
+	cb.emptyThreshold = 3
+
+	cb.RecordEmptyResponse()
+	if cb.State() != stateClosed {
+		t.Error("a single empty must not open the circuit (cannot be proven to be exhaustion)")
+	}
+	if !cb.Allow() {
+		t.Error("provider should still be tried after a single empty")
+	}
+}
+
+func TestCircuitBreaker_HalfOpenEmptyPastThreshold_ReOpens(t *testing.T) {
+	now := time.Now()
+	cb := newCircuitBreaker("test", 1, 5*time.Minute)
+	cb.emptyThreshold = 3
+	cb.nowFunc = func() time.Time { return now }
+
+	// Drive 3 consecutive empties → open.
+	cb.RecordEmptyResponse()
+	cb.RecordEmptyResponse()
+	cb.RecordEmptyResponse()
+	if cb.State() != stateOpen {
+		t.Fatal("should be open after 3 empties")
+	}
+
+	// Cooldown elapses → half-open probe is allowed.
+	now = now.Add(6 * time.Minute)
+	if !cb.Allow() {
+		t.Fatal("should allow a half-open probe after cooldown")
+	}
+	if cb.State() != stateHalfOpen {
+		t.Fatalf("should be half-open, got %v", cb.State())
+	}
+
+	// The probe itself comes back empty (still past threshold): must re-open
+	// and re-arm, not strand or close.
+	cb.RecordEmptyResponse()
+	if cb.State() != stateOpen {
+		t.Fatalf("an empty half-open probe past threshold must re-open, got %v", cb.State())
+	}
+	if cb.Allow() {
+		t.Error("should be cooling down again immediately after the re-arm")
+	}
+}
+
+func TestCircuitBreaker_EmptyThresholdDisabled_NeverOpens(t *testing.T) {
+	// emptyThreshold <= 0 disables circuit-opening on empty entirely: empty
+	// responses then only ever fail over (the pre-existing behavior), never
+	// open the circuit, no matter how many in a row.
+	cb := newCircuitBreaker("test", 1, time.Minute)
+	cb.emptyThreshold = 0
+
+	for i := 0; i < 10; i++ {
+		cb.RecordEmptyResponse()
+	}
+	if cb.State() != stateClosed {
+		t.Errorf("with emptyThreshold<=0 the circuit must never open on empty, got %v", cb.State())
+	}
+	if !cb.Allow() {
+		t.Error("provider should still be tried (disabled = fail-over only)")
+	}
+}
+
+func TestCircuitBreaker_EmptyStreakResetsOnSuccess(t *testing.T) {
+	cb := newCircuitBreaker("test", 1, time.Minute)
+	cb.emptyThreshold = 3
+
+	cb.RecordEmptyResponse()
+	cb.RecordEmptyResponse()
+	cb.RecordSuccess() // a real (non-empty) success breaks the streak
+	cb.RecordEmptyResponse()
+	cb.RecordEmptyResponse()
+	if cb.State() != stateClosed {
+		t.Error("non-consecutive empties (broken by a success) must not open the circuit")
+	}
+}
+
 func TestCircuitState_String(t *testing.T) {
 	tests := []struct {
 		state circuitState

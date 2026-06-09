@@ -420,6 +420,45 @@ func TestFallback_HalfOpenEmptyResponse_DoesNotStrandProvider(t *testing.T) {
 	}
 }
 
+func TestFallback_ConsecutiveEmpties_OpenCircuitAndSkipProvider(t *testing.T) {
+	now := time.Now()
+
+	// Primary always returns empty; fallback always works. After emptyThreshold
+	// (default 3) consecutive empties, primary's circuit opens and it stops
+	// being retried first on every request.
+	primary := newMock("primary",
+		mockResult{text: ""}, mockResult{text: ""}, mockResult{text: ""},
+		mockResult{text: ""}, mockResult{text: ""},
+	)
+	fallback := newMock("fallback",
+		mockResult{text: "ok1"}, mockResult{text: "ok2"}, mockResult{text: "ok3"},
+		mockResult{text: "ok4"}, mockResult{text: "ok5"},
+	)
+	pEntry := makeEntry("primary", primary) // emptyThreshold defaults to 3
+	pEntry.breaker.nowFunc = func() time.Time { return now }
+	f := newFallback(pEntry, makeEntry("fallback", fallback))
+
+	// 3 calls: each empty from primary → failover; the 3rd opens primary's circuit.
+	for i := 0; i < 3; i++ {
+		if _, err := f.Summarize("t", SummarizeOptions{}); err != nil {
+			t.Fatalf("call %d: %v", i+1, err)
+		}
+	}
+	if pEntry.breaker.State() != stateOpen {
+		t.Fatalf("primary circuit should open after 3 consecutive empties, got %v", pEntry.breaker.State())
+	}
+	callsBeforeOpen := primary.calls // 3
+
+	// 4th call: primary's circuit is open → it must be skipped, not called again.
+	if _, err := f.Summarize("t", SummarizeOptions{}); err != nil {
+		t.Fatalf("call 4: %v", err)
+	}
+	if primary.calls != callsBeforeOpen {
+		t.Errorf("primary should be SKIPPED while its circuit is open, but it was called again (%d → %d)",
+			callsBeforeOpen, primary.calls)
+	}
+}
+
 func TestFallback_EmptyResponse_FailsOverToNextProvider(t *testing.T) {
 	// A 2xx-but-empty response (e.g. antigravity-cli exits 0 with no output
 	// when its quota is exhausted) must be treated as this provider failing,
