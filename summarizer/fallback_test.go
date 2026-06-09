@@ -2,6 +2,7 @@ package summarizer
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 )
@@ -369,6 +370,104 @@ func TestFallback_NoProviders(t *testing.T) {
 	_, err := f.Summarize("test", SummarizeOptions{})
 	if err == nil {
 		t.Fatal("expected error with no providers")
+	}
+}
+
+func TestFallback_HalfOpenEmptyResponse_DoesNotStrandProvider(t *testing.T) {
+	now := time.Now()
+
+	// Primary: quota error (opens circuit), then an EMPTY response during the
+	// half-open probe, then recovers. An empty probe must re-arm the cooldown
+	// (same as a non-quota error), not strand the circuit in half-open.
+	primary := newMock("primary",
+		mockResult{err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429")}},
+		mockResult{text: ""}, // half-open probe returns empty
+		mockResult{text: "primary recovered"},
+	)
+	fallback := newMock("fallback",
+		mockResult{text: "fallback 1"},
+		mockResult{text: "fallback 2"},
+		mockResult{text: "fallback 3"},
+	)
+
+	pEntry := makeEntry("primary", primary)
+	pEntry.breaker.nowFunc = func() time.Time { return now }
+	f := newFallback(pEntry, makeEntry("fallback", fallback))
+
+	if _, err := f.Summarize("t", SummarizeOptions{}); err != nil {
+		t.Fatalf("call 1: %v", err)
+	}
+	if pEntry.breaker.State() != stateOpen {
+		t.Fatal("circuit should be open after quota error")
+	}
+
+	now = now.Add(6 * time.Minute)
+	result, err := f.Summarize("t", SummarizeOptions{}) // half-open probe → empty
+	if err != nil {
+		t.Fatalf("call 2: %v", err)
+	}
+	if result.Provider != "fallback" {
+		t.Errorf("call 2: provider got %q, want fallback", result.Provider)
+	}
+
+	now = now.Add(6 * time.Minute)
+	result, err = f.Summarize("t", SummarizeOptions{}) // re-armed → probe primary
+	if err != nil {
+		t.Fatalf("call 3: %v", err)
+	}
+	if result.Provider != "primary" || result.Text != "primary recovered" {
+		t.Errorf("call 3: got provider=%q text=%q, want primary/'primary recovered' (stranded?)", result.Provider, result.Text)
+	}
+}
+
+func TestFallback_EmptyResponse_FailsOverToNextProvider(t *testing.T) {
+	// A 2xx-but-empty response (e.g. antigravity-cli exits 0 with no output
+	// when its quota is exhausted) must be treated as this provider failing,
+	// so the chain fails over instead of returning a blank summary.
+	primary := newMock("primary", mockResult{text: ""}) // empty, nil error
+	fallback := newMock("fallback", mockResult{text: "real summary"})
+
+	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
+
+	result, err := f.Summarize("t", SummarizeOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Provider != "fallback" || result.Text != "real summary" {
+		t.Errorf("expected fallback's result, got provider=%q text=%q", result.Provider, result.Text)
+	}
+	if primary.calls != 1 || fallback.calls != 1 {
+		t.Errorf("calls: primary=%d fallback=%d, want 1/1", primary.calls, fallback.calls)
+	}
+}
+
+func TestFallback_WhitespaceOnlyResponse_TreatedAsEmpty(t *testing.T) {
+	primary := newMock("primary", mockResult{text: "   \n\t  "})
+	fallback := newMock("fallback", mockResult{text: "real"})
+
+	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
+
+	result, err := f.Summarize("t", SummarizeOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Text != "real" {
+		t.Errorf("whitespace-only response should be treated as empty → failover, got %q", result.Text)
+	}
+}
+
+func TestFallback_AllEmpty_ReturnsErrorNotBlank(t *testing.T) {
+	primary := newMock("primary", mockResult{text: ""})
+	fallback := newMock("fallback", mockResult{text: ""})
+
+	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
+
+	result, err := f.Summarize("t", SummarizeOptions{})
+	if err == nil {
+		t.Fatalf("all-empty chain should return an error, got blank success: %+v", result)
+	}
+	if !strings.Contains(err.Error(), "empty") {
+		t.Errorf("error should mention the empty response, got: %v", err)
 	}
 }
 

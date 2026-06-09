@@ -3,6 +3,7 @@ package summarizer
 import (
 	"fmt"
 	"log/slog"
+	"strings"
 )
 
 // providerEntry pairs a Summarizer implementation with its circuit breaker.
@@ -35,9 +36,22 @@ func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (Summ
 		providerOpts := opts
 		providerOpts.Model = ""
 		result, err := p.impl.Summarize(text, providerOpts)
-		if err == nil {
+		if err == nil && strings.TrimSpace(result.Text) != "" {
 			p.breaker.RecordSuccess()
 			return result, nil // result already contains actual provider/model
+		}
+		if err == nil {
+			// 2xx-but-empty: a "silent failure". Some backends return success
+			// with no output when degraded — e.g. antigravity-cli exits 0 with
+			// empty stdout/stderr when its quota is exhausted, giving no error
+			// and no message to classify as a QuotaError. Treat the empty
+			// response itself as this provider failing so the chain fails over
+			// instead of returning a blank summary.
+			p.breaker.RecordInconclusive()
+			slog.Warn("provider returned an empty response, trying fallback",
+				"provider", p.name)
+			lastErr = fmt.Errorf("%s: empty response", p.name)
+			continue
 		}
 
 		if qe := asQuotaError(err); qe != nil {
