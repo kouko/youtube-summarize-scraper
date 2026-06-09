@@ -93,6 +93,8 @@ var exhaustedPatterns = []string{
 	"out of credit", // CLI credit exhaustion
 	"insufficient balance",
 	"credit balance", // Anthropic "credit balance is too low"
+	"usage limit",    // claude-code "Claude AI usage limit reached"
+	"spend limit",    // claude-code "hit your extra usage spend limit"
 }
 
 // isQuotaMessage checks whether a message string contains indicators of

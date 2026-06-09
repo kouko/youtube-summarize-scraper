@@ -144,6 +144,32 @@ func TestQuotaDetection_DoesNotOverMatch(t *testing.T) {
 	}
 }
 
+func TestQuotaDetection_ClaudeCodeUsageLimit(t *testing.T) {
+	now := time.Now()
+	// Real claude-code CLI subscription-limit messages (Max/Pro plan). These
+	// are the most common claude-code limits and carry no HTTP status, so they
+	// must be detected from text alone and classified as exhaustion.
+	msgs := []string{
+		"Claude AI usage limit reached, please try again after 5pm",
+		"You've hit your extra usage spend limit",
+	}
+	for _, msg := range msgs {
+		qe := quotaErrorFrom("claude-code", fmt.Errorf("e"), 0, msg, "", now)
+		if qe == nil {
+			t.Errorf("quotaErrorFrom(%q) should detect a quota error", msg)
+			continue
+		}
+		if qe.Kind != KindExhausted {
+			t.Errorf("quotaErrorFrom(%q) kind = %v, want KindExhausted", msg, qe.Kind)
+		}
+	}
+
+	// The transient claude-code throttle stays a rate limit, not exhaustion.
+	if qe := quotaErrorFrom("claude-code", fmt.Errorf("e"), 0, "API Error: Rate limit reached", "", now); qe == nil || qe.Kind != KindRateLimit {
+		t.Errorf("rate-limit message should be KindRateLimit, got %+v", qe)
+	}
+}
+
 func TestIsQuotaMessage_BroadenedPatterns(t *testing.T) {
 	positives := []string{
 		"billing hard limit reached",
