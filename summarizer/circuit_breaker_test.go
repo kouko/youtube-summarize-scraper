@@ -104,6 +104,44 @@ func TestCircuitBreaker_HalfOpenFailure_ReOpens(t *testing.T) {
 	}
 }
 
+func TestCircuitBreaker_HalfOpenInconclusive_ReArmsCooldown(t *testing.T) {
+	now := time.Now()
+	cb := newCircuitBreaker("test", 1, 1*time.Minute)
+	cb.nowFunc = func() time.Time { return now }
+
+	cb.RecordFailure() // open
+
+	// Advance past cooldown → half-open probe.
+	now = now.Add(2 * time.Minute)
+	if !cb.Allow() {
+		t.Fatal("should allow probe in half-open")
+	}
+
+	// Probe failed with a non-quota error → inconclusive.
+	cb.RecordInconclusive()
+	if cb.State() != stateOpen {
+		t.Fatalf("inconclusive probe should re-open, got %v", cb.State())
+	}
+
+	// Must not be permanently stranded: after another cooldown, probe again.
+	now = now.Add(2 * time.Minute)
+	if !cb.Allow() {
+		t.Error("should allow another probe after re-armed cooldown")
+	}
+}
+
+func TestCircuitBreaker_InconclusiveWhenClosed_IsNoOp(t *testing.T) {
+	cb := newCircuitBreaker("test", 1, time.Minute)
+
+	cb.RecordInconclusive()
+	if cb.State() != stateClosed {
+		t.Errorf("inconclusive on a closed circuit should be a no-op, got %v", cb.State())
+	}
+	if !cb.Allow() {
+		t.Error("closed circuit should still allow requests")
+	}
+}
+
 func TestCircuitState_String(t *testing.T) {
 	tests := []struct {
 		state circuitState

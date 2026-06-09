@@ -50,6 +50,9 @@ func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (Summ
 
 		// Non-quota error: try next provider for this request,
 		// but don't open the circuit (provider itself is healthy).
+		// Still inform the breaker so a half-open probe isn't stranded —
+		// otherwise the provider stays half-open and is skipped forever.
+		p.breaker.RecordInconclusive()
 		slog.Warn("provider error (non-quota), trying fallback",
 			"provider", p.name, "error", err)
 		lastErr = err

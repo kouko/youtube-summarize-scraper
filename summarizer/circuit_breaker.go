@@ -94,6 +94,26 @@ func (cb *CircuitBreaker) RecordSuccess() {
 	cb.failures = 0
 }
 
+// RecordInconclusive signals that a probe request failed for a reason
+// unrelated to quota (network blip, 5xx, timeout). It is not a quota failure,
+// so it does not count toward the open threshold — but it must not leave a
+// half-open circuit stranded. Without this, a non-quota error during the
+// half-open probe would block the provider forever (Allow returns false in
+// half-open and only RecordSuccess/RecordFailure transition out of it).
+// An inconclusive probe re-arms the cooldown so the provider is probed again
+// later instead of being permanently skipped.
+func (cb *CircuitBreaker) RecordInconclusive() {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	if cb.state == stateHalfOpen {
+		cb.state = stateOpen
+		cb.lastFailure = cb.nowFunc()
+		slog.Info("provider probe inconclusive (non-quota error), re-arming cooldown",
+			"provider", cb.provider, "cooldown", cb.cooldown)
+	}
+}
+
 // RecordFailure signals that a request failed with a quota/rate-limit error.
 func (cb *CircuitBreaker) RecordFailure() {
 	cb.mu.Lock()
