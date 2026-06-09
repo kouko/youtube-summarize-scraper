@@ -12,6 +12,7 @@ type mockSummarizer struct {
 	calls    int
 	results  []mockResult
 	lastOpts SummarizeOptions // captures the last opts received
+	lastText string           // captures the last input text received
 }
 
 type mockResult struct {
@@ -21,6 +22,7 @@ type mockResult struct {
 
 func (m *mockSummarizer) Summarize(text string, opts SummarizeOptions) (SummarizeResult, error) {
 	m.lastOpts = opts
+	m.lastText = text
 	idx := m.calls
 	m.calls++
 	if idx < len(m.results) {
@@ -252,6 +254,52 @@ func TestFallback_HalfOpenNonQuotaError_DoesNotStrandProvider(t *testing.T) {
 	}
 	if result.Text != "primary recovered" {
 		t.Errorf("call 3: text got %q, want %q", result.Text, "primary recovered")
+	}
+}
+
+func TestFallback_QuotaError_ImmediatelySwitchesSameTask(t *testing.T) {
+	const task = "the full transcript of the video to be summarized"
+	opts := SummarizeOptions{Prompt: "PROMPT: summarize the transcript", MaxTokens: 1500}
+
+	// Primary is out of quota; the fallback handles the request.
+	primary := newMock("primary", mockResult{
+		err: &QuotaError{Provider: "primary", Err: fmt.Errorf("429 You exceeded your current quota")},
+	})
+	fallback := newMock("fallback", mockResult{text: "summary from fallback"})
+
+	f := newFallback(makeEntry("primary", primary), makeEntry("fallback", fallback))
+
+	result, err := f.Summarize(task, opts)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// (1) It switched to the next provider for THIS same request and returned
+	//     that provider's result — not an error, not a wait.
+	if result.Provider != "fallback" || result.Text != "summary from fallback" {
+		t.Errorf("got provider=%q text=%q, want the fallback's result", result.Provider, result.Text)
+	}
+
+	// (2) The switch was immediate within the one call: primary was tried
+	//     exactly once (no retry on the quota'd provider), fallback exactly once.
+	if primary.calls != 1 {
+		t.Errorf("primary calls = %d, want 1 (no same-provider retry)", primary.calls)
+	}
+	if fallback.calls != 1 {
+		t.Errorf("fallback calls = %d, want 1", fallback.calls)
+	}
+
+	// (3) The SAME task was handed to the fallback — identical transcript and
+	//     prompt/options (Model is intentionally cleared so each provider uses
+	//     its own configured model).
+	if fallback.lastText != task {
+		t.Errorf("fallback received text %q, want the same task %q", fallback.lastText, task)
+	}
+	if fallback.lastOpts.Prompt != opts.Prompt {
+		t.Errorf("fallback received prompt %q, want %q", fallback.lastOpts.Prompt, opts.Prompt)
+	}
+	if fallback.lastOpts.MaxTokens != opts.MaxTokens {
+		t.Errorf("fallback received MaxTokens %d, want %d", fallback.lastOpts.MaxTokens, opts.MaxTokens)
 	}
 }
 
