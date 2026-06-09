@@ -420,6 +420,40 @@ func TestFallback_HalfOpenEmptyResponse_DoesNotStrandProvider(t *testing.T) {
 	}
 }
 
+func TestFallback_AllowEmpty_FailsOverButDoesNotCountTowardCircuit(t *testing.T) {
+	// With AllowEmpty (stages 2/3, where an empty result can be legitimate),
+	// an empty response still fails over but must NOT count toward opening the
+	// circuit — otherwise legitimate empty keywords/mermaid would sideline a
+	// healthy provider (and break its main-summary stage too).
+	primary := newMock("primary",
+		mockResult{text: ""}, mockResult{text: ""}, mockResult{text: ""},
+		mockResult{text: ""}, mockResult{text: ""},
+	)
+	fallback := newMock("fallback",
+		mockResult{text: "k1"}, mockResult{text: "k2"}, mockResult{text: "k3"},
+		mockResult{text: "k4"}, mockResult{text: "k5"},
+	)
+	pEntry := makeEntry("primary", primary) // emptyThreshold 3
+	f := newFallback(pEntry, makeEntry("fallback", fallback))
+
+	for i := 0; i < 5; i++ {
+		if _, err := f.Summarize("t", SummarizeOptions{AllowEmpty: true}); err != nil {
+			t.Fatalf("call %d: %v", i+1, err)
+		}
+	}
+	if pEntry.breaker.State() != stateClosed {
+		t.Errorf("AllowEmpty empties must NOT open the circuit, got %v", pEntry.breaker.State())
+	}
+	// Still failed over every time (primary tried, fallback served).
+	if primary.calls != 5 || fallback.calls != 5 {
+		t.Errorf("should still fail over each call: primary=%d fallback=%d, want 5/5", primary.calls, fallback.calls)
+	}
+	// Pin the threading: the providers actually received AllowEmpty=true.
+	if !primary.lastOpts.AllowEmpty || !fallback.lastOpts.AllowEmpty {
+		t.Error("AllowEmpty was not threaded through to the providers")
+	}
+}
+
 func TestFallback_ConsecutiveEmpties_OpenCircuitAndSkipProvider(t *testing.T) {
 	now := time.Now()
 

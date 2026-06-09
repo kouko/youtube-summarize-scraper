@@ -47,9 +47,14 @@ func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (Summ
 			// and no message to classify as a QuotaError. Treat the empty
 			// response itself as this provider failing so the chain fails over
 			// instead of returning a blank summary.
-			p.breaker.RecordEmptyResponse()
+			// An empty response on a stage where empty can be legitimate
+			// (opts.AllowEmpty — keywords/mermaid) still fails over, but must
+			// not count toward opening the circuit.
+			if !opts.AllowEmpty {
+				p.breaker.RecordEmptyResponse()
+			}
 			slog.Warn("provider returned an empty response, trying fallback",
-				"provider", p.name)
+				"provider", p.name, "counted", !opts.AllowEmpty)
 			lastErr = fmt.Errorf("%s: empty response", p.name)
 			continue
 		}

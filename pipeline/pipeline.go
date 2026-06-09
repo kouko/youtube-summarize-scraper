@@ -746,8 +746,9 @@ func (p *Pipeline) runSummarization(
 			slog.Warn("stage 2 keyword prompt loading failed", "video_id", meta.ID, "error", kwPromptErr)
 		}
 		kwOpts := summarizer.SummarizeOptions{
-			Prompt:    kwPrompt,
-			MaxTokens: p.config.Summary.MaxTokens,
+			Prompt:     kwPrompt,
+			MaxTokens:  p.config.Summary.MaxTokens,
+			AllowEmpty: true, // keywords can legitimately be empty
 		}
 		kwResult, kwErr := p.summarizer.Summarize(summaryText, kwOpts)
 		if kwErr != nil {
@@ -766,8 +767,9 @@ func (p *Pipeline) runSummarization(
 			slog.Warn("stage 3 mermaid prompt loading failed", "video_id", meta.ID, "error", mermaidPromptErr)
 		}
 		mermaidOpts := summarizer.SummarizeOptions{
-			Prompt:    mermaidPrompt,
-			MaxTokens: p.config.Summary.MaxTokens,
+			Prompt:     mermaidPrompt,
+			MaxTokens:  p.config.Summary.MaxTokens,
+			AllowEmpty: true, // a summary may legitimately need no diagram
 		}
 		mermaidResult, mermaidErr := p.summarizer.Summarize(summaryText, mermaidOpts)
 		if mermaidErr != nil {
@@ -1192,8 +1194,9 @@ func (p *Pipeline) runSummarizationPlaylist(
 			slog.Warn("stage 2 keyword prompt loading failed", "video_id", meta.ID, "error", kwPromptErr)
 		}
 		kwOpts := summarizer.SummarizeOptions{
-			Prompt:    kwPrompt,
-			MaxTokens: p.config.Summary.MaxTokens,
+			Prompt:     kwPrompt,
+			MaxTokens:  p.config.Summary.MaxTokens,
+			AllowEmpty: true, // keywords can legitimately be empty
 		}
 		kwResult, kwErr := p.summarizer.Summarize(summaryText, kwOpts)
 		if kwErr != nil {
@@ -1212,8 +1215,9 @@ func (p *Pipeline) runSummarizationPlaylist(
 			slog.Warn("stage 3 mermaid prompt loading failed", "video_id", meta.ID, "error", mermaidPromptErr)
 		}
 		mermaidOpts := summarizer.SummarizeOptions{
-			Prompt:    mermaidPrompt,
-			MaxTokens: p.config.Summary.MaxTokens,
+			Prompt:     mermaidPrompt,
+			MaxTokens:  p.config.Summary.MaxTokens,
+			AllowEmpty: true, // a summary may legitimately need no diagram
 		}
 		mermaidResult, mermaidErr := p.summarizer.Summarize(summaryText, mermaidOpts)
 		if mermaidErr != nil {
