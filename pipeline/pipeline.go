@@ -729,9 +729,9 @@ func (p *Pipeline) runSummarization(
 	}
 	summaryText := summaryResult.Text
 	if strings.TrimSpace(summaryText) == "" {
-		return fmt.Errorf("stage 1: LLM returned empty response — if using a thinking model (e.g., Qwen3.5), ensure think mode is disabled or increase max_tokens")
+		return emptyResponseError("stage 1", summaryResult.Provider, summaryResult.Model)
 	}
-	slog.Debug("stage 1 complete", "video_id", meta.ID, "provider", summaryResult.Provider, "model", summaryResult.Model, "response_length", len(summaryText))
+	slog.Info("stage 1 complete", "video_id", meta.ID, "provider", summaryResult.Provider, "model", summaryResult.Model, "response_length", len(summaryText))
 
 	// Stage 2: Keywords (non-blocking).
 	var keywords []string
@@ -1175,8 +1175,9 @@ func (p *Pipeline) runSummarizationPlaylist(
 	}
 	summaryText := summaryResult.Text
 	if strings.TrimSpace(summaryText) == "" {
-		return fmt.Errorf("stage 1: LLM returned empty response")
+		return emptyResponseError("stage 1", summaryResult.Provider, summaryResult.Model)
 	}
+	slog.Info("stage 1 complete", "video_id", meta.ID, "provider", summaryResult.Provider, "model", summaryResult.Model, "response_length", len(summaryText))
 
 	// Stage 2: Keywords.
 	var keywords []string
@@ -1361,6 +1362,14 @@ var errSkipped = fmt.Errorf("skipped")
 // IsSkipped returns true if the error is the sentinel skipped error.
 func IsSkipped(err error) bool {
 	return err == errSkipped
+}
+
+// emptyResponseError builds the stage-1 "empty response" error, naming the
+// provider/model that returned empty text so the failure log identifies the
+// actual LLM backend used (an empty response counts as success to the
+// fallback chain, so summaryResult still carries the provider that answered).
+func emptyResponseError(stage, provider, model string) error {
+	return fmt.Errorf("%s: LLM returned empty response from provider %q (model %q) — if using a thinking model (e.g., Qwen3.5), ensure think mode is disabled or increase max_tokens", stage, provider, model)
 }
 
 // errPartial is a sentinel signaling that a video was partially processed:
