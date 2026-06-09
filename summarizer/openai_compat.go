@@ -94,8 +94,8 @@ func (o *OpenAICompatSummarizer) Summarize(text string, opts SummarizeOptions) (
 
 	if resp.StatusCode != http.StatusOK {
 		baseErr := fmt.Errorf("openai-compat: HTTP %d: %s", resp.StatusCode, string(respBody))
-		if resp.StatusCode == http.StatusTooManyRequests || isQuotaMessage(string(respBody)) {
-			return SummarizeResult{}, &QuotaError{Provider: "openai-compat", Err: baseErr}
+		if qe := quotaErrorFrom("openai-compat", baseErr, resp.StatusCode, string(respBody), resp.Header.Get("Retry-After"), time.Now()); qe != nil {
+			return SummarizeResult{}, qe
 		}
 		return SummarizeResult{}, baseErr
 	}

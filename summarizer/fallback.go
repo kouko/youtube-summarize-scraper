@@ -40,16 +40,19 @@ func (f *FallbackSummarizer) Summarize(text string, opts SummarizeOptions) (Summ
 			return result, nil // result already contains actual provider/model
 		}
 
-		if IsQuotaError(err) {
-			p.breaker.RecordFailure()
+		if qe := asQuotaError(err); qe != nil {
+			p.breaker.RecordQuotaFailure(qe.RetryAfter, qe.Kind)
 			slog.Warn("provider quota exceeded, trying fallback",
-				"provider", p.name, "error", err)
+				"provider", p.name, "kind", qe.Kind, "retry_after", qe.RetryAfter, "error", err)
 			lastErr = err
 			continue
 		}
 
 		// Non-quota error: try next provider for this request,
 		// but don't open the circuit (provider itself is healthy).
+		// Still inform the breaker so a half-open probe isn't stranded —
+		// otherwise the provider stays half-open and is skipped forever.
+		p.breaker.RecordInconclusive()
 		slog.Warn("provider error (non-quota), trying fallback",
 			"provider", p.name, "error", err)
 		lastErr = err

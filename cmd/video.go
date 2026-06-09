@@ -47,6 +47,12 @@ var videoCmd = &cobra.Command{
 				fmt.Printf("video %s: skipped\n", meta.ID)
 				return nil
 			}
+			if pipeline.IsPartial(err) {
+				// Transcription saved; only summarization failed (e.g. quota).
+				// Not a hard failure — a later run resumes the summary.
+				fmt.Printf("video %s: partial — transcription saved, summary failed (%v)\n", meta.ID, err)
+				return nil
+			}
 			return fmt.Errorf("processing video: %w", err)
 		}
 

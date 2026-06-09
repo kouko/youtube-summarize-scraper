@@ -91,8 +91,8 @@ func (o *OllamaSummarizer) Summarize(text string, opts SummarizeOptions) (Summar
 
 	if resp.StatusCode != http.StatusOK {
 		baseErr := fmt.Errorf("ollama: unexpected status %d: %s", resp.StatusCode, string(respBody))
-		if resp.StatusCode == http.StatusTooManyRequests || isQuotaMessage(string(respBody)) {
-			return SummarizeResult{}, &QuotaError{Provider: "ollama", Err: baseErr}
+		if qe := quotaErrorFrom("ollama", baseErr, resp.StatusCode, string(respBody), resp.Header.Get("Retry-After"), time.Now()); qe != nil {
+			return SummarizeResult{}, qe
 		}
 		return SummarizeResult{}, baseErr
 	}

@@ -58,8 +58,8 @@ func (g *GeminiCLISummarizer) Summarize(text string, opts SummarizeOptions) (Sum
 	if err := cmd.Run(); err != nil {
 		combined := stderr.String() + "\n" + stdout.String()
 		baseErr := fmt.Errorf("gemini-cli: execution failed: %w\nstderr: %s", err, stderr.String())
-		if isQuotaMessage(combined) {
-			return SummarizeResult{}, &QuotaError{Provider: "gemini-cli", Err: baseErr}
+		if qe := quotaErrorFrom("gemini-cli", baseErr, 0, combined, "", time.Now()); qe != nil {
+			return SummarizeResult{}, qe
 		}
 		return SummarizeResult{}, baseErr
 	}

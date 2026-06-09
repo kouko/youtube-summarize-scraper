@@ -71,8 +71,8 @@ func (c *ClaudeCodeSummarizer) Summarize(text string, opts SummarizeOptions) (Su
 			errMsg = stdout.String()
 		}
 		baseErr := fmt.Errorf("claude-code: execution failed: %w\noutput: %s", err, errMsg)
-		if isQuotaMessage(errMsg) {
-			return SummarizeResult{}, &QuotaError{Provider: "claude-code", Err: baseErr}
+		if qe := quotaErrorFrom("claude-code", baseErr, 0, errMsg, "", time.Now()); qe != nil {
+			return SummarizeResult{}, qe
 		}
 		return SummarizeResult{}, baseErr
 	}

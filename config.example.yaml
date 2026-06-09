@@ -64,9 +64,11 @@ llm:
                                      #     - "gemini-cli"
                                      #     - "claude-code"
                                      #     - "ollama"
-  # provider_fallback_strategy:      # Controls how the fallback chain behaves (only needed with multiple providers)
-  #   cooldown_seconds: 300          # Seconds before retrying a failed provider (default: 300 = 5 min)
-  #   failure_threshold: 1           # Quota errors before skipping a provider (default: 1)
+  # provider_fallback_strategy:        # Controls how the fallback chain behaves (only needed with multiple providers)
+  #   cooldown_seconds: 300            # Cooldown after hard quota exhaustion, in seconds (default: 300 = 5 min)
+  #   failure_threshold: 1             # Quota errors before skipping a provider (default: 1)
+  #   rate_limit_cooldown_seconds: 60  # Shorter cooldown for transient rate limits / 429 (default: 60).
+  #                                    # A server Retry-After header always overrides both (capped at 1h).
   ollama:
     model: "llama3"
     endpoint: "http://localhost:11434"
