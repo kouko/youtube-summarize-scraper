@@ -28,13 +28,9 @@ whisper:
   model_dir: "~/.ytss/models"
   default_model: "base"
 
-  # Inner cap on LOCAL Whisper transcription (seconds; 0 = no limit).
-  # Two-tier split:
-  #   filter.max_duration  = content ceiling — skips the video entirely, regardless of subtitles.
-  #   whisper.max_duration = bounds local transcription only — when no subtitles exist, a video
-  #                          longer than this is skipped instead of transcribed.
-  # Invariant: whisper.max_duration must be <= filter.max_duration.
-  # max_duration: 7200
+  max_duration: 0                  # Max length for LOCAL transcription (seconds; 0 = no limit).
+                                   # Applies only when a video has no subtitles: longer than this
+                                   # is skipped instead of running Whisper. Must be <= filter.max_duration.
 
   # Language-specific model overrides (ISO 639-1 keys)
   language_models:
@@ -136,7 +132,9 @@ summary:
 filter:
   types: ["video", "live", "short"]  # video / live / short (default: all types)
   min_duration: 0                    # Min seconds (0 = no filter)
-  max_duration: 0                    # Max seconds (0 = no limit)
+  max_duration: 0                    # Max video length in seconds (0 = no limit). Content ceiling:
+                                     # over this the video is skipped at fetch, even with subtitles.
+                                     # Pairs with whisper.max_duration (see whisper block).
   exclude_availability:              # Exclude videos by availability (default: ["members_only", "private"])
     - members_only                   # YouTube channel membership content
     - private                        # Private videos
