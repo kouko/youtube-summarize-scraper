@@ -9,7 +9,7 @@ import (
 // VideoEntry holds cached directory info for a single video.
 type VideoEntry struct {
 	Dir   string          // absolute path to the video directory
-	Files map[string]bool // suffix → exists ("summary.md", "transcription.md", "subtitle.srt")
+	Files map[string]bool // suffix → exists ("summary.md", "transcription.md", "subtitle.srt", ".skipped")
 }
 
 // VideoIndex is an in-memory index of video IDs to their output directories and files.
@@ -69,7 +69,7 @@ func BuildIndex(outputDir string) *VideoIndex {
 					continue
 				}
 				name := fileEntry.Name()
-				for _, suffix := range []string{"summary.md", "transcription.md", "subtitle.srt"} {
+				for _, suffix := range []string{"summary.md", "transcription.md", "subtitle.srt", ".skipped"} {
 					if strings.HasSuffix(name, "__"+suffix) {
 						entry.Files[suffix] = true
 					}

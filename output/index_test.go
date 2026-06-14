@@ -104,6 +104,22 @@ func TestBuildIndex_InvalidDirName(t *testing.T) {
 	}
 }
 
+func TestBuildIndex_SkippedMarker(t *testing.T) {
+	tmp := t.TempDir()
+	// A terminal skip marker file, named DATE__videoID__.skipped, must register
+	// as a known ".skipped" file flag so downstream skip checks can treat the
+	// video as permanently skipped across runs.
+	createVideoDir(t, tmp, "@ch", "2026-06-14__VIDID123456__title", []string{
+		"2026-06-14__VIDID123456__.skipped",
+	})
+
+	idx := BuildIndex(tmp)
+
+	if !idx.HasFile("VIDID123456", ".skipped") {
+		t.Error("BuildIndex: expected .skipped marker to be indexed")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // FindVideoDir
 // ---------------------------------------------------------------------------
