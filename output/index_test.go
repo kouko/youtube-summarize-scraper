@@ -286,6 +286,22 @@ func TestIsProcessed_Index_NoSummary(t *testing.T) {
 	}
 }
 
+func TestIsProcessed_SkippedMarker(t *testing.T) {
+	// A terminal .skipped marker (no summary.md) inside the expected channel
+	// dir must count as processed, so the single `video <url>` path never
+	// retries a video that was permanently skipped.
+	tmp := t.TempDir()
+	createVideoDir(t, tmp, "@testchannel", "2024-03-15__abc123__some_title", []string{
+		"2024-03-15__abc123__.skipped",
+	})
+
+	idx := BuildIndex(tmp)
+
+	if !idx.IsProcessed("testchannel", "abc123") {
+		t.Error("IsProcessed: expected true for .skipped marker")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Add / AddFile
 // ---------------------------------------------------------------------------

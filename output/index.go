@@ -116,14 +116,15 @@ func (idx *VideoIndex) HasFile(videoID, suffix string) bool {
 	return entry.Files[suffix]
 }
 
-// IsProcessed checks whether a video is fully processed (has summary.md)
-// inside the expected channel directory.
+// IsProcessed checks whether a video is terminal — either fully processed
+// (has summary.md) or permanently skipped (has a .skipped marker) — inside
+// the expected channel directory.
 func (idx *VideoIndex) IsProcessed(channelHandle, videoID string) bool {
 	entry := idx.entries[videoID]
 	if entry == nil {
 		return false
 	}
-	if !entry.Files["summary.md"] {
+	if !entry.Files["summary.md"] && !entry.Files[".skipped"] {
 		return false
 	}
 	// Verify the video is in the expected channel directory.
