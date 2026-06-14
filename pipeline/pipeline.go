@@ -631,6 +631,8 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 
 		// 8.5. Whisper duration gate: skip transcription for over-long videos.
 		if skipped, gateErr := p.skipTranscriptionIfTooLong(meta, videoDir, filePrefix); gateErr != nil {
+			// Marker write failed: propagate so this buckets as failed and is
+			// retried next run — a failed write must not be treated as a clean skip.
 			return gateErr
 		} else if skipped {
 			return errSkipped
@@ -1122,6 +1124,8 @@ func (p *Pipeline) processVideoInPlaylist(
 
 		// Whisper duration gate: skip transcription for over-long videos.
 		if skipped, gateErr := p.skipTranscriptionIfTooLong(meta, videoDir, filePrefix); gateErr != nil {
+			// Marker write failed: propagate so this buckets as failed and is
+			// retried next run — a failed write must not be treated as a clean skip.
 			return gateErr
 		} else if skipped {
 			return errSkipped
