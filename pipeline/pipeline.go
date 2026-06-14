@@ -31,12 +31,17 @@ type videoFetcher interface {
 	FetchPlaylistVideos(playlistURL string, limit int, cookieArgs []string) ([]fetcher.VideoMeta, string, error)
 }
 
+// subtitleDownloader abstracts subtitle download for testability.
+type subtitleDownloader interface {
+	Download(videoURL string, languages []string, outputDir string, filePrefix string, cookieArgs []string) (*subtitle.SubtitleResult, error)
+}
+
 // Pipeline wires together all processing modules.
 type Pipeline struct {
 	config      *config.Config
 	binPaths    *embedded.BinPaths
 	fetcher     videoFetcher
-	subtitle    *subtitle.Downloader
+	subtitle    subtitleDownloader
 	transcriber *transcriber.Transcriber
 	summarizer  summarizer.Summarizer
 	index       *output.VideoIndex
