@@ -129,3 +129,91 @@ func TestProcessVideo_WhisperGate_TooLong(t *testing.T) {
 		})
 	}
 }
+
+// TestProcessVideoInPlaylist_WhisperGate_TooLong mirrors
+// TestProcessVideo_WhisperGate_TooLong for the playlist code path. The
+// subtitle-failed → Whisper branch in processVideoInPlaylist must honor the
+// same whisper.max_duration gate: when no subtitles exist AND the video
+// exceeds the cap, write a terminal `.skipped` marker and return errSkipped
+// instead of burning local Whisper. Under the cap the gate must not fire.
+// The caller (processPlaylistVideos) registers the index entry via
+// index.Add before invoking processVideoInPlaylist, so the test mirrors that
+// precondition — the gate's index.AddFile depends on it.
+func TestProcessVideoInPlaylist_WhisperGate_TooLong(t *testing.T) {
+	const maxDuration = 7200 // 2h cap
+
+	tests := []struct {
+		name        string
+		duration    float64
+		wantSkipped bool
+		wantMarker  bool
+		videoID     string
+	}{
+		{
+			name:        "over cap fires gate",
+			duration:    10000,
+			wantSkipped: true,
+			wantMarker:  true,
+			videoID:     "plVidOverCap",
+		},
+		{
+			name:        "under cap does not fire gate",
+			duration:    3600,
+			wantSkipped: false,
+			wantMarker:  false,
+			videoID:     "plVidUnderCap",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			outputDir := t.TempDir()
+			cfg := &config.Config{
+				OutputDir: outputDir,
+				Whisper:   config.WhisperConfig{MaxDuration: maxDuration},
+			}
+
+			p := &Pipeline{
+				config:      cfg,
+				subtitle:    &fakeSubtitleDownloader{err: fmt.Errorf("no subtitles available")},
+				transcriber: transcriber.NewTranscriber("", "", "", cfg.Whisper),
+				index:       output.BuildIndex(outputDir),
+				timezone:    time.UTC,
+			}
+
+			meta := &fetcher.VideoMeta{
+				ID:         tc.videoID,
+				Title:      "Test Video",
+				Channel:    "@testchannel",
+				UploadDate: "20240101",
+				Duration:   tc.duration,
+				Tags:       []string{"tag"},
+			}
+
+			// Mirror processPlaylistVideos: create the target dir and register
+			// the index entry before calling processVideoInPlaylist.
+			videoDir := filepath.Join(outputDir, "playlist", "20240101__"+tc.videoID+"__Test-Video")
+			if err := output.EnsureDir(videoDir); err != nil {
+				t.Fatalf("EnsureDir: %v", err)
+			}
+			p.index.Add(meta.ID, videoDir)
+
+			err := p.processVideoInPlaylist(meta, "@testchannel", videoDir, "My Playlist", "PL123", &config.PlaylistConfig{})
+
+			if got := IsSkipped(err); got != tc.wantSkipped {
+				t.Errorf("IsSkipped(err) = %v, want %v (err=%v)", got, tc.wantSkipped, err)
+			}
+
+			skippedMatches, _ := filepath.Glob(filepath.Join(videoDir, "*__.skipped"))
+			if hasMarker := len(skippedMatches) > 0; hasMarker != tc.wantMarker {
+				t.Errorf("found %d .skipped markers, want marker=%v", len(skippedMatches), tc.wantMarker)
+			}
+
+			// The gate must NOT have run transcription: no transcription.md.
+			transMatches, _ := filepath.Glob(filepath.Join(videoDir, "*__transcription.md"))
+			if tc.wantSkipped && len(transMatches) > 0 {
+				t.Errorf("gate fired but transcription.md was written (%d files) — transcriber path taken", len(transMatches))
+			}
+		})
+	}
+}

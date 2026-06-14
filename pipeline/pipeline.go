@@ -616,21 +616,9 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 			"video_id", meta.ID, "error", err)
 
 		// 8.5. Whisper duration gate: skip transcription for over-long videos.
-		// Local Whisper on multi-hour audio is the pipeline's slowest path, so
-		// when no subtitles exist AND the video exceeds whisper.max_duration we
-		// write a terminal .skipped marker and stop — the marker keeps later
-		// runs from retrying this video indefinitely.
-		if p.config.Whisper.MaxDuration > 0 && meta.Duration > float64(p.config.Whisper.MaxDuration) {
-			skippedPath := filepath.Join(videoDir, filePrefix+".skipped")
-			if writeErr := os.WriteFile(skippedPath, []byte("skipped: no subtitles and over whisper.max_duration\n"), 0o644); writeErr != nil {
-				return fmt.Errorf("writing skipped marker: %w", writeErr)
-			}
-			p.index.AddFile(meta.ID, ".skipped")
-			slog.Info("skipped: no subtitles and over whisper max_duration",
-				"video_id", meta.ID,
-				"duration", meta.Duration,
-				"whisper_max_duration", p.config.Whisper.MaxDuration,
-			)
+		if skipped, gateErr := p.skipTranscriptionIfTooLong(meta, videoDir, filePrefix); gateErr != nil {
+			return gateErr
+		} else if skipped {
 			return errSkipped
 		}
 
@@ -1004,6 +992,34 @@ func (p *Pipeline) processPlaylistVideos(videos []fetcher.VideoMeta, playlistID,
 	return stats, nil
 }
 
+// skipTranscriptionIfTooLong applies the Whisper duration gate: when no
+// subtitles were found AND the video exceeds whisper.max_duration, it writes a
+// terminal `<filePrefix>.skipped` marker and registers it in the index, then
+// reports that the caller should skip transcription. Local Whisper on
+// multi-hour audio is the pipeline's slowest path, so the marker keeps later
+// runs from retrying this video indefinitely. Callers must have already
+// registered the video's index entry (via index.Add) so AddFile attaches the
+// flag. Both ProcessVideo and processVideoInPlaylist invoke this from their
+// subtitle-download-failed branch. A non-nil error means the marker write
+// failed and must propagate (never swallowed); skipped==true with a nil error
+// means the gate fired cleanly.
+func (p *Pipeline) skipTranscriptionIfTooLong(meta *fetcher.VideoMeta, videoDir, filePrefix string) (bool, error) {
+	if p.config.Whisper.MaxDuration <= 0 || meta.Duration <= float64(p.config.Whisper.MaxDuration) {
+		return false, nil
+	}
+	skippedPath := filepath.Join(videoDir, filePrefix+".skipped")
+	if err := os.WriteFile(skippedPath, []byte("skipped: no subtitles and over whisper.max_duration\n"), 0o644); err != nil {
+		return false, fmt.Errorf("writing skipped marker: %w", err)
+	}
+	p.index.AddFile(meta.ID, ".skipped")
+	slog.Info("skipped: no subtitles and over whisper max_duration",
+		"video_id", meta.ID,
+		"duration", meta.Duration,
+		"whisper_max_duration", p.config.Whisper.MaxDuration,
+	)
+	return true, nil
+}
+
 // processVideoInPlaylist runs the core video pipeline for a playlist context.
 // It mirrors ProcessVideo but writes to the playlist-specific targetDir with
 // playlist metadata in frontmatter.
@@ -1080,6 +1096,13 @@ func (p *Pipeline) processVideoInPlaylist(
 	if err != nil {
 		slog.Info("subtitle download failed, attempting whisper transcription",
 			"video_id", meta.ID, "error", err)
+
+		// Whisper duration gate: skip transcription for over-long videos.
+		if skipped, gateErr := p.skipTranscriptionIfTooLong(meta, videoDir, filePrefix); gateErr != nil {
+			return gateErr
+		} else if skipped {
+			return errSkipped
+		}
 
 		transResult, transErr := p.transcriber.Transcribe(
 			videoURL(meta.ID),
