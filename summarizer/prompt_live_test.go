@@ -27,7 +27,7 @@ import (
 // Env knobs (only the gate is required):
 //
 //	YTSS_LIVE_PROMPT=1          opt in to the real LLM call
-//	YTSS_CONFIG=./config.yaml   config to read the provider chain + language from
+//	YTSS_CONFIG=../config.yaml  config to read the provider chain + language from (default; repo-root config relative to the package dir)
 //	YTSS_PROMPT_FILE=path       prompt template to test; default = app resolution (built-in by language)
 //	YTSS_TRANSCRIPT=path        transcript to summarize; default = a short sample
 func TestSummaryPromptLive(t *testing.T) {
@@ -35,10 +35,13 @@ func TestSummaryPromptLive(t *testing.T) {
 		t.Skip("set YTSS_LIVE_PROMPT=1 to run (makes a real LLM call)")
 	}
 
-	cfgPath := envOrDefault("YTSS_CONFIG", "./config.yaml")
+	// `go test ./summarizer/` runs with CWD = the package dir, so the repo-root
+	// config.yaml is one level up. Override with an absolute YTSS_CONFIG if your
+	// layout differs.
+	cfgPath := envOrDefault("YTSS_CONFIG", "../config.yaml")
 	cfg, err := config.Load(cfgPath)
 	if err != nil {
-		t.Skipf("need a config to pick the provider chain (%s): %v", cfgPath, err)
+		t.Skipf("need a config to pick the provider chain (%s): %v — set YTSS_CONFIG to an absolute path", cfgPath, err)
 	}
 
 	// Prompt template: explicit file override, else the app's own resolution
