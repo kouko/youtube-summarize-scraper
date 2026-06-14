@@ -615,6 +615,25 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 		slog.Info("subtitle download failed, attempting whisper transcription",
 			"video_id", meta.ID, "error", err)
 
+		// 8.5. Whisper duration gate: skip transcription for over-long videos.
+		// Local Whisper on multi-hour audio is the pipeline's slowest path, so
+		// when no subtitles exist AND the video exceeds whisper.max_duration we
+		// write a terminal .skipped marker and stop — the marker keeps later
+		// runs from retrying this video indefinitely.
+		if p.config.Whisper.MaxDuration > 0 && meta.Duration > float64(p.config.Whisper.MaxDuration) {
+			skippedPath := filepath.Join(videoDir, filePrefix+".skipped")
+			if writeErr := os.WriteFile(skippedPath, []byte("skipped: no subtitles and over whisper.max_duration\n"), 0o644); writeErr != nil {
+				return fmt.Errorf("writing skipped marker: %w", writeErr)
+			}
+			p.index.AddFile(meta.ID, ".skipped")
+			slog.Info("skipped: no subtitles and over whisper max_duration",
+				"video_id", meta.ID,
+				"duration", meta.Duration,
+				"whisper_max_duration", p.config.Whisper.MaxDuration,
+			)
+			return errSkipped
+		}
+
 		// 9. Attempt whisper transcription (use resolved language).
 		transResult, transErr := p.transcriber.Transcribe(
 			videoURL(meta.ID),

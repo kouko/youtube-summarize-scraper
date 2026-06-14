@@ -2,9 +2,15 @@ package pipeline
 
 import (
 	"fmt"
+	"path/filepath"
 	"testing"
+	"time"
 
+	"github.com/kouko/youtube-summarize-scraper/config"
+	"github.com/kouko/youtube-summarize-scraper/fetcher"
+	"github.com/kouko/youtube-summarize-scraper/output"
 	"github.com/kouko/youtube-summarize-scraper/subtitle"
+	"github.com/kouko/youtube-summarize-scraper/transcriber"
 )
 
 // fakeSubtitleDownloader is a test double for the subtitleDownloader seam.
@@ -41,5 +47,85 @@ func TestPipeline_SubtitleSeam(t *testing.T) {
 	}
 	if !fake.called {
 		t.Fatal("expected the fake's Download to be invoked through the seam")
+	}
+}
+
+// TestProcessVideo_WhisperGate_TooLong covers the Whisper duration gate in
+// ProcessVideo's subtitle-download-failed branch. When no subtitles are
+// available AND the video exceeds whisper.max_duration, the pipeline must
+// write a terminal `.skipped` marker and return errSkipped INSTEAD of running
+// Whisper transcription. The inverse case (under the cap) must NOT write a
+// marker and must NOT short-circuit as skipped — it falls through toward the
+// (concrete, un-fakeable) transcriber, which errors in test; we assert on the
+// observables (marker absence + non-skipped error), not transcription success.
+func TestProcessVideo_WhisperGate_TooLong(t *testing.T) {
+	const maxDuration = 7200 // 2h cap
+
+	tests := []struct {
+		name        string
+		duration    float64
+		wantSkipped bool // gate fires: .skipped written + IsSkipped(err)
+		wantMarker  bool
+		videoID     string
+	}{
+		{
+			name:        "over cap fires gate",
+			duration:    10000,
+			wantSkipped: true,
+			wantMarker:  true,
+			videoID:     "vidOverCap0",
+		},
+		{
+			name:        "under cap does not fire gate",
+			duration:    3600,
+			wantSkipped: false,
+			wantMarker:  false,
+			videoID:     "vidUnderCap",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			outputDir := t.TempDir()
+			cfg := &config.Config{
+				OutputDir: outputDir,
+				Whisper:   config.WhisperConfig{MaxDuration: maxDuration},
+			}
+
+			p := &Pipeline{
+				config:      cfg,
+				subtitle:    &fakeSubtitleDownloader{err: fmt.Errorf("no subtitles available")},
+				transcriber: transcriber.NewTranscriber("", "", "", cfg.Whisper),
+				index:       output.BuildIndex(outputDir),
+				timezone:    time.UTC,
+			}
+
+			meta := &fetcher.VideoMeta{
+				ID:         tc.videoID,
+				Title:      "Test Video",
+				Channel:    "@testchannel",
+				UploadDate: "20240101",
+				Duration:   tc.duration,
+				Tags:       []string{"tag"}, // non-nil → skip full-metadata fetch
+			}
+
+			err := p.ProcessVideo(meta, nil)
+
+			if got := IsSkipped(err); got != tc.wantSkipped {
+				t.Errorf("IsSkipped(err) = %v, want %v (err=%v)", got, tc.wantSkipped, err)
+			}
+
+			channelDir := filepath.Join(outputDir, "@testchannel")
+			skippedMatches, _ := filepath.Glob(filepath.Join(channelDir, "*", "*__.skipped"))
+			if hasMarker := len(skippedMatches) > 0; hasMarker != tc.wantMarker {
+				t.Errorf("found %d .skipped markers, want marker=%v", len(skippedMatches), tc.wantMarker)
+			}
+
+			// The gate must NOT have run transcription: no transcription.md.
+			transMatches, _ := filepath.Glob(filepath.Join(channelDir, "*", "*__transcription.md"))
+			if tc.wantSkipped && len(transMatches) > 0 {
+				t.Errorf("gate fired but transcription.md was written (%d files) — transcriber path taken", len(transMatches))
+			}
+		})
 	}
 }
