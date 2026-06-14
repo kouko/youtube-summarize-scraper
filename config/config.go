@@ -152,6 +152,7 @@ type WhisperConfig struct {
 	ModelSources      map[string]string `yaml:"model_sources"`
 	TranscribeTimeout int               `yaml:"transcribe_timeout"`
 	DownloadTimeout   int               `yaml:"download_timeout"`
+	MaxDuration       int               `yaml:"max_duration"`
 }
 
 type CookieConfig struct {
@@ -323,6 +324,7 @@ func DefaultConfig() *Config {
 			},
 			TranscribeTimeout: 30,
 			DownloadTimeout:   10,
+			MaxDuration:       7200,
 			ModelSources: map[string]string{
 				"tiny":           "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
 				"base":           "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",
