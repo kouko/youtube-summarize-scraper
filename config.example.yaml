@@ -28,6 +28,14 @@ whisper:
   model_dir: "~/.ytss/models"
   default_model: "base"
 
+  # Inner cap on LOCAL Whisper transcription (seconds; 0 = no limit).
+  # Two-tier split:
+  #   filter.max_duration  = content ceiling — skips the video entirely, regardless of subtitles.
+  #   whisper.max_duration = bounds local transcription only — when no subtitles exist, a video
+  #                          longer than this is skipped instead of transcribed.
+  # Invariant: whisper.max_duration must be <= filter.max_duration.
+  # max_duration: 7200
+
   # Language-specific model overrides (ISO 639-1 keys)
   language_models:
     ja: "kotoba-ja"                  # Japanese-specialized (kotoba-tech, 1.4GB)

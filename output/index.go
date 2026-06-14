@@ -9,7 +9,7 @@ import (
 // VideoEntry holds cached directory info for a single video.
 type VideoEntry struct {
 	Dir   string          // absolute path to the video directory
-	Files map[string]bool // suffix → exists ("summary.md", "transcription.md", "subtitle.srt")
+	Files map[string]bool // suffix → exists ("summary.md", "transcription.md", "subtitle.srt", ".skipped")
 }
 
 // VideoIndex is an in-memory index of video IDs to their output directories and files.
@@ -69,7 +69,7 @@ func BuildIndex(outputDir string) *VideoIndex {
 					continue
 				}
 				name := fileEntry.Name()
-				for _, suffix := range []string{"summary.md", "transcription.md", "subtitle.srt"} {
+				for _, suffix := range []string{"summary.md", "transcription.md", "subtitle.srt", ".skipped"} {
 					if strings.HasSuffix(name, "__"+suffix) {
 						entry.Files[suffix] = true
 					}
@@ -116,14 +116,15 @@ func (idx *VideoIndex) HasFile(videoID, suffix string) bool {
 	return entry.Files[suffix]
 }
 
-// IsProcessed checks whether a video is fully processed (has summary.md)
-// inside the expected channel directory.
+// IsProcessed checks whether a video is terminal — either fully processed
+// (has summary.md) or permanently skipped (has a .skipped marker) — inside
+// the expected channel directory.
 func (idx *VideoIndex) IsProcessed(channelHandle, videoID string) bool {
 	entry := idx.entries[videoID]
 	if entry == nil {
 		return false
 	}
-	if !entry.Files["summary.md"] {
+	if !entry.Files["summary.md"] && !entry.Files[".skipped"] {
 		return false
 	}
 	// Verify the video is in the expected channel directory.

@@ -31,12 +31,17 @@ type videoFetcher interface {
 	FetchPlaylistVideos(playlistURL string, limit int, cookieArgs []string) ([]fetcher.VideoMeta, string, error)
 }
 
+// subtitleDownloader abstracts subtitle download for testability.
+type subtitleDownloader interface {
+	Download(videoURL string, languages []string, outputDir string, filePrefix string, cookieArgs []string) (*subtitle.SubtitleResult, error)
+}
+
 // Pipeline wires together all processing modules.
 type Pipeline struct {
 	config      *config.Config
 	binPaths    *embedded.BinPaths
 	fetcher     videoFetcher
-	subtitle    *subtitle.Downloader
+	subtitle    subtitleDownloader
 	transcriber *transcriber.Transcriber
 	summarizer  summarizer.Summarizer
 	index       *output.VideoIndex
@@ -441,13 +446,27 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 	return p.processChannelVideos(filtered, channelCfg)
 }
 
+// isSkipMarked reports whether a video carries a permanent `.skipped` marker
+// (e.g. written by the Whisper duration gate). Single source of truth for the
+// marker name, shared by isTerminal and the playlist pre-check.
+func (p *Pipeline) isSkipMarked(videoID string) bool {
+	return p.index.HasFile(videoID, ".skipped")
+}
+
+// isTerminal reports whether a video's index entry is in a terminal state for
+// the loop pre-checks: fully processed (summary.md) or permanently skipped
+// (.skipped marker). Either means the per-video pipeline must not be dispatched.
+func (p *Pipeline) isTerminal(videoID string) bool {
+	return p.index.HasFile(videoID, "summary.md") || p.isSkipMarked(videoID)
+}
+
 // processChannelVideos processes pre-fetched channel videos sequentially.
 func (p *Pipeline) processChannelVideos(videos []fetcher.VideoMeta, channelCfg *config.ChannelConfig) (*Stats, error) {
 	stats := &Stats{}
 	for i, meta := range videos {
 		if !p.force {
 			existingDir := p.index.FindVideoDir(meta.ID)
-			if existingDir != "" && p.index.HasFile(meta.ID, "summary.md") {
+			if existingDir != "" && p.isTerminal(meta.ID) {
 				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (already processed)", i+1, len(videos), meta.ID),
 					"title", meta.Title,
 				)
@@ -609,6 +628,15 @@ func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.Chan
 	if err != nil {
 		slog.Info("subtitle download failed, attempting whisper transcription",
 			"video_id", meta.ID, "error", err)
+
+		// 8.5. Whisper duration gate: skip transcription for over-long videos.
+		if skipped, gateErr := p.skipTranscriptionIfTooLong(meta, videoDir, filePrefix); gateErr != nil {
+			// Marker write failed: propagate so this buckets as failed and is
+			// retried next run — a failed write must not be treated as a clean skip.
+			return gateErr
+		} else if skipped {
+			return errSkipped
+		}
 
 		// 9. Attempt whisper transcription (use resolved language).
 		transResult, transErr := p.transcriber.Transcribe(
@@ -882,6 +910,15 @@ func (p *Pipeline) processPlaylistVideos(videos []fetcher.VideoMeta, playlistID,
 		// Smart skip with cross-directory copy support.
 		if !p.force {
 			existingDir := p.index.FindVideoDir(meta.ID)
+			// A terminal `.skipped` marker is permanent across runs and has no
+			// summary to cross-dir copy — count skipped and move on directly.
+			if existingDir != "" && p.isSkipMarked(meta.ID) {
+				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (marked .skipped)", i+1, len(videos), meta.ID),
+					"title", meta.Title,
+				)
+				stats.Skipped++
+				continue
+			}
 			if existingDir != "" && p.index.HasFile(meta.ID, "summary.md") {
 				if strings.HasPrefix(existingDir, plDir+string(filepath.Separator)) {
 					slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (complete)", i+1, len(videos), meta.ID),
@@ -980,6 +1017,34 @@ func (p *Pipeline) processPlaylistVideos(videos []fetcher.VideoMeta, playlistID,
 	return stats, nil
 }
 
+// skipTranscriptionIfTooLong applies the Whisper duration gate: when no
+// subtitles were found AND the video exceeds whisper.max_duration, it writes a
+// terminal `<filePrefix>.skipped` marker and registers it in the index, then
+// reports that the caller should skip transcription. Local Whisper on
+// multi-hour audio is the pipeline's slowest path, so the marker keeps later
+// runs from retrying this video indefinitely. Callers must have already
+// registered the video's index entry (via index.Add) so AddFile attaches the
+// flag. Both ProcessVideo and processVideoInPlaylist invoke this from their
+// subtitle-download-failed branch. A non-nil error means the marker write
+// failed and must propagate (never swallowed); skipped==true with a nil error
+// means the gate fired cleanly.
+func (p *Pipeline) skipTranscriptionIfTooLong(meta *fetcher.VideoMeta, videoDir, filePrefix string) (bool, error) {
+	if p.config.Whisper.MaxDuration <= 0 || meta.Duration <= float64(p.config.Whisper.MaxDuration) {
+		return false, nil
+	}
+	skippedPath := filepath.Join(videoDir, filePrefix+".skipped")
+	if err := os.WriteFile(skippedPath, []byte("skipped: no subtitles and over whisper.max_duration\n"), 0o644); err != nil {
+		return false, fmt.Errorf("writing skipped marker: %w", err)
+	}
+	p.index.AddFile(meta.ID, ".skipped")
+	slog.Info("skipped: no subtitles and over whisper max_duration",
+		"video_id", meta.ID,
+		"duration", meta.Duration,
+		"whisper_max_duration", p.config.Whisper.MaxDuration,
+	)
+	return true, nil
+}
+
 // processVideoInPlaylist runs the core video pipeline for a playlist context.
 // It mirrors ProcessVideo but writes to the playlist-specific targetDir with
 // playlist metadata in frontmatter.
@@ -1056,6 +1121,15 @@ func (p *Pipeline) processVideoInPlaylist(
 	if err != nil {
 		slog.Info("subtitle download failed, attempting whisper transcription",
 			"video_id", meta.ID, "error", err)
+
+		// Whisper duration gate: skip transcription for over-long videos.
+		if skipped, gateErr := p.skipTranscriptionIfTooLong(meta, videoDir, filePrefix); gateErr != nil {
+			// Marker write failed: propagate so this buckets as failed and is
+			// retried next run — a failed write must not be treated as a clean skip.
+			return gateErr
+		} else if skipped {
+			return errSkipped
+		}
 
 		transResult, transErr := p.transcriber.Transcribe(
 			videoURL(meta.ID),

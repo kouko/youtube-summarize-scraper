@@ -104,6 +104,22 @@ func TestBuildIndex_InvalidDirName(t *testing.T) {
 	}
 }
 
+func TestBuildIndex_SkippedMarker(t *testing.T) {
+	tmp := t.TempDir()
+	// A terminal skip marker file, named DATE__videoID__.skipped, must register
+	// as a known ".skipped" file flag so downstream skip checks can treat the
+	// video as permanently skipped across runs.
+	createVideoDir(t, tmp, "@ch", "2026-06-14__VIDID123456__title", []string{
+		"2026-06-14__VIDID123456__.skipped",
+	})
+
+	idx := BuildIndex(tmp)
+
+	if !idx.HasFile("VIDID123456", ".skipped") {
+		t.Error("BuildIndex: expected .skipped marker to be indexed")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // FindVideoDir
 // ---------------------------------------------------------------------------
@@ -267,6 +283,22 @@ func TestIsProcessed_Index_NoSummary(t *testing.T) {
 
 	if idx.IsProcessed("testchannel", "abc123") {
 		t.Error("IsProcessed: expected false when no summary.md")
+	}
+}
+
+func TestIsProcessed_SkippedMarker(t *testing.T) {
+	// A terminal .skipped marker (no summary.md) inside the expected channel
+	// dir must count as processed, so the single `video <url>` path never
+	// retries a video that was permanently skipped.
+	tmp := t.TempDir()
+	createVideoDir(t, tmp, "@testchannel", "2024-03-15__abc123__some_title", []string{
+		"2024-03-15__abc123__.skipped",
+	})
+
+	idx := BuildIndex(tmp)
+
+	if !idx.IsProcessed("testchannel", "abc123") {
+		t.Error("IsProcessed: expected true for .skipped marker")
 	}
 }
 

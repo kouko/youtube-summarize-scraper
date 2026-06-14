@@ -64,6 +64,30 @@ output_dir: "./test-output"
 	}
 }
 
+func TestWhisperConfig_MaxDuration(t *testing.T) {
+	// (a) Default-loaded config caps local transcription at 7200s (2h).
+	if got := DefaultConfig().Whisper.MaxDuration; got != 7200 {
+		t.Errorf("default MaxDuration: got %d, want 7200", got)
+	}
+
+	// (b) A YAML override parses through to the field.
+	yaml := `
+whisper:
+  max_duration: 1800
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Whisper.MaxDuration != 1800 {
+		t.Errorf("override MaxDuration: got %d, want 1800", cfg.Whisper.MaxDuration)
+	}
+}
+
 func TestDefaultConfig_WatchMode(t *testing.T) {
 	cfg := DefaultConfig()
 
