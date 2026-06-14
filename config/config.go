@@ -324,7 +324,8 @@ func DefaultConfig() *Config {
 			},
 			TranscribeTimeout: 30,
 			DownloadTimeout:   10,
-			MaxDuration:       7200,
+			// MaxDuration defaults to 0 (no cap): opt-in, so upgrading an
+			// existing config never silently gains a Whisper duration limit.
 			ModelSources: map[string]string{
 				"tiny":           "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.bin",
 				"base":           "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.bin",

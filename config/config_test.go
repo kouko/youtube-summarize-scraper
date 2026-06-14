@@ -65,9 +65,10 @@ output_dir: "./test-output"
 }
 
 func TestWhisperConfig_MaxDuration(t *testing.T) {
-	// (a) Default-loaded config caps local transcription at 7200s (2h).
-	if got := DefaultConfig().Whisper.MaxDuration; got != 7200 {
-		t.Errorf("default MaxDuration: got %d, want 7200", got)
+	// (a) Default is 0 (no cap) so upgrading an existing config never silently
+	// gains a Whisper duration limit — opt-in, matching filter.max_duration.
+	if got := DefaultConfig().Whisper.MaxDuration; got != 0 {
+		t.Errorf("default MaxDuration: got %d, want 0", got)
 	}
 
 	// (b) A YAML override parses through to the field.
