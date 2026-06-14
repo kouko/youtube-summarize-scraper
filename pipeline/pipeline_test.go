@@ -217,3 +217,73 @@ func TestProcessVideoInPlaylist_WhisperGate_TooLong(t *testing.T) {
 		})
 	}
 }
+
+// TestLoopPreChecks_SkipMarked verifies that the lightweight already-processed
+// pre-check at the top of BOTH loops (processChannelVideos and
+// processPlaylistVideos) treats a terminal `.skipped` index marker the same as
+// summary.md: the video is counted as Skipped WITHOUT entering the per-video
+// pipeline. Entering the per-video function would invoke the subtitle
+// downloader (and, on its failure, real yt-dlp/Whisper), so we assert the
+// dispatch never happened via the fake's `called` flag staying false — the
+// observable that proves the pre-check short-circuited, not the full pipeline.
+func TestLoopPreChecks_SkipMarked(t *testing.T) {
+	tests := []struct {
+		name string
+		loop string // "channel" | "playlist"
+	}{
+		{name: "channel loop honors .skipped", loop: "channel"},
+		{name: "playlist loop honors .skipped", loop: "playlist"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			outputDir := t.TempDir()
+			cfg := &config.Config{OutputDir: outputDir}
+
+			// An existing on-disk dir so FindVideoDir resolves non-empty.
+			videoID := "skipMarkedVid"
+			plDir := output.PlaylistDir(outputDir, "PL123", "My Playlist")
+			videoDir := filepath.Join(plDir, "20240101__"+videoID+"__Test-Video")
+			if err := output.EnsureDir(videoDir); err != nil {
+				t.Fatalf("EnsureDir: %v", err)
+			}
+
+			idx := output.BuildIndex(outputDir)
+			idx.Add(videoID, videoDir)
+			idx.AddFile(videoID, ".skipped") // terminal marker, no summary.md
+
+			// A fake whose .called flag flips iff the per-video pipeline runs.
+			fake := &fakeSubtitleDownloader{err: fmt.Errorf("no subtitles")}
+			p := &Pipeline{
+				config:   cfg,
+				subtitle: fake,
+				index:    idx,
+				timezone: time.UTC,
+			}
+
+			meta := fetcher.VideoMeta{
+				ID:    videoID,
+				Title: "Test Video",
+			}
+
+			var stats *Stats
+			var err error
+			switch tc.loop {
+			case "channel":
+				stats, err = p.processChannelVideos([]fetcher.VideoMeta{meta}, nil)
+			case "playlist":
+				stats, err = p.processPlaylistVideos([]fetcher.VideoMeta{meta}, "PL123", "My Playlist", plDir, &config.PlaylistConfig{})
+			}
+			if err != nil {
+				t.Fatalf("loop returned error: %v", err)
+			}
+
+			if stats.Skipped != 1 {
+				t.Errorf("stats.Skipped = %d, want 1 (.skipped marker should count as skipped)", stats.Skipped)
+			}
+			if fake.called {
+				t.Error("per-video pipeline was dispatched (subtitle.Download invoked) — pre-check did not short-circuit on .skipped")
+			}
+		})
+	}
+}

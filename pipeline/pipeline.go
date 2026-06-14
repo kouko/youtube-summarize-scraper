@@ -446,13 +446,27 @@ func (p *Pipeline) ProcessChannel(channelURL string, count int, channelCfg *conf
 	return p.processChannelVideos(filtered, channelCfg)
 }
 
+// isSkipMarked reports whether a video carries a permanent `.skipped` marker
+// (e.g. written by the Whisper duration gate). Single source of truth for the
+// marker name, shared by isTerminal and the playlist pre-check.
+func (p *Pipeline) isSkipMarked(videoID string) bool {
+	return p.index.HasFile(videoID, ".skipped")
+}
+
+// isTerminal reports whether a video's index entry is in a terminal state for
+// the loop pre-checks: fully processed (summary.md) or permanently skipped
+// (.skipped marker). Either means the per-video pipeline must not be dispatched.
+func (p *Pipeline) isTerminal(videoID string) bool {
+	return p.index.HasFile(videoID, "summary.md") || p.isSkipMarked(videoID)
+}
+
 // processChannelVideos processes pre-fetched channel videos sequentially.
 func (p *Pipeline) processChannelVideos(videos []fetcher.VideoMeta, channelCfg *config.ChannelConfig) (*Stats, error) {
 	stats := &Stats{}
 	for i, meta := range videos {
 		if !p.force {
 			existingDir := p.index.FindVideoDir(meta.ID)
-			if existingDir != "" && p.index.HasFile(meta.ID, "summary.md") {
+			if existingDir != "" && p.isTerminal(meta.ID) {
 				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (already processed)", i+1, len(videos), meta.ID),
 					"title", meta.Title,
 				)
@@ -894,6 +908,15 @@ func (p *Pipeline) processPlaylistVideos(videos []fetcher.VideoMeta, playlistID,
 		// Smart skip with cross-directory copy support.
 		if !p.force {
 			existingDir := p.index.FindVideoDir(meta.ID)
+			// A terminal `.skipped` marker is permanent across runs and has no
+			// summary to cross-dir copy — count skipped and move on directly.
+			if existingDir != "" && p.isSkipMarked(meta.ID) {
+				slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (marked .skipped)", i+1, len(videos), meta.ID),
+					"title", meta.Title,
+				)
+				stats.Skipped++
+				continue
+			}
 			if existingDir != "" && p.index.HasFile(meta.ID, "summary.md") {
 				if strings.HasPrefix(existingDir, plDir+string(filepath.Separator)) {
 					slog.Info(fmt.Sprintf("[%d/%d] %s - skipped (complete)", i+1, len(videos), meta.ID),
