@@ -9,6 +9,9 @@ embedded/bin/
 # User config (contains API keys, personal settings)
 config.yaml
 
+# Local prompt experiments (point summary_prompt_file / YTSS_PROMPT_FILE here)
+prompts/my-summary.md
+
 # Runtime output (video files, subtitles, summaries)
 /ytss-output/
 
