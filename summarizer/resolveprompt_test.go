@@ -70,7 +70,7 @@ func TestResolvePromptTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, _ := loadBuiltinPrompt("zh-Hant")
+		want, _ := loadBuiltinPrompt("zh-Hant", "")
 		if got == "" || got != want {
 			t.Errorf("expected the built-in zh-Hant prompt, got len=%d", len(got))
 		}
@@ -81,8 +81,8 @@ func TestResolvePromptTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		en, _ := loadBuiltinPrompt("en")
-		zh, _ := loadBuiltinPrompt("zh-Hant")
+		en, _ := loadBuiltinPrompt("en", "")
+		zh, _ := loadBuiltinPrompt("zh-Hant", "")
 		if got != en {
 			t.Error("unknown language should fall back to the en built-in")
 		}
@@ -110,6 +110,39 @@ func TestResolvePromptTemplate(t *testing.T) {
 		got, err := ResolvePrompt(config.SummaryConfig{SummaryPromptFile: glFile}, nil)
 		if err != nil || got != "GLOBAL ONLY" {
 			t.Errorf("nil channel should use the global file; got %q err %v", got, err)
+		}
+	})
+
+	t.Run("built-in style selects article vs classic", func(t *testing.T) {
+		article, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "article"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		classic, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "classic"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if article == "" || classic == "" || article == classic {
+			t.Fatal("article and classic built-ins should both load and differ")
+		}
+		if want, _ := loadBuiltinPromptByPrefix("summary", "zh-Hant"); article != want {
+			t.Error("style=article should load the summary-<lang> built-in")
+		}
+		if want, _ := loadBuiltinPromptByPrefix("summary-classic", "zh-Hant"); classic != want {
+			t.Error("style=classic should load the summary-classic-<lang> built-in")
+		}
+	})
+
+	t.Run("unknown or empty style falls back to the article default", func(t *testing.T) {
+		article, _ := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "article"}, nil)
+		for _, s := range []string{"", "bogus"} {
+			got, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: s}, nil)
+			if err != nil {
+				t.Fatalf("style %q: %v", s, err)
+			}
+			if got != article {
+				t.Errorf("style %q should fall back to the article default", s)
+			}
 		}
 	})
 }

@@ -42,8 +42,8 @@ func ResolvePrompt(summaryConfig config.SummaryConfig, channelConfig *config.Cha
 		return summaryConfig.Prompt, nil
 	}
 
-	// Level 4: built-in prompt by language
-	return loadBuiltinPrompt(summaryConfig.Language)
+	// Level 4: built-in prompt by language + style
+	return loadBuiltinPrompt(summaryConfig.Language, summaryConfig.Style)
 }
 
 // readPromptFile reads a prompt template from the given file path.
@@ -55,9 +55,15 @@ func readPromptFile(path string) (string, error) {
 	return string(data), nil
 }
 
-// loadBuiltinPrompt loads a built-in summary prompt template for the given language.
-func loadBuiltinPrompt(language string) (string, error) {
-	return loadBuiltinPromptByPrefix("summary", language)
+// loadBuiltinPrompt loads a built-in summary prompt template for the given
+// language and style. style "classic" selects the list-style built-in; any
+// other value (including "" and "article") uses the default article-style one.
+func loadBuiltinPrompt(language, style string) (string, error) {
+	prefix := "summary"
+	if style == "classic" {
+		prefix = "summary-classic"
+	}
+	return loadBuiltinPromptByPrefix(prefix, language)
 }
 
 // SubstituteVars replaces {{variable}} placeholders in a template with values from vars.
