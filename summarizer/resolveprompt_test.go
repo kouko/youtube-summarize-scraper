@@ -70,7 +70,7 @@ func TestResolvePromptTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want, _ := loadBuiltinPrompt("zh-Hant")
+		want, _ := loadBuiltinPrompt("zh-Hant", "")
 		if got == "" || got != want {
 			t.Errorf("expected the built-in zh-Hant prompt, got len=%d", len(got))
 		}
@@ -81,8 +81,8 @@ func TestResolvePromptTemplate(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		en, _ := loadBuiltinPrompt("en")
-		zh, _ := loadBuiltinPrompt("zh-Hant")
+		en, _ := loadBuiltinPrompt("en", "")
+		zh, _ := loadBuiltinPrompt("zh-Hant", "")
 		if got != en {
 			t.Error("unknown language should fall back to the en built-in")
 		}
@@ -110,6 +110,39 @@ func TestResolvePromptTemplate(t *testing.T) {
 		got, err := ResolvePrompt(config.SummaryConfig{SummaryPromptFile: glFile}, nil)
 		if err != nil || got != "GLOBAL ONLY" {
 			t.Errorf("nil channel should use the global file; got %q err %v", got, err)
+		}
+	})
+
+	t.Run("built-in style selects article vs outline default", func(t *testing.T) {
+		article, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "article"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		outline, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "outline"}, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if article == "" || outline == "" || article == outline {
+			t.Fatal("article and outline built-ins should both load and differ")
+		}
+		if want, _ := loadBuiltinPromptByPrefix("summary-article", "zh-Hant"); article != want {
+			t.Error("style=article should load the summary-article-<lang> built-in")
+		}
+		if want, _ := loadBuiltinPromptByPrefix("summary", "zh-Hant"); outline != want {
+			t.Error("style=outline should load the default summary-<lang> built-in")
+		}
+	})
+
+	t.Run("unknown or empty style falls back to the outline default", func(t *testing.T) {
+		outline, _ := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "outline"}, nil)
+		for _, s := range []string{"", "bogus"} {
+			got, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: s}, nil)
+			if err != nil {
+				t.Fatalf("style %q: %v", s, err)
+			}
+			if got != outline {
+				t.Errorf("style %q should fall back to the outline default", s)
+			}
 		}
 	})
 }

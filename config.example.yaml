@@ -115,6 +115,7 @@ llm:
 # Summary settings
 summary:
   language: "zh-Hant"                # Selects built-in prompt language (en / zh-Hant / ja)
+  style: "outline"                   # Built-in prompt style: "outline" (list-style, default) or "article" (TL;DR + prose + tables)
   prompt: ""                         # Inline prompt (overrides built-in)
   summary_prompt_file: ""            # External prompt file (overrides inline and built-in)
   max_tokens: 2000

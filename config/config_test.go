@@ -89,6 +89,31 @@ whisper:
 	}
 }
 
+func TestSummaryConfig_Style(t *testing.T) {
+	// (a) Default is "outline" (the list-style built-in) — preserves the
+	// pre-selector default behavior; article is opt-in.
+	if got := DefaultConfig().Summary.Style; got != "outline" {
+		t.Errorf("default Style: got %q, want \"outline\"", got)
+	}
+
+	// (b) A YAML override parses through to the field.
+	yaml := `
+summary:
+  style: article
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yaml); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Summary.Style != "article" {
+		t.Errorf("override Style: got %q, want \"article\"", cfg.Summary.Style)
+	}
+}
+
 func TestDefaultConfig_WatchMode(t *testing.T) {
 	cfg := DefaultConfig()
 
