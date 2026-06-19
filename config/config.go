@@ -226,7 +226,7 @@ type OpenAICompatConfig struct {
 
 type SummaryConfig struct {
 	Language          string         `yaml:"language"`
-	Style             string         `yaml:"style"` // built-in prompt style: "article" (default) or "classic"
+	Style             string         `yaml:"style"` // built-in prompt style: "outline" (default) or "article"
 	Prompt            string         `yaml:"prompt"`
 	SummaryPromptFile string         `yaml:"summary_prompt_file"`
 	MaxTokens         int            `yaml:"max_tokens"`
@@ -381,7 +381,7 @@ func DefaultConfig() *Config {
 		},
 		Summary: SummaryConfig{
 			Language:  "en",
-			Style:     "article",
+			Style:     "outline",
 			MaxTokens: 2000,
 			Keywords: KeywordsConfig{
 				Enabled:  true,

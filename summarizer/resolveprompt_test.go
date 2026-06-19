@@ -113,35 +113,35 @@ func TestResolvePromptTemplate(t *testing.T) {
 		}
 	})
 
-	t.Run("built-in style selects article vs classic", func(t *testing.T) {
+	t.Run("built-in style selects article vs outline default", func(t *testing.T) {
 		article, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "article"}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		classic, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "classic"}, nil)
+		outline, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "outline"}, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if article == "" || classic == "" || article == classic {
-			t.Fatal("article and classic built-ins should both load and differ")
+		if article == "" || outline == "" || article == outline {
+			t.Fatal("article and outline built-ins should both load and differ")
 		}
-		if want, _ := loadBuiltinPromptByPrefix("summary", "zh-Hant"); article != want {
-			t.Error("style=article should load the summary-<lang> built-in")
+		if want, _ := loadBuiltinPromptByPrefix("summary-article", "zh-Hant"); article != want {
+			t.Error("style=article should load the summary-article-<lang> built-in")
 		}
-		if want, _ := loadBuiltinPromptByPrefix("summary-classic", "zh-Hant"); classic != want {
-			t.Error("style=classic should load the summary-classic-<lang> built-in")
+		if want, _ := loadBuiltinPromptByPrefix("summary", "zh-Hant"); outline != want {
+			t.Error("style=outline should load the default summary-<lang> built-in")
 		}
 	})
 
-	t.Run("unknown or empty style falls back to the article default", func(t *testing.T) {
-		article, _ := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "article"}, nil)
+	t.Run("unknown or empty style falls back to the outline default", func(t *testing.T) {
+		outline, _ := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: "outline"}, nil)
 		for _, s := range []string{"", "bogus"} {
 			got, err := ResolvePrompt(config.SummaryConfig{Language: "zh-Hant", Style: s}, nil)
 			if err != nil {
 				t.Fatalf("style %q: %v", s, err)
 			}
-			if got != article {
-				t.Errorf("style %q should fall back to the article default", s)
+			if got != outline {
+				t.Errorf("style %q should fall back to the outline default", s)
 			}
 		}
 	})

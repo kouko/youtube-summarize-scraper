@@ -56,12 +56,12 @@ func readPromptFile(path string) (string, error) {
 }
 
 // loadBuiltinPrompt loads a built-in summary prompt template for the given
-// language and style. style "classic" selects the list-style built-in; any
-// other value (including "" and "article") uses the default article-style one.
+// language and style. style "article" selects the article-style built-in; any
+// other value (including "" and "outline") uses the default outline (list) one.
 func loadBuiltinPrompt(language, style string) (string, error) {
 	prefix := "summary"
-	if style == "classic" {
-		prefix = "summary-classic"
+	if style == "article" {
+		prefix = "summary-article"
 	}
 	return loadBuiltinPromptByPrefix(prefix, language)
 }

@@ -90,15 +90,16 @@ whisper:
 }
 
 func TestSummaryConfig_Style(t *testing.T) {
-	// (a) Default is "article" (the new article-style built-in prompt).
-	if got := DefaultConfig().Summary.Style; got != "article" {
-		t.Errorf("default Style: got %q, want \"article\"", got)
+	// (a) Default is "outline" (the list-style built-in) — preserves the
+	// pre-selector default behavior; article is opt-in.
+	if got := DefaultConfig().Summary.Style; got != "outline" {
+		t.Errorf("default Style: got %q, want \"outline\"", got)
 	}
 
 	// (b) A YAML override parses through to the field.
 	yaml := `
 summary:
-  style: classic
+  style: article
 `
 	path := t.TempDir() + "/config.yaml"
 	if err := writeTestFile(path, yaml); err != nil {
@@ -108,8 +109,8 @@ summary:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Summary.Style != "classic" {
-		t.Errorf("override Style: got %q, want \"classic\"", cfg.Summary.Style)
+	if cfg.Summary.Style != "article" {
+		t.Errorf("override Style: got %q, want \"article\"", cfg.Summary.Style)
 	}
 }
 
