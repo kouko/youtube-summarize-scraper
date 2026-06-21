@@ -153,7 +153,7 @@ ytss video <url>
 
 ## Design Spec
 
-Full design specification: [docs/superpowers/specs/2026-03-22-ytss-design.md](docs/superpowers/specs/2026-03-22-ytss-design.md)
+Full design specification: [docs/loom/specs/2026-03-22-ytss-design.md](docs/loom/specs/2026-03-22-ytss-design.md)
 
 ## License
 
