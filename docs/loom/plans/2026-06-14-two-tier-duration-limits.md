@@ -1,6 +1,6 @@
 # Plan: Two-Tier Video Duration Limits + Terminal `.skipped` Marker
 
-Source brief: docs/code-toolkit/specs/2026-06-14-two-tier-duration-limits.md
+Source brief: docs/loom/specs/2026-06-14-two-tier-duration-limits.md
 Total tasks: 8 (Task 4b added during execution — see Notes)
 Critical-path depth: 3 (≤5)
 Execution order: parallel-where-possible
