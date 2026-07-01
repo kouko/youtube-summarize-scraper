@@ -1404,3 +1404,41 @@ func TestExpandPaths_AntigravityPath(t *testing.T) {
 		t.Errorf("Antigravity.Path not expanded: got %q, want %q", got, want)
 	}
 }
+
+func TestLLMConfig_OpenAICompat_Map_Parse(t *testing.T) {
+	yamlContent := `
+llm:
+  openai-compat:
+    default:
+      endpoint: "http://localhost:8000/v1"
+      model: "m-default"
+    box1:
+      endpoint: "http://192.168.1.10:1234/v1"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yamlContent); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := cfg.LLM.OpenAICompat["default"].Endpoint; got != "http://localhost:8000/v1" {
+		t.Errorf(`OpenAICompat["default"].Endpoint: got %q, want %q`, got, "http://localhost:8000/v1")
+	}
+	if got := cfg.LLM.OpenAICompat["default"].Model; got != "m-default" {
+		t.Errorf(`OpenAICompat["default"].Model: got %q, want %q`, got, "m-default")
+	}
+	if got := cfg.LLM.OpenAICompat["box1"].Endpoint; got != "http://192.168.1.10:1234/v1" {
+		t.Errorf(`OpenAICompat["box1"].Endpoint: got %q, want %q`, got, "http://192.168.1.10:1234/v1")
+	}
+}
+
+func TestDefaultConfig_OpenAICompat_Default(t *testing.T) {
+	cfg := DefaultConfig()
+	if got := cfg.LLM.OpenAICompat["default"].Endpoint; got != "http://localhost:8000/v1" {
+		t.Errorf(`DefaultConfig OpenAICompat["default"].Endpoint: got %q, want %q`, got, "http://localhost:8000/v1")
+	}
+}
