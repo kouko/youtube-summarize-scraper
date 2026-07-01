@@ -162,16 +162,16 @@ type CookieConfig struct {
 }
 
 type LLMConfig struct {
-	Provider                 ProviderList           `yaml:"provider"`
-	ProviderFallbackStrategy FallbackStrategyConfig `yaml:"provider_fallback_strategy"`
-	Ollama                   OllamaConfig           `yaml:"ollama"`
-	LlamaCpp                 LlamaCppConfig         `yaml:"llamacpp"`
-	ClaudeAPI                ClaudeAPIConfig        `yaml:"claude-api"`
-	ClaudeCode               ClaudeCodeConfig       `yaml:"claude-code"`
-	GeminiCLI                GeminiCLIConfig        `yaml:"gemini-cli"`
-	Antigravity              AntigravityCLIConfig   `yaml:"antigravity-cli"`
-	QwenCode                 QwenCodeConfig         `yaml:"qwen-code"`
-	OpenAICompat             OpenAICompatConfig     `yaml:"openai-compat"`
+	Provider                 ProviderList                  `yaml:"provider"`
+	ProviderFallbackStrategy FallbackStrategyConfig        `yaml:"provider_fallback_strategy"`
+	Ollama                   OllamaConfig                  `yaml:"ollama"`
+	LlamaCpp                 LlamaCppConfig                `yaml:"llamacpp"`
+	ClaudeAPI                ClaudeAPIConfig               `yaml:"claude-api"`
+	ClaudeCode               ClaudeCodeConfig              `yaml:"claude-code"`
+	GeminiCLI                GeminiCLIConfig               `yaml:"gemini-cli"`
+	Antigravity              AntigravityCLIConfig          `yaml:"antigravity-cli"`
+	QwenCode                 QwenCodeConfig                `yaml:"qwen-code"`
+	OpenAICompat             map[string]OpenAICompatConfig `yaml:"openai-compat"`
 }
 
 type OllamaConfig struct {
@@ -374,9 +374,11 @@ func DefaultConfig() *Config {
 				Model:   "coder-model",
 				Timeout: 900,
 			},
-			OpenAICompat: OpenAICompatConfig{
-				Endpoint: "http://localhost:8000/v1",
-				Timeout:  900,
+			OpenAICompat: map[string]OpenAICompatConfig{
+				"default": {
+					Endpoint: "http://localhost:8000/v1",
+					Timeout:  900,
+				},
 			},
 		},
 		Summary: SummaryConfig{
