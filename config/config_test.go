@@ -1436,9 +1436,13 @@ llm:
 	}
 }
 
-func TestDefaultConfig_OpenAICompat_Default(t *testing.T) {
+func TestDefaultConfig_OpenAICompat_NoSeed(t *testing.T) {
+	// DefaultConfig must NOT seed a "default" openai-compat instance: a phantom
+	// default would survive yaml.v3 map-merge into user configs and make the
+	// resolver's "bare openai-compat with no default -> error" contract
+	// unreachable. Omitting the seed keeps code, docs, and tests consistent.
 	cfg := DefaultConfig()
-	if got := cfg.LLM.OpenAICompat["default"].Endpoint; got != "http://localhost:8000/v1" {
-		t.Errorf(`DefaultConfig OpenAICompat["default"].Endpoint: got %q, want %q`, got, "http://localhost:8000/v1")
+	if len(cfg.LLM.OpenAICompat) != 0 {
+		t.Errorf("DefaultConfig OpenAICompat: got %d instances, want 0 (no seeded default)", len(cfg.LLM.OpenAICompat))
 	}
 }
