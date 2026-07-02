@@ -106,6 +106,29 @@ func NewSummarizer(cfg config.LLMConfig) (Summarizer, error) {
 
 // newSingleProvider creates a single Summarizer for the named provider.
 func newSingleProvider(name string, cfg config.LLMConfig) (Summarizer, error) {
+	// openai-compat family: bare "openai-compat" targets instance "default";
+	// "openai-compat:<instance>" targets a named instance in cfg.OpenAICompat.
+	if name == "openai-compat" || strings.HasPrefix(name, "openai-compat:") {
+		instance := "default"
+		if idx := strings.IndexByte(name, ':'); idx >= 0 {
+			instance = name[idx+1:]
+		}
+		oc, ok := cfg.OpenAICompat[instance]
+		if !ok {
+			return nil, fmt.Errorf("openai-compat: no instance %q configured", instance)
+		}
+		timeout := time.Duration(oc.Timeout) * time.Second
+		if timeout == 0 {
+			timeout = 15 * time.Minute
+		}
+		return &OpenAICompatSummarizer{
+			endpoint: oc.Endpoint,
+			model:    oc.Model,
+			apiKey:   oc.APIKey,
+			timeout:  timeout,
+		}, nil
+	}
+
 	switch name {
 	case "ollama":
 		timeout := time.Duration(cfg.Ollama.Timeout) * time.Second
@@ -165,17 +188,6 @@ func newSingleProvider(name string, cfg config.LLMConfig) (Summarizer, error) {
 			model:      cfg.QwenCode.Model,
 			binaryPath: cfg.QwenCode.Path,
 			timeout:    qwenTimeout,
-		}, nil
-	case "openai-compat":
-		timeout := time.Duration(cfg.OpenAICompat.Timeout) * time.Second
-		if timeout == 0 {
-			timeout = 15 * time.Minute
-		}
-		return &OpenAICompatSummarizer{
-			endpoint: cfg.OpenAICompat.Endpoint,
-			model:    cfg.OpenAICompat.Model,
-			apiKey:   cfg.OpenAICompat.APIKey,
-			timeout:  timeout,
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown LLM provider: %q", name)

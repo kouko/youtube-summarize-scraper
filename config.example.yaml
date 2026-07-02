@@ -68,6 +68,9 @@ llm:
                                      #     - "gemini-cli"
                                      #     - "claude-code"
                                      #     - "ollama"
+                                     # For HA across several OpenAI-compatible boxes, list named instances:
+                                     #   provider: ["openai-compat:box1", "openai-compat:box2"]
+                                     #   (instances are defined under the openai-compat: block below)
   # provider_fallback_strategy:        # Controls how the fallback chain behaves (only needed with multiple providers)
   #   cooldown_seconds: 300            # Cooldown after hard quota exhaustion, in seconds (default: 300 = 5 min)
   #   failure_threshold: 1             # Quota errors before skipping a provider (default: 1)
@@ -107,10 +110,25 @@ llm:
     path: ""                           # Path to qwen binary (default: search in PATH)
     timeout: 900                       # Seconds per LLM request (default: 900 = 15 min)
   openai-compat:                       # Any OpenAI-compatible server (oMLX, LM Studio, vLLM, etc.)
-    endpoint: "http://localhost:8000/v1"
-    model: "mlx-community/Qwen3-32B-4bit"
-    api_key: ""                        # Optional API key
-    timeout: 900                       # Seconds per LLM request (default: 900 = 15 min)
+    # Map of named instances. Naming rules:
+    #   - Instance names are yours to choose, any number of them; reference one
+    #     via `openai-compat:<name>` (e.g. in the provider fallback chain above).
+    #   - `default` is reserved: a bare `openai-compat` (no colon) resolves to it.
+    #     Omit `default` if you never use the bare form.
+    #   - Names must not contain a colon `:` (the prefix/instance-name separator).
+    default:                           # bare `openai-compat` resolves here
+      endpoint: "http://localhost:8000/v1"
+      model: "mlx-community/Qwen3-32B-4bit"
+      api_key: ""                      # Optional API key
+      timeout: 900                     # Seconds per LLM request (default: 900 = 15 min)
+    box1:                              # LM Studio on the LAN (port 1234)
+      endpoint: "http://192.168.1.10:1234/v1"
+      model: "mlx-community/Qwen3-32B-4bit"
+      timeout: 900
+    box2:                              # second LM Studio box for HA
+      endpoint: "http://192.168.1.11:1234/v1"
+      model: "mlx-community/Qwen3-32B-4bit"
+      timeout: 900
 
 # Summary settings
 summary:

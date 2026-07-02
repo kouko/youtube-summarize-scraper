@@ -1,6 +1,7 @@
 package summarizer
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/kouko/youtube-summarize-scraper/config"
@@ -32,10 +33,12 @@ func TestNewSingleProvider_AllProviders(t *testing.T) {
 			Model:   "coder-model",
 			Timeout: 900,
 		},
-		OpenAICompat: config.OpenAICompatConfig{
-			Endpoint: "http://localhost:8000/v1",
-			Model:    "test-model",
-			Timeout:  900,
+		OpenAICompat: map[string]config.OpenAICompatConfig{
+			"default": {
+				Endpoint: "http://localhost:8000/v1",
+				Model:    "test-model",
+				Timeout:  900,
+			},
 		},
 	}
 
@@ -48,6 +51,85 @@ func TestNewSingleProvider_AllProviders(t *testing.T) {
 		if s == nil {
 			t.Errorf("newSingleProvider(%q): returned nil", name)
 		}
+	}
+}
+
+func TestNewSingleProvider_OpenAICompatInstances(t *testing.T) {
+	tests := []struct {
+		name         string
+		provider     string
+		compat       map[string]config.OpenAICompatConfig
+		wantErr      bool
+		errContains  string
+		wantEndpoint string
+	}{
+		{
+			name:     "bare resolves to default instance",
+			provider: "openai-compat",
+			compat: map[string]config.OpenAICompatConfig{
+				"default": {Endpoint: "http://default:8000/v1", Model: "m"},
+			},
+			wantEndpoint: "http://default:8000/v1",
+		},
+		{
+			name:     "named instance",
+			provider: "openai-compat:box1",
+			compat: map[string]config.OpenAICompatConfig{
+				"box1": {Endpoint: "http://box1:8000/v1", Model: "m"},
+			},
+			wantEndpoint: "http://box1:8000/v1",
+		},
+		{
+			name:     "missing named instance errors with its name",
+			provider: "openai-compat:missing",
+			compat: map[string]config.OpenAICompatConfig{
+				"default": {Endpoint: "http://default:8000/v1", Model: "m"},
+			},
+			wantErr:     true,
+			errContains: "missing",
+		},
+		{
+			name:     "bare with no default key errors",
+			provider: "openai-compat",
+			compat: map[string]config.OpenAICompatConfig{
+				"box1": {Endpoint: "http://box1:8000/v1", Model: "m"},
+			},
+			wantErr:     true,
+			errContains: "default",
+		},
+		{
+			name:     "empty instance name errors",
+			provider: "openai-compat:",
+			compat: map[string]config.OpenAICompatConfig{
+				"default": {Endpoint: "http://default:8000/v1", Model: "m"},
+			},
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := config.LLMConfig{OpenAICompat: tt.compat}
+			s, err := newSingleProvider(tt.provider, cfg)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("expected error, got nil")
+				}
+				if tt.errContains != "" && !strings.Contains(err.Error(), tt.errContains) {
+					t.Errorf("error %q does not contain %q", err.Error(), tt.errContains)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			oc, ok := s.(*OpenAICompatSummarizer)
+			if !ok {
+				t.Fatalf("expected *OpenAICompatSummarizer, got %T", s)
+			}
+			if oc.endpoint != tt.wantEndpoint {
+				t.Errorf("endpoint: got %q, want %q", oc.endpoint, tt.wantEndpoint)
+			}
+		})
 	}
 }
 
@@ -78,7 +160,7 @@ func TestNewSingleProvider_DefaultTimeouts(t *testing.T) {
 		ClaudeCode:   config.ClaudeCodeConfig{Model: "m"},
 		GeminiCLI:    config.GeminiCLIConfig{Model: "m"},
 		QwenCode:     config.QwenCodeConfig{Model: "m"},
-		OpenAICompat: config.OpenAICompatConfig{Endpoint: "http://x", Model: "m"},
+		OpenAICompat: map[string]config.OpenAICompatConfig{"default": {Endpoint: "http://x", Model: "m"}},
 	}
 	for _, name := range []string{"ollama", "claude-code", "gemini-cli", "qwen-code", "openai-compat"} {
 		s, err := newSingleProvider(name, cfg)

@@ -1404,3 +1404,45 @@ func TestExpandPaths_AntigravityPath(t *testing.T) {
 		t.Errorf("Antigravity.Path not expanded: got %q, want %q", got, want)
 	}
 }
+
+func TestLLMConfig_OpenAICompat_Map_Parse(t *testing.T) {
+	yamlContent := `
+llm:
+  openai-compat:
+    default:
+      endpoint: "http://localhost:8000/v1"
+      model: "m-default"
+    box1:
+      endpoint: "http://192.168.1.10:1234/v1"
+`
+	path := t.TempDir() + "/config.yaml"
+	if err := writeTestFile(path, yamlContent); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := cfg.LLM.OpenAICompat["default"].Endpoint; got != "http://localhost:8000/v1" {
+		t.Errorf(`OpenAICompat["default"].Endpoint: got %q, want %q`, got, "http://localhost:8000/v1")
+	}
+	if got := cfg.LLM.OpenAICompat["default"].Model; got != "m-default" {
+		t.Errorf(`OpenAICompat["default"].Model: got %q, want %q`, got, "m-default")
+	}
+	if got := cfg.LLM.OpenAICompat["box1"].Endpoint; got != "http://192.168.1.10:1234/v1" {
+		t.Errorf(`OpenAICompat["box1"].Endpoint: got %q, want %q`, got, "http://192.168.1.10:1234/v1")
+	}
+}
+
+func TestDefaultConfig_OpenAICompat_NoSeed(t *testing.T) {
+	// DefaultConfig must NOT seed a "default" openai-compat instance: a phantom
+	// default would survive yaml.v3 map-merge into user configs and make the
+	// resolver's "bare openai-compat with no default -> error" contract
+	// unreachable. Omitting the seed keeps code, docs, and tests consistent.
+	cfg := DefaultConfig()
+	if len(cfg.LLM.OpenAICompat) != 0 {
+		t.Errorf("DefaultConfig OpenAICompat: got %d instances, want 0 (no seeded default)", len(cfg.LLM.OpenAICompat))
+	}
+}
