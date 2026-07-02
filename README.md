@@ -89,6 +89,43 @@ cp config.example.yaml config.yaml
 
 See [config.example.yaml](config.example.yaml) for all available options.
 
+#### OpenAI-compatible servers (single or multiple)
+
+`openai-compat` is a **map of named instances**, so it can point at one or
+several OpenAI-compatible servers (LM Studio, vLLM, oMLX, …) and fail over
+between them.
+
+Single server — bare `openai-compat` resolves to the `default` instance:
+
+```yaml
+llm:
+  provider: "openai-compat"
+  openai-compat:
+    default:
+      endpoint: "http://localhost:1234/v1"   # e.g. LM Studio (default port 1234)
+      model: "qwen2.5-7b-instruct"
+```
+
+High availability across multiple boxes — list them in `provider` (first =
+primary, rest = fallbacks); each instance gets its own circuit breaker:
+
+```yaml
+llm:
+  provider: ["openai-compat:box1", "openai-compat:box2"]
+  openai-compat:
+    box1: { endpoint: "http://192.168.1.10:1234/v1", model: "qwen2.5-7b-instruct" }
+    box2: { endpoint: "http://192.168.1.11:1234/v1", model: "qwen2.5-7b-instruct" }
+```
+
+Naming rules:
+
+- Instance names are user-defined and unlimited; reference them as `openai-compat:<name>`.
+- `default` is reserved — bare `openai-compat` resolves to it (omit it if you never use the bare form).
+- Names must not contain a colon `:` (the prefix/instance separator).
+
+> **Breaking change:** `openai-compat` is now a map. A pre-existing single-server
+> config (`openai-compat: { endpoint: ... }`) must be nested under a `default:` key.
+
 ### Commands
 
 | Command | Description |
@@ -103,7 +140,7 @@ See [config.example.yaml](config.example.yaml) for all available options.
 |------|-------------|
 | `-c, --config` | Config file path (default: `./config.yaml`) |
 | `-o, --output` | Output directory (overrides config) |
-| `--llm` | Override LLM backend (`ollama`/`llamacpp`/`claude-api`/`claude-code`/`gemini-cli`/`antigravity-cli`/`qwen-code`/`openai-compat`) |
+| `--llm` | Override LLM backend (`ollama`/`llamacpp`/`claude-api`/`claude-code`/`gemini-cli`/`antigravity-cli`/`qwen-code`/`openai-compat`; use `openai-compat:<name>` to target a named instance) |
 | `--cookie-file` | Path to cookie.txt (Netscape format) |
 | `--cookie-browser` | Extract cookie from browser (`chrome`/`firefox`/`safari`/`edge`/`brave`) |
 | `--force` | Force re-process even if output exists |
