@@ -61,9 +61,11 @@ func CopyVideoDir(srcDir, dstDir string, playlist, playlistID string) error {
 // in the YAML frontmatter of a markdown file.
 func updateFrontmatter(content, playlist, playlistID string) string {
 	now := time.Now().Format(time.RFC3339)
-	content = rePlaylistLine.ReplaceAllString(content, fmt.Sprintf(`playlist: "%s"`, playlist))
-	content = rePlaylistIDLine.ReplaceAllString(content, fmt.Sprintf(`playlist_id: "%s"`, playlistID))
-	content = reProcessedAt.ReplaceAllString(content, fmt.Sprintf(`processed_at: "%s"`, now))
+	// ReplaceAllLiteralString (not ...String) so a "$" or "\" in an escaped
+	// value is not reinterpreted as a regexp replacement group reference.
+	content = rePlaylistLine.ReplaceAllLiteralString(content, fmt.Sprintf(`playlist: "%s"`, yamlEscape(playlist)))
+	content = rePlaylistIDLine.ReplaceAllLiteralString(content, fmt.Sprintf(`playlist_id: "%s"`, yamlEscape(playlistID)))
+	content = reProcessedAt.ReplaceAllLiteralString(content, fmt.Sprintf(`processed_at: "%s"`, yamlEscape(now)))
 	return content
 }
 

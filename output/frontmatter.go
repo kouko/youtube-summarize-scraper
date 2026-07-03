@@ -92,9 +92,41 @@ func BuildSummaryFrontmatter(data FrontmatterData) string {
 	return b.String()
 }
 
+// yamlEscape escapes a string for embedding inside a YAML double-quoted
+// scalar, so values carrying " \ or control characters (e.g. raw YouTube
+// titles) produce valid, parseable frontmatter. Every C0 control character
+// (and DEL) must be escaped — a bare control byte inside "..." is rejected by
+// YAML parsers ("control characters are not allowed") — so the common ones use
+// their named escape and the rest fall back to \xNN.
+func yamlEscape(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&b, `\x%02X`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
+}
+
 // writeLine writes a single key-value line in YAML format.
 func writeLine(b *strings.Builder, key, value string) {
-	fmt.Fprintf(b, "%s: \"%s\"\n", key, value)
+	fmt.Fprintf(b, "%s: \"%s\"\n", key, yamlEscape(value))
 }
 
 // writeList writes a YAML list. If the slice is empty, it writes [].
@@ -105,6 +137,6 @@ func writeList(b *strings.Builder, key string, values []string) {
 	}
 	fmt.Fprintf(b, "%s:\n", key)
 	for _, v := range values {
-		fmt.Fprintf(b, "  - \"%s\"\n", v)
+		fmt.Fprintf(b, "  - \"%s\"\n", yamlEscape(v))
 	}
 }
