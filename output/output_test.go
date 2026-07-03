@@ -253,7 +253,7 @@ func parseFrontmatter(t *testing.T, fm string) map[string]any {
 // does). Raw YouTube titles (meta.Title) reach the frontmatter unsanitized.
 func TestBuildSummaryFrontmatter_EscapesSpecialChars(t *testing.T) {
 	data := FrontmatterData{
-		Title:      `Say "hi" \o/`, // both a double-quote and a backslash
+		Title:      "Say \"hi\" \\o/ \x1b\x00", // double-quote, backslash, ESC + NUL control chars
 		UploadDate: "2026-07-03",
 		Tags:       []string{`quo"te`},
 		Categories: []string{`back\slash`},
@@ -261,7 +261,7 @@ func TestBuildSummaryFrontmatter_EscapesSpecialChars(t *testing.T) {
 
 	m := parseFrontmatter(t, BuildSummaryFrontmatter(data))
 
-	if got, want := m["title"], `2026-07-03 Say "hi" \o/ (summary)`; got != want {
+	if got, want := m["title"], "2026-07-03 Say \"hi\" \\o/ \x1b\x00 (summary)"; got != want {
 		t.Errorf("title round-trip: got %q, want %q", got, want)
 	}
 	tags, _ := m["tags"].([]any)
@@ -283,6 +283,9 @@ func TestYAMLEscape(t *testing.T) {
 		{"newline", "line1\nline2", `line1\nline2`},
 		{"carriage return", "a\rb", `a\rb`},
 		{"tab", "a\tb", `a\tb`},
+		{"null", "a\x00b", `a\x00b`},
+		{"escape char", "a\x1bb", `a\x1Bb`},
+		{"del", "a\x7fb", `a\x7Fb`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -94,19 +94,34 @@ func BuildSummaryFrontmatter(data FrontmatterData) string {
 
 // yamlEscape escapes a string for embedding inside a YAML double-quoted
 // scalar, so values carrying " \ or control characters (e.g. raw YouTube
-// titles) produce valid, parseable frontmatter. Backslash must be replaced
-// first; strings.NewReplacer does a single non-overlapping pass so order of
-// the pairs is otherwise irrelevant.
-var yamlScalarEscaper = strings.NewReplacer(
-	`\`, `\\`,
-	`"`, `\"`,
-	"\n", `\n`,
-	"\r", `\r`,
-	"\t", `\t`,
-)
-
+// titles) produce valid, parseable frontmatter. Every C0 control character
+// (and DEL) must be escaped — a bare control byte inside "..." is rejected by
+// YAML parsers ("control characters are not allowed") — so the common ones use
+// their named escape and the rest fall back to \xNN.
 func yamlEscape(s string) string {
-	return yamlScalarEscaper.Replace(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case '\\':
+			b.WriteString(`\\`)
+		case '"':
+			b.WriteString(`\"`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&b, `\x%02X`, r)
+			} else {
+				b.WriteRune(r)
+			}
+		}
+	}
+	return b.String()
 }
 
 // writeLine writes a single key-value line in YAML format.
