@@ -92,9 +92,26 @@ func BuildSummaryFrontmatter(data FrontmatterData) string {
 	return b.String()
 }
 
+// yamlEscape escapes a string for embedding inside a YAML double-quoted
+// scalar, so values carrying " \ or control characters (e.g. raw YouTube
+// titles) produce valid, parseable frontmatter. Backslash must be replaced
+// first; strings.NewReplacer does a single non-overlapping pass so order of
+// the pairs is otherwise irrelevant.
+var yamlScalarEscaper = strings.NewReplacer(
+	`\`, `\\`,
+	`"`, `\"`,
+	"\n", `\n`,
+	"\r", `\r`,
+	"\t", `\t`,
+)
+
+func yamlEscape(s string) string {
+	return yamlScalarEscaper.Replace(s)
+}
+
 // writeLine writes a single key-value line in YAML format.
 func writeLine(b *strings.Builder, key, value string) {
-	fmt.Fprintf(b, "%s: \"%s\"\n", key, value)
+	fmt.Fprintf(b, "%s: \"%s\"\n", key, yamlEscape(value))
 }
 
 // writeList writes a YAML list. If the slice is empty, it writes [].
@@ -105,6 +122,6 @@ func writeList(b *strings.Builder, key string, values []string) {
 	}
 	fmt.Fprintf(b, "%s:\n", key)
 	for _, v := range values {
-		fmt.Fprintf(b, "  - \"%s\"\n", v)
+		fmt.Fprintf(b, "  - \"%s\"\n", yamlEscape(v))
 	}
 }

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ---------------------------------------------------------------------------
@@ -233,6 +235,83 @@ func TestEnsureDir(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Frontmatter
 // ---------------------------------------------------------------------------
+
+// parseFrontmatter strips the --- fences and unmarshals the YAML body,
+// asserting the generated frontmatter is valid, parseable YAML.
+func parseFrontmatter(t *testing.T, fm string) map[string]any {
+	t.Helper()
+	body := strings.TrimSuffix(strings.TrimPrefix(fm, "---\n"), "---\n")
+	var m map[string]any
+	if err := yaml.Unmarshal([]byte(body), &m); err != nil {
+		t.Fatalf("generated frontmatter is not valid YAML: %v\n%s", err, fm)
+	}
+	return m
+}
+
+// A title/tag containing " or \ must not break the YAML frontmatter: the
+// values must survive a round-trip through a real YAML parser (as Obsidian
+// does). Raw YouTube titles (meta.Title) reach the frontmatter unsanitized.
+func TestBuildSummaryFrontmatter_EscapesSpecialChars(t *testing.T) {
+	data := FrontmatterData{
+		Title:      `Say "hi" \o/`, // both a double-quote and a backslash
+		UploadDate: "2026-07-03",
+		Tags:       []string{`quo"te`},
+		Categories: []string{`back\slash`},
+	}
+
+	m := parseFrontmatter(t, BuildSummaryFrontmatter(data))
+
+	if got, want := m["title"], `2026-07-03 Say "hi" \o/ (summary)`; got != want {
+		t.Errorf("title round-trip: got %q, want %q", got, want)
+	}
+	tags, _ := m["tags"].([]any)
+	if len(tags) != 1 || tags[0] != `quo"te` {
+		t.Errorf("tags round-trip: got %#v, want [quo\"te]", m["tags"])
+	}
+	cats, _ := m["categories"].([]any)
+	if len(cats) != 1 || cats[0] != `back\slash` {
+		t.Errorf("categories round-trip: got %#v, want [back\\slash]", m["categories"])
+	}
+}
+
+func TestYAMLEscape(t *testing.T) {
+	cases := []struct{ name, in, want string }{
+		{"plain", "plain text", "plain text"},
+		{"double quote", `say "hi"`, `say \"hi\"`},
+		{"backslash", `back\slash`, `back\\slash`},
+		{"backslash before quote", `a\"b`, `a\\\"b`},
+		{"newline", "line1\nline2", `line1\nline2`},
+		{"carriage return", "a\rb", `a\rb`},
+		{"tab", "a\tb", `a\tb`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := yamlEscape(c.in); got != c.want {
+				t.Errorf("yamlEscape(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}
+
+// updateFrontmatter rewrites playlist/playlist_id/processed_at when copying; a
+// playlist name containing " must not break the resulting YAML frontmatter.
+func TestUpdateFrontmatter_EscapesQuotes(t *testing.T) {
+	content := "---\n" +
+		`playlist: "old"` + "\n" +
+		`playlist_id: "PLold"` + "\n" +
+		`processed_at: "2020-01-01T00:00:00Z"` + "\n" +
+		"---\n"
+
+	got := updateFrontmatter(content, `My "Best" List`, "PL123")
+
+	m := parseFrontmatter(t, got)
+	if m["playlist"] != `My "Best" List` {
+		t.Errorf("playlist round-trip: got %#v, want %q", m["playlist"], `My "Best" List`)
+	}
+	if m["playlist_id"] != "PL123" {
+		t.Errorf("playlist_id round-trip: got %#v", m["playlist_id"])
+	}
+}
 
 func TestBuildTranscriptionFrontmatter(t *testing.T) {
 	data := FrontmatterData{
