@@ -27,9 +27,9 @@ OUTPUT_DIR="$PROJECT_DIR/embedded/bin/${TARGET_OS}-${TARGET_ARCH}"
 OUTPUT_PATH="${OUTPUT_DIR}/whisper-cli"
 mkdir -p "$OUTPUT_DIR"
 
-if [ -f "$OUTPUT_PATH" ]; then
+if [ -f "$OUTPUT_PATH" ] && [ -z "${FORCE:-}" ]; then
     echo "[INFO] whisper-cli already exists at $OUTPUT_PATH, skipping build"
-    echo "[INFO] Delete the file to rebuild"
+    echo "[INFO] Set FORCE=1 (or run 'make all') to rebuild"
     exit 0
 fi
 

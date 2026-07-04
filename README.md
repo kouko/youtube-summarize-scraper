@@ -61,6 +61,13 @@ This will:
 3. Build whisper-cli from ggml-org/whisper.cpp (with Metal on macOS)
 4. Compile the `ytss` Go binary with all tools embedded
 
+**`make all` vs `make build`:**
+
+- `make all` — **force-refreshes every dependency** (re-downloads the latest yt-dlp, recompiles ffmpeg + whisper), then builds. Use for releases or to pull the newest tools. Always recompiles ffmpeg/whisper from source (several minutes).
+- `make build` — builds, **provisioning only missing dependencies**. Fast and offline once deps exist; the first run (or any missing dep) downloads/compiles it (ffmpeg + whisper need `cmake`/`nasm`). Use for day-to-day development.
+
+To force-refresh a single dependency: `make deps FORCE=1`. For a full clean rebuild: `make clean && make all`.
+
 ## Usage
 
 ### Quick start

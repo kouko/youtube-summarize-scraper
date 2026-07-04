@@ -45,9 +45,9 @@ esac
 DOWNLOAD_URL="${BASE_URL}/${ASSET_NAME}"
 OUTPUT_PATH="${OUTPUT_DIR}/yt-dlp"
 
-if [ -f "$OUTPUT_PATH" ]; then
+if [ -f "$OUTPUT_PATH" ] && [ -z "${FORCE:-}" ]; then
     echo "[INFO] yt-dlp already exists at $OUTPUT_PATH, skipping download"
-    echo "[INFO] Delete the file to re-download"
+    echo "[INFO] Set FORCE=1 (or run 'make all') to re-download the latest"
     exit 0
 fi
 
