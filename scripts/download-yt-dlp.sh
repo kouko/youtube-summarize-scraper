@@ -54,8 +54,13 @@ fi
 echo "[INFO] Downloading yt-dlp for ${TARGET_OS}-${TARGET_ARCH}..."
 echo "[INFO] URL: $DOWNLOAD_URL"
 
-curl -L --progress-bar -o "$OUTPUT_PATH" "$DOWNLOAD_URL"
-chmod +x "$OUTPUT_PATH"
+# Download to a temp path and atomically move into place, so a mid-download
+# failure (esp. under FORCE=1, which overwrites an existing binary) can never
+# truncate the previously-good yt-dlp. -f makes curl fail on HTTP errors
+# instead of writing an error page as the binary.
+curl -fL --progress-bar -o "$OUTPUT_PATH.tmp" "$DOWNLOAD_URL"
+chmod +x "$OUTPUT_PATH.tmp"
+mv -f "$OUTPUT_PATH.tmp" "$OUTPUT_PATH"
 
 echo "[SUCCESS] yt-dlp downloaded to $OUTPUT_PATH"
 "$OUTPUT_PATH" --version 2>/dev/null || echo "[WARN] Could not verify version (cross-platform binary)"
