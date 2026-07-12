@@ -65,8 +65,8 @@ func TestAntigravityCLISummarize_PassesPromptViaStdin(t *testing.T) {
 }
 
 func TestAntigravityCLISummarize_ArgsHaveNoModelFlag(t *testing.T) {
-	// agy print mode has no per-call model flag; assert we send -p and
-	// --print-timeout but never -m/--model.
+	// agy print mode has no per-call model flag; assert we send --print-timeout
+	// but never -m/--model or -p/--print (since it reads stdin automatically when piped).
 	fake := writeFakeAgy(t, `printf '%s' "$*"`+"\n")
 
 	s := &AntigravityCLISummarizer{binaryPath: fake, timeout: time.Minute}
@@ -74,11 +74,16 @@ func TestAntigravityCLISummarize_ArgsHaveNoModelFlag(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !strings.Contains(res.Text, "-p") || !strings.Contains(res.Text, "--print-timeout") {
+	if !strings.Contains(res.Text, "--print-timeout") {
 		t.Errorf("missing required flags in args: %q", res.Text)
 	}
-	if strings.Contains(res.Text, "-m") || strings.Contains(res.Text, "--model") {
-		t.Errorf("model flag must not be sent to agy: %q", res.Text)
+	for _, arg := range strings.Fields(res.Text) {
+		if arg == "-p" || arg == "--print" {
+			t.Errorf("print flag must not be sent when piping to agy: %q", res.Text)
+		}
+		if arg == "-m" || arg == "--model" {
+			t.Errorf("model flag must not be sent to agy: %q", res.Text)
+		}
 	}
 }
 

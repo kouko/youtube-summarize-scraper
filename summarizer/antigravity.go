@@ -41,13 +41,12 @@ func (a *AntigravityCLISummarizer) Summarize(text string, opts SummarizeOptions)
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
-	// Pass the prompt via stdin to avoid OS ARG_MAX limits on long transcripts.
-	// agy's -p/--print is a string flag that REQUIRES a value, so we give it the
-	// path "/dev/stdin" — agy then reads the prompt from fd 0, which exec wires to
-	// cmd.Stdin below. (Unix-only path; we ship macOS/Linux. Verified on agy 1.0.3.)
+	// Use stdin pipe for prompt content to avoid OS ARG_MAX limits on long transcripts.
+	// agy automatically reads from stdin in print mode when no -p/--print flag is
+	// provided and stdin is not a TTY.
 	// --print-timeout bounds the headless wait (agy default is 5m).
 	// No model flag exists in agy print mode (see type doc).
-	args := []string{"-p", "/dev/stdin", "--print-timeout", timeout.String()}
+	args := []string{"--print-timeout", timeout.String()}
 	cmd := exec.CommandContext(ctx, binary, args...)
 
 	var stdout, stderr bytes.Buffer
