@@ -20,8 +20,9 @@ var (
 
 // preflightCookieKeychain stops the command before any work when a configured
 // Chrome-family browser's cookie key cannot be read from the macOS keychain.
-// It checks the global cookie, plus every playlist's and channel's own cookie
-// when includeEntries is set (run). On failure it silences cobra's usage block
+// It checks the global cookie, plus every playlist's own cookie when
+// includeEntries is set (run). Channel entries' cookies are not checked: no
+// fetch consumes channels[].cookie, so checking it would block working runs. On failure it silences cobra's usage block
 // so the error prints as a single line.
 func preflightCookieKeychain(cmd *cobra.Command, cfg *config.Config, includeEntries bool) error {
 	cookies := []config.CookieConfig{cfg.Cookie}
@@ -29,11 +30,6 @@ func preflightCookieKeychain(cmd *cobra.Command, cfg *config.Config, includeEntr
 		for _, pl := range cfg.Playlists {
 			if pl.Cookie != nil {
 				cookies = append(cookies, *pl.Cookie)
-			}
-		}
-		for _, ch := range cfg.Channels {
-			if ch.Cookie != nil {
-				cookies = append(cookies, *ch.Cookie)
 			}
 		}
 	}
