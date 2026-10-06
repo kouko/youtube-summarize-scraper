@@ -35,6 +35,7 @@ Wave 2 — CLI wiring of the startup check.
 ② — behaviour — （審查修正後重新確認，含 Chrome:Default 寫法、只印一行、執行中提示僅 Mac、--cookie-browser 與 --dry-run 也檢查）這樣對嗎？（answer: 好，繼續）
 ② — behaviour — （對抗測試後修正：頻道底下的 cookie 不檢查、執行中提示改為「包含」）請再確認一次畫面行為。（answer: 對）
 ② — what — 還沒推送的 commit e1a4af0 要怎麼處理？A 一起推／B 從 PR 排除／C 你先自己推送（answer: C）
+② — behaviour — （結案審查發現「金鑰讀得到但不對」沒有提示後，你選了 B 一起修）金鑰不對時錯誤訊息會寫「無法用金鑰解密 cookie（金鑰不對？設定檔從別台電腦複製？）— 請在瀏覽器重新登入 YouTube」，不解鎖指令；其他行為不變。這樣對嗎？（answer: B 繼續）
 
 ## Risks
 1. Exit codes 36 (locked) and 44 (not found) come from the incident and Apple docs, not independently re-measured; acceptance testing on this Mac must reproduce locked and unlocked runs.

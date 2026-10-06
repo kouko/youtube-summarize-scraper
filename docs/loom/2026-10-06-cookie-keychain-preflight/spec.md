@@ -1,6 +1,6 @@
 # Browser cookie keychain preflight — spec
 intent: 2026-10-06-cookie-keychain-preflight@390153e
-confirmed-behavior: 2026-10-06 @7bfb0dd
+confirmed-behavior: 2026-10-06 @b974865
 pre-build-review: required — the check reads a macOS keychain secret (the browser's cookie decryption key); leaking it to output or logs is a privacy/security failure
 
 ## Requirements
@@ -15,6 +15,7 @@ REQ-3 — No change without browser cookies
 
 REQ-4 — Name the real cause of a mid-run cookie failure
   IF, on macOS, a channel-list, playlist-list or video-metadata fetch fails during a run and yt-dlp reported that browser cookies could not be decrypted, THEN the error ytss reports for that channel, playlist or video shall state that the browser cookies could not be read and give the same fix command, in addition to the original yt-dlp output → Acceptance #4
+  WHERE yt-dlp instead reported that the key it obtained could not decrypt the cookies (`failed to decrypt cookie`), the error shall state that the browser cookies could not be decrypted with the key found (wrong key, e.g. a browser profile copied from another machine) and shall not suggest the unlock command → Acceptance #4
 
 ## Design decision
 - Startup stop, not warn-and-continue — user-decided (decision point ①, 2026-10-06: "直接停止").
@@ -24,7 +25,8 @@ REQ-4 — Name the real cause of a mid-run cookie failure
 - Non-macOS hosts skip the check entirely — agent-decided; intent Out of scope.
 - Bounded wait — agent-decided: the lookup has a 30-second timeout and the child process is killed when it expires; on timeout ytss stops with the same unreadable message, because an unattended run must never wait for input (PRINCIPLES non-negotiable 3). If macOS shows an access dialog, yt-dlp's own lookup would show the same one, so the preflight adds no new prompt.
 - Watch mode checks once at startup, not every iteration — agent-decided; a keychain stays unlocked until logout/reboot (observed `no-timeout` setting), which restarts the process; REQ-4 covers anything that changes mid-run, including browser entries added by the per-iteration config reload and keychains configured to lock on sleep/idle (accepted).
-- REQ-4 detection is on yt-dlp stderr markers `cannot decrypt` and `find-generic-password failed`, applied in the fetcher package's single yt-dlp wrapper (fetcher/fetcher.go:192), so channel-list, playlist-list and metadata fetches inherit it; macOS only, because yt-dlp prints `cannot decrypt` on Linux/Windows too and the unlock command would be wrong there. Subtitle and audio downloads (subtitle/subtitle.go:79, transcriber/transcriber.go:111) are not covered: they run after the list/metadata fetch, which already fails first on the same cookies, and the startup check covers the common case — agent-decided.
+- REQ-4 wrong-key variant — user-decided (closing-review question, answer "B", 2026-10-06): yt-dlp's `failed to decrypt cookie (AES-CBC) … Possibly the key is wrong?` wording (wrong key, e.g. browser profile copied from another machine) gets its own hint without the unlock command, because the key is readable but does not fit the cookies — unlocking cannot fix it. Spec edit 2026-10-06.
+- REQ-4 detection is on yt-dlp stderr markers `cannot decrypt` and `find-generic-password failed` (unreadable key) and `failed to decrypt cookie` (wrong key), applied in the fetcher package's single yt-dlp wrapper (fetcher/fetcher.go:192), so channel-list, playlist-list and metadata fetches inherit it; macOS only, because yt-dlp prints `cannot decrypt` on Linux/Windows too and the unlock command would be wrong there. Subtitle and audio downloads (subtitle/subtitle.go:79, transcriber/transcriber.go:111) are not covered: they run after the list/metadata fetch, which already fails first on the same cookies, and the startup check covers the common case — agent-decided.
 - Fix command shown: `security unlock-keychain ~/Library/Keychains/login.keychain-db` for unreadable; for not-found, open the browser and sign in once — agent-decided from the diagnosed incident.
 - Preflight errors are printed as the single `Error: …` line shown in UI flows, with cobra's usage block suppressed (the root command does not silence usage today, which would bury the fix command) — agent-decided, keeps the user-confirmed output.
 - Testability — agent-decided: the check takes the OS name and the keychain lookup function as injected parameters, so the readable / locked (36) / not-found (44) / timeout cases are unit-tested on CI's Linux runner without calling `security`.
@@ -56,6 +58,7 @@ Surface: terminal output (the error is the only line printed; no usage/help bloc
 | Key readable | runs `ytss run` | output identical to today; no extra line; the key is never shown |
 | No browser cookies | runs `ytss run` with no cookie settings or with `cookie.file` set | output identical to today; no check runs |
 | Mid-run cookie failure | (macOS) a playlist fetch fails because yt-dlp could not decrypt cookies | the logged error for that playlist contains `cannot read browser cookies (keychain locked?) — run: security unlock-keychain ~/Library/Keychains/login.keychain-db` followed by the original yt-dlp output; the run continues with the other sources as today |
+| (macOS) Wrong key mid-run | a playlist fetch fails because the key found cannot decrypt the cookies (e.g. browser profile copied from another machine) | the logged error for that playlist contains `cannot decrypt browser cookies with the keychain key (wrong key? browser profile copied from another machine?) — sign in to YouTube in the browser again` followed by the original yt-dlp output; no unlock command; the run continues as today |
 
 - Empty: N/A — the check has no list to show; with nothing to check it prints nothing (row "No browser cookies").
 - In progress: the check is a single local lookup, normally instant; bounded at 30 s.

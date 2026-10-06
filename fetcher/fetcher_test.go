@@ -9,20 +9,37 @@ import (
 
 func TestYtDlpError_CookieDecryptHint(t *testing.T) {
 	base := errors.New("exit status 1")
-	stderr := "ERROR: cannot decrypt v10 cookies: no key found"
 	args := []string{"--flat-playlist", "PLx"}
 
-	got := ytDlpError("darwin", args, base, stderr)
-	hint := "cannot read browser cookies (keychain locked?) — run: " + KeychainUnlockCommand
-	if !strings.HasPrefix(got.Error(), hint) || !strings.Contains(got.Error(), stderr) || !errors.Is(got, base) {
-		t.Errorf("darwin: got %q, want prefix %q, original stderr and wrapped err", got, hint)
-	}
+	t.Run("locked keychain", func(t *testing.T) {
+		stderr := "ERROR: cannot decrypt v10 cookies: no key found"
+		hint := "cannot read browser cookies (keychain locked?) — run: " + KeychainUnlockCommand
+		got := ytDlpError("darwin", args, base, stderr)
+		if !strings.HasPrefix(got.Error(), hint) || !strings.Contains(got.Error(), stderr) || !errors.Is(got, base) {
+			t.Errorf("darwin: got %q, want prefix %q, original stderr and wrapped err", got, hint)
+		}
+	})
 
-	plain := ytDlpError("linux", args, base, stderr)
-	want := "yt-dlp [--flat-playlist PLx]: exit status 1\nstderr: " + stderr
-	if plain.Error() != want || !errors.Is(plain, base) {
-		t.Errorf("linux: got %q, want %q", plain, want)
-	}
+	t.Run("wrong key", func(t *testing.T) {
+		stderr := "ERROR: failed to decrypt cookie (AES-CBC) because UTF-8 decoding failed. Possibly the key is wrong?"
+		hint := "cannot decrypt browser cookies with the keychain key (wrong key? browser profile copied from another machine?) — sign in to YouTube in the browser again"
+		got := ytDlpError("darwin", args, base, stderr)
+		if !strings.HasPrefix(got.Error(), hint) || !strings.Contains(got.Error(), stderr) || !errors.Is(got, base) {
+			t.Errorf("darwin: got %q, want prefix %q, original stderr and wrapped err", got, hint)
+		}
+		if strings.Contains(got.Error(), "unlock-keychain") {
+			t.Errorf("darwin wrong key: hint must not suggest the unlock command: %q", got)
+		}
+	})
+
+	t.Run("no hint off mac", func(t *testing.T) {
+		stderr := "ERROR: cannot decrypt v10 cookies: no key found"
+		plain := ytDlpError("linux", args, base, stderr)
+		want := "yt-dlp [--flat-playlist PLx]: exit status 1\nstderr: " + stderr
+		if plain.Error() != want || !errors.Is(plain, base) {
+			t.Errorf("linux: got %q, want %q", plain, want)
+		}
+	})
 }
 
 func TestChannelTabSuffixes_Video(t *testing.T) {

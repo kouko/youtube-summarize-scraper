@@ -220,11 +220,18 @@ func ytDlpError(goos string, args []string, err error, stderr string) error {
 }
 
 // cookieDecryptHint returns the cookie-failure prefix when yt-dlp on macOS
-// reported it could not decrypt browser cookies, else "". macOS only: yt-dlp
-// prints "cannot decrypt" elsewhere too, where the unlock command is wrong.
+// reported it could not decrypt browser cookies, else "". Two cases (spec
+// REQ-4): an unreadable key (locked keychain) gets the unlock command; a key
+// that exists but cannot decrypt the cookies (wrong key, e.g. profile copied
+// from another machine) gets a sign-in hint without the unlock command, since
+// unlocking cannot fix a wrong key. macOS only: yt-dlp prints these markers
+// on Linux/Windows too, where neither hint applies.
 func cookieDecryptHint(goos, stderr string) string {
 	if goos != "darwin" {
 		return ""
+	}
+	if strings.Contains(stderr, "failed to decrypt cookie") {
+		return "cannot decrypt browser cookies with the keychain key (wrong key? browser profile copied from another machine?) — sign in to YouTube in the browser again\n"
 	}
 	if strings.Contains(stderr, "cannot decrypt") || strings.Contains(stderr, "find-generic-password failed") {
 		return "cannot read browser cookies (keychain locked?) — run: " + KeychainUnlockCommand + "\n"
