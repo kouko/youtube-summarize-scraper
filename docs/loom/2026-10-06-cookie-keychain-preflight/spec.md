@@ -1,5 +1,6 @@
 # Browser cookie keychain preflight — spec
 intent: 2026-10-06-cookie-keychain-preflight@390153e
+confirmed-behavior: 2026-10-06 @1ac4d02
 pre-build-review: required — the check reads a macOS keychain secret (the browser's cookie decryption key); leaking it to output or logs is a privacy/security failure
 
 ## Requirements
