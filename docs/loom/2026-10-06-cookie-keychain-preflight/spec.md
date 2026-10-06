@@ -1,6 +1,5 @@
 # Browser cookie keychain preflight — spec
 intent: 2026-10-06-cookie-keychain-preflight@390153e
-confirmed-behavior: 2026-10-06 @1ac4d02
 pre-build-review: required — the check reads a macOS keychain secret (the browser's cookie decryption key); leaking it to output or logs is a privacy/security failure
 
 ## Requirements
@@ -18,7 +17,7 @@ REQ-4 — Name the real cause of a mid-run cookie failure
 
 ## Design decision
 - Startup stop, not warn-and-continue — user-decided (decision point ①, 2026-10-06: "直接停止").
-- Which settings trigger the check — agent-decided: an entry "reads cookies from a browser" exactly when its cookie file is empty and its browser is set, because that is the precedence the existing cookie-argument builders already apply (file wins over browser). `run` checks the global cookie plus every configured playlist's and channel's own cookie; `channel` and `video` check only the global cookie, since they never use per-entry settings. Each distinct browser is checked once. The browser name is taken from the configured value the way yt-dlp parses it: the text before the first `+` or `:`, trimmed and lowercased — so `Chrome:Default` and `chrome:Profile 1` both check Chrome. The check runs after CLI overrides (`--cookie-browser` / `--cookie-file`) are applied, and also under `--dry-run` (dry-run still fetches lists).
+- Which settings trigger the check — agent-decided: an entry "reads cookies from a browser" exactly when its cookie file is empty and its browser is set, because that is the precedence the existing cookie-argument builders already apply (file wins over browser). `run` checks the global cookie plus every configured playlist's own cookie — channel entries' own `cookie:` blocks are not checked because no fetch consumes them (pipeline/pipeline.go reads only the global and playlist cookies; found by the Build adversary); `channel` and `video` check only the global cookie, since they never use per-entry settings. Each distinct browser is checked once. The browser name is taken from the configured value the way yt-dlp parses it: the text before the first `+` or `:`, trimmed and lowercased — so `Chrome:Default` and `chrome:Profile 1` both check Chrome. The check runs after CLI overrides (`--cookie-browser` / `--cookie-file`) are applied, and also under `--dry-run` (dry-run still fetches lists).
 - How the check reads the keychain — agent-decided: run the same `security find-generic-password -w -a <Name> -s "<Name> Safe Storage"` lookup yt-dlp itself performs, so the preflight passes exactly when yt-dlp would get the key. Stdout (the key) is sent to the null device and never read; only the exit code and the timeout are used (PRINCIPLES non-negotiable 2). Exit 0 = readable; exit 44 = item not found; any other result = unreadable.
 - Chrome-family names follow yt-dlp's macOS keyring table: chrome→Chrome, chromium→Chromium, brave→Brave, edge→Microsoft Edge, opera→Opera, vivaldi→Vivaldi, whale→Whale. Other browsers (firefox, safari) are skipped — they do not use this keychain item (intent Out of scope).
 - Non-macOS hosts skip the check entirely — agent-decided; intent Out of scope.
@@ -55,7 +54,7 @@ Surface: terminal output (the error is the only line printed; no usage/help bloc
 | Check hangs (e.g. an access dialog nobody answers) | runs ytss unattended | after 30 s: the same "not accessible" error as the locked case — exit code 1 |
 | Key readable | runs `ytss run` | output identical to today; no extra line; the key is never shown |
 | No browser cookies | runs `ytss run` with no cookie settings or with `cookie.file` set | output identical to today; no check runs |
-| Mid-run cookie failure | (macOS) a playlist fetch fails because yt-dlp could not decrypt cookies | the logged error for that playlist starts with `cannot read browser cookies (keychain locked?) — run: security unlock-keychain ~/Library/Keychains/login.keychain-db` followed by the original yt-dlp output; the run continues with the other sources as today |
+| Mid-run cookie failure | (macOS) a playlist fetch fails because yt-dlp could not decrypt cookies | the logged error for that playlist contains `cannot read browser cookies (keychain locked?) — run: security unlock-keychain ~/Library/Keychains/login.keychain-db` followed by the original yt-dlp output; the run continues with the other sources as today |
 
 - Empty: N/A — the check has no list to show; with nothing to check it prints nothing (row "No browser cookies").
 - In progress: the check is a single local lookup, normally instant; bounded at 30 s.
