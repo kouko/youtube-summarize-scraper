@@ -4,10 +4,45 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 
 	"github.com/kouko/youtube-summarize-scraper/config"
+	"github.com/kouko/youtube-summarize-scraper/fetcher"
 	"github.com/kouko/youtube-summarize-scraper/pipeline"
+	"github.com/spf13/cobra"
 )
+
+// Injected into the startup cookie preflight; tests replace them.
+var (
+	keychainGOOS                          = runtime.GOOS
+	keychainLookup fetcher.KeychainLookup = fetcher.LookupMacKeychain
+)
+
+// preflightCookieKeychain stops the command before any work when a configured
+// Chrome-family browser's cookie key cannot be read from the macOS keychain.
+// It checks the global cookie, plus every playlist's and channel's own cookie
+// when includeEntries is set (run). On failure it silences cobra's usage block
+// so the error prints as a single line.
+func preflightCookieKeychain(cmd *cobra.Command, cfg *config.Config, includeEntries bool) error {
+	cookies := []config.CookieConfig{cfg.Cookie}
+	if includeEntries {
+		for _, pl := range cfg.Playlists {
+			if pl.Cookie != nil {
+				cookies = append(cookies, *pl.Cookie)
+			}
+		}
+		for _, ch := range cfg.Channels {
+			if ch.Cookie != nil {
+				cookies = append(cookies, *ch.Cookie)
+			}
+		}
+	}
+	if err := fetcher.CheckBrowserCookieKeychain(keychainGOOS, keychainLookup, cookies); err != nil {
+		cmd.SilenceUsage = true
+		return err
+	}
+	return nil
+}
 
 // loadConfig tries to load the config file at the given path.
 // If the file does not exist, it returns DefaultConfig.
