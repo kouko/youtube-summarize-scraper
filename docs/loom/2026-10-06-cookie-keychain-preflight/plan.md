@@ -33,6 +33,8 @@ Wave 2 — CLI wiring of the startup check.
 ① — consequence — 以上需求和產品原則都正確嗎？（含：直接停止會讓不需登入的頻道也整批停掉；回答「對」授權審查通過後自動推送並開 Ready PR，合併另議）（answer: 對）
 ② — behaviour — 你執行 ytss 時：keychain 鎖住→只印一行錯誤與解鎖指令、結束代碼 1；從未登入→提示登入、結束代碼 1；卡住→30 秒後停止；讀得到/沒設定→照舊；（Mac）執行中解密失敗→錯誤訊息開頭寫讀不到 cookie。這樣對嗎？（answer: 對）
 ② — behaviour — （審查修正後重新確認，含 Chrome:Default 寫法、只印一行、執行中提示僅 Mac、--cookie-browser 與 --dry-run 也檢查）這樣對嗎？（answer: 好，繼續）
+② — behaviour — （對抗測試後修正：頻道底下的 cookie 不檢查、執行中提示改為「包含」）請再確認一次畫面行為。（answer: 對）
+② — what — 還沒推送的 commit e1a4af0 要怎麼處理？A 一起推／B 從 PR 排除／C 你先自己推送（answer: C）
 
 ## Risks
 1. Exit codes 36 (locked) and 44 (not found) come from the incident and Apple docs, not independently re-measured; acceptance testing on this Mac must reproduce locked and unlocked runs.
