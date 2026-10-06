@@ -1,6 +1,9 @@
 # Browser cookie keychain preflight — acceptance test evidence
 
-Tried on 2026-10-06, in a clean copy of the project at 1b588d7.
+Tried on 2026-10-06, in a clean copy of the project at 1b588d7. This is a re-run after the
+wrong-key hint was added in commit e014268 (branch `feat/2026-10-06-cookie-keychain-preflight`);
+only Acceptance line 4 is re-tested here — the new binary is `ytss`, the fake `security` helpers
+are the same `fake36`/`fakeempty` scripts, and the WL playlist config is `cfg-chrome.yaml`.
 
 ## Setup (clean copy)
 
@@ -105,12 +108,13 @@ Configs used (all in scratch):
   - base, same fake: only one `security` call (no startup check), so yt-dlp got an empty key and printed
     `WARNING: failed to decrypt cookie (AES-CBC) because UTF-8 decoding failed. Possibly the key is wrong?`
     then "The playlist does not exist."
-  - new + `fakeempty` (same empty-key situation): error has NO hint — it is the plain yt-dlp output
-    ending in "The playlist does not exist." The detector matches only `cannot decrypt` and
-    `find-generic-password failed` (`fetcher/fetcher.go` `cookieDecryptHint`), not yt-dlp's
-    `failed to decrypt cookie` wording. In the real world this wording means a wrong key (e.g.
-    browser data from another machine/profile), not a locked keychain, and the unlock command would
-    not fix it; the startup check does not catch it either because the key item is readable.
+  - new + `fakeempty` (same empty-key situation): error now starts with the wrong-key hint, then keeps
+    the original yt-dlp output:
+    ```
+    time=2026-10-06T21:19:37.650+08:00 level=ERROR msg="playlist fetch failed" url="https://www.youtube.com/playlist?list=WL" error="fetching playlist videos: fetching playlist videos: cannot decrypt browser cookies with the keychain key (wrong key? browser profile copied from another machine?) — sign in to YouTube in the browser again\nyt-dlp [--flat-playlist --dump-json --extractor-args youtubetab:approximate_date --playlist-end 2 --cookies-from-browser chrome https://www.youtube.com/playlist?list=WL]: exit status 1\nstderr: WARNING: failed to decrypt cookie (AES-CBC) because UTF-8 decoding failed. Possibly the key is wrong?\nWARNING: [youtube:tab] YouTube said: The playlist does not exist.\nERROR: [youtube:tab] WL: YouTube said: The playlist does not exist.\n"
+    ```
+    No unlock command is present. The detector now matches both `cannot decrypt`/`find-generic-password failed`
+    (unreadable key) and `failed to decrypt cookie` (wrong key) in `fetcher/fetcher.go` `cookieDecryptHint`.
 - Evidence: captured outputs above; test `TestYtDlpError_CookieDecryptHint` passes.
 
 ## Package tests
