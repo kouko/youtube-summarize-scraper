@@ -1,9 +1,29 @@
 package fetcher
 
 import (
+	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestYtDlpError_CookieDecryptHint(t *testing.T) {
+	base := errors.New("exit status 1")
+	stderr := "ERROR: cannot decrypt v10 cookies: no key found"
+	args := []string{"--flat-playlist", "PLx"}
+
+	got := ytDlpError("darwin", args, base, stderr)
+	hint := "cannot read browser cookies (keychain locked?) — run: " + KeychainUnlockCommand
+	if !strings.HasPrefix(got.Error(), hint) || !strings.Contains(got.Error(), stderr) || !errors.Is(got, base) {
+		t.Errorf("darwin: got %q, want prefix %q, original stderr and wrapped err", got, hint)
+	}
+
+	plain := ytDlpError("linux", args, base, stderr)
+	want := "yt-dlp [--flat-playlist PLx]: exit status 1\nstderr: " + stderr
+	if plain.Error() != want || !errors.Is(plain, base) {
+		t.Errorf("linux: got %q, want %q", plain, want)
+	}
+}
 
 func TestChannelTabSuffixes_Video(t *testing.T) {
 	got := ChannelTabSuffixes([]string{"video"})
