@@ -21,6 +21,9 @@ var runCmd = &cobra.Command{
 
 		cfg := loadConfig(cfgFile)
 		applyOverrides(cfg)
+		if err := preflightCookieKeychain(cmd, cfg, true); err != nil {
+			return err
+		}
 
 		if len(cfg.Channels) == 0 && len(cfg.Playlists) == 0 {
 			return fmt.Errorf("no channels or playlists configured in %s", cfgFile)

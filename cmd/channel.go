@@ -23,6 +23,9 @@ var channelCmd = &cobra.Command{
 
 		cfg := loadConfig(cfgFile)
 		applyOverrides(cfg)
+		if err := preflightCookieKeychain(cmd, cfg, false); err != nil {
+			return err
+		}
 
 		input := args[0]
 		channelURL := input

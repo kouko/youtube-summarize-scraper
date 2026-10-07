@@ -1,6 +1,7 @@
 package fetcher
 
 import (
+	"context"
 	"testing"
 
 	"github.com/kouko/youtube-summarize-scraper/config"
@@ -74,5 +75,87 @@ func TestCookieArgs_Empty(t *testing.T) {
 	args := f.cookieArgs()
 	if args != nil {
 		t.Errorf("cookieArgs empty: got %v, want nil", args)
+	}
+}
+
+// fakeKeychain returns a fixed lookup result and records the names it was asked for.
+func fakeKeychain(code int, err error, calls *[]string) KeychainLookup {
+	return func(name string) (int, error) {
+		*calls = append(*calls, name)
+		return code, err
+	}
+}
+
+const chromeNotAccessible = `cannot read Chrome cookies: the macOS keychain item "Chrome Safe Storage" is not accessible (keychain locked?). Unlock it and re-run: security unlock-keychain ~/Library/Keychains/login.keychain-db`
+
+// A1 positive: locked (exit 36) → not-accessible error; missing (exit 44) → not-found error.
+func TestCheckBrowserCookieKeychain_Unreadable(t *testing.T) {
+	var calls []string
+	err := CheckBrowserCookieKeychain("darwin", fakeKeychain(36, nil, &calls), []config.CookieConfig{{Browser: "Chrome:Default"}})
+	if err == nil || err.Error() != chromeNotAccessible {
+		t.Errorf("exit 36: got %v, want %q", err, chromeNotAccessible)
+	}
+	if len(calls) != 1 || calls[0] != "Chrome" {
+		t.Errorf("lookup calls = %v, want [Chrome]", calls)
+	}
+
+	want := `cannot read Chrome cookies: no "Chrome Safe Storage" item in the macOS keychain. Open Chrome and sign in to YouTube once, then re-run.`
+	err = CheckBrowserCookieKeychain("darwin", fakeKeychain(44, nil, &calls), []config.CookieConfig{{Browser: "chrome"}})
+	if err == nil || err.Error() != want {
+		t.Errorf("exit 44: got %v, want %q", err, want)
+	}
+}
+
+// A1 negative: a non-Chrome-family browser is skipped.
+func TestCheckBrowserCookieKeychain_FirefoxSkipped(t *testing.T) {
+	var calls []string
+	if err := CheckBrowserCookieKeychain("darwin", fakeKeychain(36, nil, &calls), []config.CookieConfig{{Browser: "firefox"}}); err != nil {
+		t.Errorf("firefox: got %v, want nil", err)
+	}
+	if len(calls) != 0 {
+		t.Errorf("firefox: lookup called %v", calls)
+	}
+}
+
+// A2 positive: readable key → nil; each distinct keyring name looked up once.
+func TestCheckBrowserCookieKeychain_Readable(t *testing.T) {
+	var calls []string
+	cookies := []config.CookieConfig{{Browser: "chrome"}, {Browser: " Chrome:Profile 1"}, {Browser: "edge+gnomekeyring"}}
+	if err := CheckBrowserCookieKeychain("darwin", fakeKeychain(0, nil, &calls), cookies); err != nil {
+		t.Errorf("readable: got %v, want nil", err)
+	}
+	if len(calls) != 2 || calls[0] != "Chrome" || calls[1] != "Microsoft Edge" {
+		t.Errorf("lookup calls = %v, want [Chrome Microsoft Edge]", calls)
+	}
+}
+
+// A2 boundary: lookup timed out → not-accessible error.
+func TestCheckBrowserCookieKeychain_Timeout(t *testing.T) {
+	var calls []string
+	err := CheckBrowserCookieKeychain("darwin", fakeKeychain(-1, context.DeadlineExceeded, &calls), []config.CookieConfig{{Browser: "chrome"}})
+	if err == nil || err.Error() != chromeNotAccessible {
+		t.Errorf("timeout: got %v, want %q", err, chromeNotAccessible)
+	}
+}
+
+// A3 positive: a cookie file wins over the browser, so no lookup runs.
+func TestCheckBrowserCookieKeychain_FileSkipped(t *testing.T) {
+	var calls []string
+	if err := CheckBrowserCookieKeychain("darwin", fakeKeychain(36, nil, &calls), []config.CookieConfig{{File: "/tmp/c.txt", Browser: "chrome"}, {}}); err != nil {
+		t.Errorf("file set: got %v, want nil", err)
+	}
+	if len(calls) != 0 {
+		t.Errorf("file set: lookup called %v", calls)
+	}
+}
+
+// A3 negative: non-macOS hosts skip the check.
+func TestCheckBrowserCookieKeychain_LinuxSkipped(t *testing.T) {
+	var calls []string
+	if err := CheckBrowserCookieKeychain("linux", fakeKeychain(36, nil, &calls), []config.CookieConfig{{Browser: "chrome"}}); err != nil {
+		t.Errorf("linux: got %v, want nil", err)
+	}
+	if len(calls) != 0 {
+		t.Errorf("linux: lookup called %v", calls)
 	}
 }

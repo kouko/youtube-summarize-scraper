@@ -1,0 +1,41 @@
+{
+  "schema": "loom-attestation/v2",
+  "change_id": "2026-10-06-cookie-keychain-preflight",
+  "content_digest": "9375147c37156a72f2cafd9fe1f3cfb95f0bafa4",
+  "executions": [
+    {
+      "kind": "package-tests",
+      "command": "go test ./...",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "1bb497e3e13a1105cf24e3359fa3ef75de08b66ff8a2839cd7f9ea97824d9eb3"
+    },
+    {
+      "kind": "adversarial",
+      "command": "bash docs/loom/2026-10-06-cookie-keychain-preflight/evidence/probes/test_channel_cookie_preflight.sh",
+      "artifact": "docs/loom/2026-10-06-cookie-keychain-preflight/evidence/probes/test_channel_cookie_preflight.sh",
+      "result": "pass",
+      "command_digest": "04915f69af10c0c87e2cd21a818e41bbca195661fc19526f44202199ad58569b"
+    }
+  ],
+  "verdicts": [
+    {
+      "reviewer": "closing-review-round2-a",
+      "vendor": "anthropic",
+      "model": "claude-fable-5-1",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": []
+    },
+    {
+      "reviewer": "closing-review-round2-b",
+      "vendor": "anthropic",
+      "model": "claude-fable-5-1",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": []
+    }
+  ],
+  "findings": [],
+  "selection": null
+}
