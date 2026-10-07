@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/kouko/youtube-summarize-scraper/config"
@@ -174,10 +173,24 @@ type batchSource struct {
 
 func (s *batchSource) isPlaylist() bool { return s.playlistCfg != nil }
 
-func (p *Pipeline) ProcessBatch() (*Stats, error) {
+// streamItem represents a single video to be processed, carrying all context
+// needed for both playlist and channel processing paths.
+type streamItem struct {
+	meta         fetcher.VideoMeta
+	isPlaylist   bool
+	playlistID   string
+	playlistName string
+	playlistCfg  *config.PlaylistConfig
+	channelURL   string
+	channelCfg   *config.ChannelConfig
+}
+
+// ProcessBatchStreaming is the streaming version of ProcessBatch that uses a channel
+// to stream videos from producers to consumers, enabling "fetch and process" pipeline.
+func (p *Pipeline) ProcessBatchStreaming() (*Stats, error) {
 	total := &Stats{}
 
-	// --- Build source list (playlists + channels) ---
+	// Build source configs (playlists + channels)
 	playlists := make([]config.PlaylistConfig, len(p.config.Playlists))
 	copy(playlists, p.config.Playlists)
 	channels := make([]config.ChannelConfig, len(p.config.Channels))
@@ -198,45 +211,38 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 		}
 	}
 
-	// Allocate result slots: playlists first, then channels.
-	sources := make([]batchSource, len(playlists)+len(channels))
-	for i := range playlists {
-		sources[i] = batchSource{
-			playlistURL: playlists[i].URL,
-			playlistCfg: &playlists[i],
-		}
-	}
-	for i := range channels {
-		sources[len(playlists)+i] = batchSource{
-			channelURL: channels[i].URL,
-			channelCfg: &channels[i],
-		}
-	}
+	// Channel for streaming items from producers to consumers
+	// Buffer size: large enough to decouple fetch from process, but not unbounded
+	itemChan := make(chan *streamItem, 100)
 
-	// --- Phase 1: Parallel video-list fetching ---
+	// Track errors from producers
+	var producerErr error
+	var producerErrMu sync.Mutex
+
+	// WaitGroup for producers
+	var producerWg sync.WaitGroup
+
+	// Concurrency control for fetching
 	concurrency := p.config.Batch.FetchConcurrency
 	if concurrency <= 0 {
 		concurrency = 3
 	}
 	sem := make(chan struct{}, concurrency)
-	var wg sync.WaitGroup
 
-	slog.Info("phase 1: fetching video lists in parallel",
+	slog.Info("streaming: starting producers",
 		"playlists", len(playlists),
 		"channels", len(channels),
 		"concurrency", concurrency,
 	)
 
-	totalSources := len(sources)
-	var fetchedCount atomic.Int32
-
-	for idx := range sources {
+	// Start producers for playlists
+	for i := range playlists {
 		if p.stopped() {
 			break
 		}
-		wg.Add(1)
-		go func(i int) {
-			defer wg.Done()
+		producerWg.Add(1)
+		go func(pl config.PlaylistConfig) {
+			defer producerWg.Done()
 			sem <- struct{}{}
 			defer func() { <-sem }()
 
@@ -244,81 +250,164 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 				return
 			}
 
-			s := &sources[i]
-			if s.isPlaylist() {
-				p.fetchPlaylistList(s)
-			} else {
-				p.fetchChannelList(s)
+			count := pl.Count
+			if count <= 0 {
+				count = p.config.DefaultCount
 			}
 
-			n := fetchedCount.Add(1)
-			if s.err == nil {
-				if s.isPlaylist() {
-					slog.Info(fmt.Sprintf("[%d/%d] fetched playlist", n, totalSources),
-						"url", s.playlistURL, "name", s.playlistName, "videos", len(s.videos))
-				} else {
-					slog.Info(fmt.Sprintf("[%d/%d] fetched channel", n, totalSources),
-						"url", s.channelURL, "videos", len(s.videos))
+			cookieArgs := p.resolveCookieArgs(pl.Cookie)
+			videos, autoTitle, err := p.fetcher.FetchPlaylistVideos(pl.URL, count, cookieArgs)
+			if err != nil {
+				globalArgs := p.globalCookieArgs()
+				if len(globalArgs) > 0 && !cookieArgsEqual(cookieArgs, globalArgs) {
+					slog.Info("retrying playlist fetch with global cookies", "url", pl.URL)
+					videos, autoTitle, err = p.fetcher.FetchPlaylistVideos(pl.URL, count, globalArgs)
+				}
+				if err != nil {
+					producerErrMu.Lock()
+					producerErr = fmt.Errorf("fetching playlist videos %s: %w", pl.URL, err)
+					producerErrMu.Unlock()
+					return
 				}
 			}
-		}(idx)
+
+			name := pl.Name
+			if name == "" {
+				name = autoTitle
+			}
+			playlistID := extractPlaylistID(pl.URL)
+			if name == "" {
+				name = playlistID
+			}
+
+			// Apply filter
+			videos = fetcher.FilterVideos(videos, p.config.EffectivePlaylistFilter(pl))
+			if len(videos) > count {
+				videos = videos[:count]
+			}
+
+			// Stream each video to channel
+			for _, meta := range videos {
+				if p.stopped() {
+					return
+				}
+				select {
+				case itemChan <- &streamItem{
+					meta:         meta,
+					isPlaylist:   true,
+					playlistID:   playlistID,
+					playlistName: name,
+					playlistCfg:  &pl,
+				}:
+				case <-p.ctx.Done():
+					return
+				}
+			}
+		}(playlists[i])
 	}
-	wg.Wait()
 
-	if p.stopped() {
-		slog.Info("batch interrupted by shutdown signal")
-		return total, nil
-	}
-
-	// --- Phase 2: Sequential video processing ---
-	slog.Info("phase 2: processing videos sequentially")
-
-	for i := range sources {
+	// Start producers for channels
+	for i := range channels {
 		if p.stopped() {
-			slog.Info("batch interrupted by shutdown signal")
-			return total, nil
+			break
 		}
+		producerWg.Add(1)
+		go func(ch config.ChannelConfig) {
+			defer producerWg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-		s := &sources[i]
-		if s.err != nil {
-			if s.isPlaylist() {
-				slog.Error("playlist fetch failed", "url", s.playlistURL, "error", s.err)
-			} else {
-				slog.Error("channel fetch failed", "url", s.channelURL, "error", s.err)
+			if p.stopped() {
+				return
 			}
-			continue
-		}
 
-		var stats *Stats
-		var err error
-		if s.isPlaylist() {
-			plDir := output.PlaylistDir(p.config.OutputDir, s.playlistID, s.playlistName)
-			slog.Info("processing playlist", "url", s.playlistURL, "name", s.playlistName, "videos", len(s.videos))
-			stats, err = p.processPlaylistVideos(s.videos, s.playlistID, s.playlistName, plDir, s.playlistCfg)
-		} else {
-			slog.Info("processing channel", "url", s.channelURL, "videos", len(s.videos))
-			stats, err = p.processChannelVideos(s.videos, s.channelCfg)
-		}
-		if err != nil {
-			if s.isPlaylist() {
-				slog.Error("playlist processing failed", "url", s.playlistURL, "error", err)
-			} else {
-				slog.Error("channel processing failed", "url", s.channelURL, "error", err)
+			count := p.config.EffectiveCount(ch)
+			filterCfg := p.config.EffectiveFilter(ch)
+			videos, err := p.fetchAllTabs(ch.URL, count, filterCfg)
+			if err != nil {
+				producerErrMu.Lock()
+				producerErr = fmt.Errorf("fetching channel videos %s: %w", ch.URL, err)
+				producerErrMu.Unlock()
+				return
 			}
-			continue
-		}
 
-		total.Success += stats.Success
-		total.Skipped += stats.Skipped
-		total.Partial += stats.Partial
-		total.Failed += stats.Failed
-		total.Errors = append(total.Errors, stats.Errors...)
-
-		// Random delay between sources (except after the last one).
-		if i < len(sources)-1 && p.config.Batch.DelayMax > 0 {
-			p.randomDelay()
-		}
+			// Stream each video to channel
+			for _, meta := range videos {
+				if p.stopped() {
+					return
+				}
+				select {
+				case itemChan <- &streamItem{
+					meta:       meta,
+					isPlaylist: false,
+					channelURL: ch.URL,
+					channelCfg: &ch,
+				}:
+				case <-p.ctx.Done():
+					return
+				}
+			}
+		}(channels[i])
 	}
+
+	// Close itemChan when all producers are done
+	go func() {
+		producerWg.Wait()
+		close(itemChan)
+	}()
+
+	// Consume items and process them
+	slog.Info("streaming: starting consumer")
+
+	consumerWg := sync.WaitGroup{}
+	consumerWg.Add(1)
+	go func() {
+		defer consumerWg.Done()
+
+		for item := range itemChan {
+			if p.stopped() {
+				// Drain remaining items to avoid blocking producers
+				for range itemChan {
+				}
+				return
+			}
+
+			var stats *Stats
+			var err error
+			if item.isPlaylist {
+				plDir := output.PlaylistDir(p.config.OutputDir, item.playlistID, item.playlistName)
+				slog.Info("streaming: processing playlist video", "url", item.meta.URL, "title", item.meta.Title)
+				stats, err = p.processPlaylistVideos([]fetcher.VideoMeta{item.meta}, item.playlistID, item.playlistName, plDir, item.playlistCfg)
+			} else {
+				slog.Info("streaming: processing channel video", "url", item.meta.URL, "title", item.meta.Title)
+				stats, err = p.processChannelVideos([]fetcher.VideoMeta{item.meta}, item.channelCfg)
+			}
+			if err != nil {
+				if item.isPlaylist {
+					slog.Error("streaming: playlist video processing failed", "url", item.meta.URL, "error", err)
+				} else {
+					slog.Error("streaming: channel video processing failed", "url", item.meta.URL, "error", err)
+				}
+				continue
+			}
+
+			total.Success += stats.Success
+			total.Skipped += stats.Skipped
+			total.Partial += stats.Partial
+			total.Failed += stats.Failed
+			total.Errors = append(total.Errors, stats.Errors...)
+		}
+	}()
+
+	// Wait for consumer to finish
+	consumerWg.Wait()
+
+	// Check for producer errors
+	producerErrMu.Lock()
+	if producerErr != nil {
+		return total, producerErr
+	}
+	producerErrMu.Unlock()
 
 	// Generate Obsidian MOC files for each channel if enabled.
 	if p.config.Obsidian.Enabled && p.config.Obsidian.GenerateMOC {
@@ -339,7 +428,7 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 		}
 	}
 
-	slog.Info("batch complete",
+	slog.Info("streaming batch complete",
 		"success", total.Success,
 		"skipped", total.Skipped,
 		"partial", total.Partial,
@@ -347,6 +436,10 @@ func (p *Pipeline) ProcessBatch() (*Stats, error) {
 	)
 
 	return total, nil
+}
+
+func (p *Pipeline) ProcessBatch() (*Stats, error) {
+	return p.ProcessBatchStreaming()
 }
 
 // fetchPlaylistList fetches the video list for a playlist source (Phase 1).
