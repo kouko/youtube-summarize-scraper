@@ -377,7 +377,9 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 	}
 	for i := start; i < len(events); i++ {
 		line := events[i]
-		if strings.Contains(line, "level=ERROR") || strings.Contains(line, "ERROR") {
+		// Highlight only ERROR-level lines; a message may legitimately
+		// contain the word "ERROR" at another level (probe: events panel).
+		if strings.Contains(line, "level=ERROR") {
 			b.WriteString(m.styles.ErrorHighlight.Render("[ERROR] "+line) + "\n")
 		} else {
 			b.WriteString(line + "\n")
