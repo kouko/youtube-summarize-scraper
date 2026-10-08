@@ -19,10 +19,12 @@ var tuiCmd = &cobra.Command{
 		// Route slog output through the event bridge into the TUI's Recent
 		// Events panel and live status. Nothing is written to stderr while the
 		// alternate screen is active, so pipeline logs never garble the UI.
-		slog.SetDefault(slog.New(slog.NewTextHandler(
-			tui.NewEventBridge(io.Discard, state, 100), nil)))
+		bridge := tui.NewEventBridge(io.Discard, state, 100)
+		slog.SetDefault(slog.New(slog.NewTextHandler(bridge, nil)))
 
-		model := tui.NewModel(state)
+		// The model owns the bridge and closes it on quit, so the bridge's
+		// consumer goroutine never outlives the program.
+		model := tui.NewModelWithBridge(state, bridge)
 		_, err := tea.NewProgram(model).Run()
 		return err
 	},

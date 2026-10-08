@@ -19,6 +19,8 @@ const (
 	EventVideoPartial
 	EventVideoDone
 	EventBatchComplete
+	EventWatchIter
+	EventFetched
 )
 
 // LogEvent is one parsed log line, ready to be applied to AppState.
@@ -27,6 +29,8 @@ type LogEvent struct {
 	Video string          // video title (falls back to URL), for VideoStart
 	Stage string          // current processing stage
 	Error bool            // true for error-level lines
+	Iter  int             // watch iteration number, for EventWatchIter
+	Count int             // fetched video count, for EventFetched
 	Stats *pipeline.Stats // set for EventBatchComplete
 	Raw   string          // original line (for the events panel)
 }
@@ -48,6 +52,39 @@ func ParseLogLine(line string) LogEvent {
 			Skipped: attrInt(line, "skipped"),
 			Partial: attrInt(line, "partial"),
 			Failed:  attrInt(line, "failed"),
+		}
+
+	case strings.HasPrefix(msg, "watch: iteration "):
+		// "watch: iteration 3 starting" / "watch: iteration 3 complete, ..."
+		ev.Kind = EventWatchIter
+		if fields := strings.Fields(msg); len(fields) >= 3 {
+			ev.Iter, _ = strconv.Atoi(fields[2])
+		}
+
+	case strings.Contains(msg, "total filtered videos across tabs"),
+		strings.Contains(msg, "fetched playlist videos"):
+		ev.Kind = EventFetched
+		if c, ok := findAttr(line, "count"); ok {
+			ev.Count, _ = strconv.Atoi(c)
+		} else if c, ok := findAttr(line, "total"); ok {
+			ev.Count, _ = strconv.Atoi(c)
+		}
+
+	case strings.HasPrefix(msg, "watch: iteration "):
+		// "watch: iteration 3 starting" / "watch: iteration 3 complete, ..."
+		ev.Kind = EventWatchIter
+		fields := strings.Fields(msg)
+		if len(fields) >= 3 {
+			ev.Iter, _ = strconv.Atoi(fields[2])
+		}
+
+	case strings.Contains(msg, "total filtered videos across tabs"),
+		strings.Contains(msg, "fetched playlist videos"):
+		ev.Kind = EventFetched
+		if c, ok := findAttr(line, "count"); ok {
+			ev.Count, _ = strconv.Atoi(c)
+		} else if c, ok := findAttr(line, "total"); ok {
+			ev.Count, _ = strconv.Atoi(c)
 		}
 
 	case strings.Contains(msg, "streaming: processing channel video"),

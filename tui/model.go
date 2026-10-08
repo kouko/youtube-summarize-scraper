@@ -3,11 +3,20 @@ package tui
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
 
+	// bubbletea v2.0.10 (charm.land/bubbletea/v2): a Model is Init()/Update()/
+	// View(); View returns tea.View (a struct, not a string); full-screen is
+	// enabled by setting View.AltScreen = true (there is no WithAltScreen
+	// option in v2); key events arrive as tea.KeyPressMsg; tea.Every drives
+	// the 250ms re-render tick; tea.Batch groups init commands.
 	tea "charm.land/bubbletea/v2"
+	// lipgloss v2.0.6: Style.Border(b Border, sides ...bool) takes a Border
+	// value first (v1's Border(cond, ...) does not compile); JoinHorizontal/
+	// JoinVertical lay the four panels out.
 	"charm.land/lipgloss/v2"
 
 	"github.com/kouko/youtube-summarize-scraper/config"
@@ -31,6 +40,10 @@ const PanelCount = 4
 type Model struct {
 	// State shared with event bridge
 	state *AppState
+
+	// bridge tees slog output into state; closed on quit so its consumer
+	// goroutine does not leak.
+	bridge *EventBridge
 
 	// UI components
 	filePicker *FilePickerModel
@@ -99,8 +112,15 @@ func DefaultStyles() Styles {
 
 // NewModel creates a new TUI model.
 func NewModel(state *AppState) *Model {
+	return NewModelWithBridge(state, nil)
+}
+
+// NewModelWithBridge creates a TUI model that owns bridge (may be nil) and
+// closes it when the program quits, so the bridge consumer never leaks.
+func NewModelWithBridge(state *AppState, bridge *EventBridge) *Model {
 	m := &Model{
 		state:      state,
+		bridge:     bridge,
 		filePicker: NewFilePickerModel(),
 		focus:      PanelFilePicker,
 		styles:     DefaultStyles(),
@@ -110,6 +130,13 @@ func NewModel(state *AppState) *Model {
 	m.configView = NewConfigView("")
 
 	return m
+}
+
+// closeBridge shuts down the event-bridge consumer, if one is wired.
+func (m *Model) closeBridge() {
+	if m.bridge != nil {
+		m.bridge.Close()
+	}
 }
 
 // Init implements tea.Model.
@@ -156,7 +183,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			go func() {
 				defer func() { m.cancel() }()
 				// Run pipeline with selected config
-				if err := runPipelineWithConfig(m.state.ConfigPath, m.state); err != nil {
+				if err := runPipelineWithConfig(m.state.ConfigPath, m.state, m.ctx); err != nil {
 					m.state.AddRecentEvent(fmt.Sprintf("ERROR: %v", err))
 				}
 				m.state.SetRunning(false)
@@ -172,10 +199,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
-	case PauseRunMsg:
-		// TODO: implement pause if needed
-		return m, nil
-
 	case QuitConfirmMsg:
 		// User confirmed quit while pipeline is running: cancel and exit.
 		if m.cancel != nil {
@@ -183,6 +206,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.isRunning = false
 		m.state.SetRunning(false)
+		m.closeBridge()
 		return m, tea.Quit
 	}
 
@@ -197,17 +221,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// Return a message asking for confirmation
 			return m, func() tea.Msg { return QuitConfirmMsg{} }
 		}
+		m.closeBridge()
 		return m, tea.Quit
 
 	case "r":
 		if !m.isRunning && m.state.ConfigPath != "" {
 			return m, func() tea.Msg { return StartRunMsg{} }
-		}
-		return m, nil
-
-	case "p":
-		if m.isRunning {
-			return m, func() tea.Msg { return PauseRunMsg{} }
 		}
 		return m, nil
 
@@ -409,7 +428,6 @@ func (m *Model) renderHintLine() string {
 		"Tab Switch panel",
 		"c Toggle config view",
 		"r Run",
-		"p Pause",
 		"q Quit",
 	}
 	return m.styles.KeyHintStyle.Render(strings.Join(hints, "  "))
@@ -424,17 +442,14 @@ type StartRunMsg struct{}
 // StopRunMsg signals to stop the pipeline.
 type StopRunMsg struct{}
 
-// PauseRunMsg signals to pause the pipeline.
-type PauseRunMsg struct{}
-
 // TickMsg is sent periodically to trigger a re-render.
 type TickMsg struct{}
 
-// runPipelineWithConfig loads the selected config and runs ProcessBatchStreaming
-// in-process. Failures are reported to RecentEvents and returned as the error.
-// The pipeline's own slog output is teed into state by the bridge wired in
-// cmd/tui.go, so status updates arrive the same way.
-func runPipelineWithConfig(configPath string, state *AppState) error {
+// runPipelineWithConfig loads the selected config and runs the batch (single
+// or watch loop) in-process. Failures are reported to RecentEvents and
+// returned as the error. The pipeline's own slog output is teed into state by
+// the bridge wired in cmd/tui.go, so status updates arrive the same way.
+func runPipelineWithConfig(configPath string, state *AppState, ctx context.Context) error {
 	fail := func(err error) error {
 		state.AddRecentEvent("ERROR: " + err.Error())
 		return err
@@ -451,11 +466,55 @@ func runPipelineWithConfig(configPath string, state *AppState) error {
 	}
 	defer p.Shutdown()
 
+	// Stop the pipeline when the TUI cancels (quit confirm).
+	stopOnCancel := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			p.Shutdown()
+		case <-stopOnCancel:
+		}
+	}()
+	defer close(stopOnCancel)
+
+	if !cfg.Batch.Watch {
+		state.SetWatchIter(1) // single batch = iteration 1
+		return runOneBatch(p, state)
+	}
+
+	// Watch mode: loop until cancelled, mirroring cmd/run.go.
+	interval := time.Duration(cfg.Batch.WatchInterval) * time.Minute
+	iteration := 0
+	for {
+		iteration++
+		slog.Info(fmt.Sprintf("watch: iteration %d starting", iteration))
+		state.SetWatchIter(iteration)
+
+		p.ResetContext()
+		p.ReloadConfig(configPath)
+		p.RebuildIndex()
+
+		if err := runOneBatch(p, state); err != nil {
+			return err
+		}
+
+		select {
+		case <-ctx.Done():
+			slog.Info(fmt.Sprintf("watch: iteration %d complete, stopping", iteration))
+			return nil
+		case <-time.After(interval):
+		}
+	}
+}
+
+// runOneBatch runs one ProcessBatchStreaming pass and records its outcome.
+func runOneBatch(p *pipeline.Pipeline, state *AppState) error {
 	stats, err := p.ProcessBatchStreaming()
 	if stats != nil {
 		state.UpdateStats(*stats)
 	}
 	if err != nil {
+		state.AddRecentEvent("ERROR: batch processing: " + err.Error())
 		return fmt.Errorf("batch processing: %w", err)
 	}
 	state.AddRecentEvent(fmt.Sprintf(

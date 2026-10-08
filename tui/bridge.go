@@ -3,7 +3,6 @@ package tui
 import (
 	"bytes"
 	"io"
-	"strconv"
 	"sync"
 	"sync/atomic"
 )
@@ -98,11 +97,6 @@ func (b *EventBridge) Dropped() uint64 {
 // Applied returns the number of lines consumed and applied to AppState.
 func (b *EventBridge) Applied() uint64 {
 	return b.applied.Load()
-}
-
-// String reports queue drop counts for the status panel.
-func (b *EventBridge) String() string {
-	return "dropped " + strconv.FormatUint(b.dropped.Load(), 10)
 }
 
 // enqueue sends a line without blocking; a full queue drops the line.

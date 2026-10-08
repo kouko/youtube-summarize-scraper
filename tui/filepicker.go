@@ -4,6 +4,11 @@ import (
 	"os"
 	"path/filepath"
 
+	// bubbles v2.2.1 filepicker: Enter on a directory always navigates into
+	// it (Open branch); DirAllowed only gates selecting a directory as Path,
+	// so DirAllowed=false + FileAllowed=true means "browse freely, select
+	// only files"; Path is set on Select (Enter on a file), which we diff
+	// across Update calls to emit ConfigSelectedMsg.
 	"charm.land/bubbles/v2/filepicker"
 	tea "charm.land/bubbletea/v2"
 )

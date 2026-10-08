@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	"charm.land/lipgloss/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -109,12 +108,6 @@ func (cv *ConfigView) Rows() [][]string {
 	return cv.rows
 }
 
-// LipglossStyle returns a style for the table (can be customized).
-func LipglossStyle() lipgloss.Style {
-	return lipgloss.NewStyle().
-		Padding(0, 1)
-}
-
 // Render returns the string representation of the config view.
 func (cv *ConfigView) Render() string {
 	if cv.Error() != nil {
@@ -129,7 +122,7 @@ func (cv *ConfigView) Render() string {
 	return ""
 }
 
-// renderStructured builds a two-column table using lipgloss.
+// renderStructured builds a two-column table.
 func (cv *ConfigView) renderStructured() string {
 	if len(cv.Rows()) == 0 {
 		return "(empty)"

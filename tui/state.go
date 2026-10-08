@@ -100,6 +100,23 @@ func (s *AppState) SetQueueLen(len int) {
 	s.QueueLen = len
 }
 
+// AdjustQueue moves the queue length by delta, clamped at zero.
+func (s *AppState) AdjustQueue(delta int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.QueueLen += delta
+	if s.QueueLen < 0 {
+		s.QueueLen = 0
+	}
+}
+
+// ResetQueue clears the queue length after a batch completes.
+func (s *AppState) ResetQueue() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.QueueLen = 0
+}
+
 // SetCurrentVideo sets the currently processing video ID and stage.
 func (s *AppState) SetCurrentVideo(videoID, stage string) {
 	s.mu.Lock()

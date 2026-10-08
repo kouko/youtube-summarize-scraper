@@ -155,3 +155,39 @@ func TestFindAttrNoFalseSubstringMatch(t *testing.T) {
 		t.Errorf("purl = %q, want 1", v)
 	}
 }
+
+// I3: watch iteration line drives WatchIter.
+func TestParseWatchIter(t *testing.T) {
+	line := testTs + ` level=INFO msg="watch: iteration 3 starting"`
+	ev := ParseLogLine(line)
+	if ev.Kind != EventWatchIter {
+		t.Fatalf("Kind = %v, want EventWatchIter", ev.Kind)
+	}
+	if ev.Iter != 3 {
+		t.Errorf("Iter = %d, want 3", ev.Iter)
+	}
+}
+
+// I3: channel fetch line drives queue accounting.
+func TestParseFetchedChannel(t *testing.T) {
+	line := testTs + ` level=INFO msg="total filtered videos across tabs" count=5`
+	ev := ParseLogLine(line)
+	if ev.Kind != EventFetched {
+		t.Fatalf("Kind = %v, want EventFetched", ev.Kind)
+	}
+	if ev.Count != 5 {
+		t.Errorf("Count = %d, want 5", ev.Count)
+	}
+}
+
+// I3: playlist fetch line drives queue accounting.
+func TestParseFetchedPlaylist(t *testing.T) {
+	line := testTs + ` level=INFO msg="fetched playlist videos" url="https://x" name="WL" total=7`
+	ev := ParseLogLine(line)
+	if ev.Kind != EventFetched {
+		t.Fatalf("Kind = %v, want EventFetched", ev.Kind)
+	}
+	if ev.Count != 7 {
+		t.Errorf("Count = %d, want 7", ev.Count)
+	}
+}
