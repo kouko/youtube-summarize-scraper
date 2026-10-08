@@ -6,7 +6,9 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
-) // EventBridge tees each log line to an optional underlying writer and feeds
+)
+
+// EventBridge tees each log line to an optional underlying writer and feeds
 // it into a bounded, non-blocking queue consumed by a background goroutine
 // that parses each line and applies it to AppState. A slow TUI can therefore
 // never block the pipeline: when the queue is full, lines are dropped and
