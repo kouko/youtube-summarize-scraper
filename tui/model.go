@@ -429,16 +429,23 @@ type PauseRunMsg struct{}
 type TickMsg struct{}
 
 // runPipelineWithConfig loads the selected config and runs ProcessBatchStreaming
-// with its slog output captured by bridge, which feeds state.
+// in-process. Failures are reported to RecentEvents and returned as the error.
+// The pipeline's own slog output is teed into state by the bridge wired in
+// cmd/tui.go, so status updates arrive the same way.
 func runPipelineWithConfig(configPath string, state *AppState) error {
+	fail := func(err error) error {
+		state.AddRecentEvent("ERROR: " + err.Error())
+		return err
+	}
+
 	cfg, err := config.Load(configPath)
 	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
+		return fail(fmt.Errorf("loading config: %w", err))
 	}
 
 	p, err := pipeline.NewPipeline(cfg, false, false)
 	if err != nil {
-		return fmt.Errorf("initializing pipeline: %w", err)
+		return fail(fmt.Errorf("initializing pipeline: %w", err))
 	}
 	defer p.Shutdown()
 
