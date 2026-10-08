@@ -70,23 +70,6 @@ func ParseLogLine(line string) LogEvent {
 			ev.Count, _ = strconv.Atoi(c)
 		}
 
-	case strings.HasPrefix(msg, "watch: iteration "):
-		// "watch: iteration 3 starting" / "watch: iteration 3 complete, ..."
-		ev.Kind = EventWatchIter
-		fields := strings.Fields(msg)
-		if len(fields) >= 3 {
-			ev.Iter, _ = strconv.Atoi(fields[2])
-		}
-
-	case strings.Contains(msg, "total filtered videos across tabs"),
-		strings.Contains(msg, "fetched playlist videos"):
-		ev.Kind = EventFetched
-		if c, ok := findAttr(line, "count"); ok {
-			ev.Count, _ = strconv.Atoi(c)
-		} else if c, ok := findAttr(line, "total"); ok {
-			ev.Count, _ = strconv.Atoi(c)
-		}
-
 	case strings.Contains(msg, "streaming: processing channel video"),
 		strings.Contains(msg, "streaming: processing playlist video"):
 		ev.Kind = EventVideoStart
