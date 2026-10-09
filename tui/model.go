@@ -464,12 +464,7 @@ func (m *Model) applyPanelHeights() {
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.focus {
 	case PanelConfig:
-		// ↑ moves the selection cursor up; at the top it scrolls the tree.
-		if m.configCursor > 0 {
-			m.configCursor--
-		} else {
-			m.configVP.ScrollUp(1)
-		}
+		m.configCursorUp()
 	case PanelEvents:
 		// ↑ reveals older events (the viewport is newest-at-bottom).
 		m.eventsVP.ScrollUp(1)
@@ -482,12 +477,7 @@ func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.focus {
 	case PanelConfig:
-		// ↓ moves the selection cursor down; at the bottom it scrolls.
-		if m.configCursor < m.configVP.Height()-1 {
-			m.configCursor++
-		} else {
-			m.configVP.ScrollDown(1)
-		}
+		m.configCursorDown()
 	case PanelEvents:
 		m.eventsVP.ScrollDown(1)
 	}
@@ -516,8 +506,9 @@ func (m *Model) startEdit() {
 		return
 	}
 	// The cursor is a viewport-relative row; translate to a content line.
-	line := m.configVP.YOffset() + m.configCursor
-	path, value, ok := m.configView.EditTargetForLine(line)
+	tableLine := m.configVP.YOffset() + m.configCursor
+	contentLine := m.configView.TableContentIndex(tableLine)
+	path, value, ok := m.configView.EditTargetForLine(contentLine)
 	if !ok {
 		return
 	}
@@ -554,6 +545,38 @@ func (m *Model) commitEdit() {
 		return
 	}
 	m.state.UpdateConfig(path, out)
+}
+
+// configCursorUp moves the selection cursor up one content row, skipping
+// table separator lines; at the top it scrolls the viewport instead.
+func (m *Model) configCursorUp() {
+	for {
+		if m.configCursor > 0 {
+			m.configCursor--
+		} else {
+			m.configVP.ScrollUp(1)
+			return
+		}
+		if !m.configView.IsTableSeparator(m.configVP.YOffset() + m.configCursor) {
+			return
+		}
+	}
+}
+
+// configCursorDown moves the selection cursor down one content row, skipping
+// table separator lines; at the bottom it scrolls the viewport instead.
+func (m *Model) configCursorDown() {
+	for {
+		if m.configCursor < m.configVP.Height()-1 {
+			m.configCursor++
+		} else {
+			m.configVP.ScrollDown(1)
+			return
+		}
+		if !m.configView.IsTableSeparator(m.configVP.YOffset() + m.configCursor) {
+			return
+		}
+	}
 }
 
 // handleConfigSelected handles a config file selection.
@@ -681,16 +704,18 @@ func (m *Model) renderConfig(w, h int) string {
 	if m.configView == nil {
 		content = "(no config selected)"
 	} else {
-		lines := append([]string(nil), m.configView.Lines()...)
-		// The selection cursor marks the focused line (viewport-relative row
-		// translated to a content line). Spec amend2 REQ-8.
+		// Table view: bordered two-column table with separator lines before
+		// sections and items. The cursor is a table row; the marker only
+		// lands on content rows (separators are skipped). REQ-8 editing
+		// keeps its content-row index via the mapping helpers.
+		tbl := m.configView.RenderTable(w - 2)
 		if m.focus == PanelConfig {
-			docLine := m.configVP.YOffset() + m.configCursor
-			if docLine >= 0 && docLine < len(lines) {
-				lines[docLine] = m.styles.FocusedTitle.Render("▸ ") + lines[docLine]
+			tableRow := m.configVP.YOffset() + m.configCursor
+			if tableRow >= 0 && tableRow < len(tbl) && !m.configView.IsTableSeparator(tableRow) {
+				tbl[tableRow] = m.styles.FocusedTitle.Render("▸") + tbl[tableRow][1:]
 			}
 		}
-		content = strings.Join(lines, "\n")
+		content = strings.Join(tbl, "\n")
 	}
 	// The viewport owns scrolling (keyboard + wheel); size it to the panel's
 	// inner rows on every render (cheap; offset is preserved).

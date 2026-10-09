@@ -217,3 +217,59 @@ func TestConfigTreeAlignedColumns(t *testing.T) {
 		t.Errorf("heading line %q looks like a value line", lines[0])
 	}
 }
+
+// (user feedback 2026-10-09): the config renders as a bordered two-column
+// table; a separator line precedes each section heading and each numbered
+// item, but not the scalar rows inside an item.
+func TestConfigTreeRenderTableSeparators(t *testing.T) {
+	yaml := "output_dir: /tmp/out\nbatch:\n  watch: true\nplaylists:\n  - name: WL\n    count: 10\n"
+	cv := NewConfigView(yaml)
+	rows := cv.RenderTable(50)
+	joined := strings.Join(rows, "\n")
+	// header + top/bottom borders present
+	if !strings.HasPrefix(rows[0], "┌") || !strings.HasSuffix(rows[len(rows)-1], "┘") {
+		t.Errorf("table borders missing: first=%q last=%q", rows[0], rows[len(rows)-1])
+	}
+	if !strings.Contains(joined, "│ Key") {
+		t.Errorf("header row missing: %q", joined)
+	}
+	// a separator precedes "batch" and "[1] WL" headings but not the "watch"
+	// value row inside batch
+	sepBefore := func(label string) bool {
+		for i, r := range rows {
+			if strings.Contains(r, label) {
+				return i > 0 && strings.HasPrefix(rows[i-1], "├")
+			}
+		}
+		return false
+	}
+	if !sepBefore("batch") {
+		t.Error("no separator before section heading 'batch'")
+	}
+	if !sepBefore("[1]") {
+		t.Error("no separator before item '[1]'")
+	}
+	for i, r := range rows {
+		if strings.Contains(r, "watch") {
+			if i > 0 && strings.HasPrefix(rows[i-1], "├") {
+				t.Errorf("value row 'watch' has a separator before it:\n%s", joined)
+			}
+		}
+	}
+}
+
+// Content-row index mapping stays stable across separators (editing uses the
+// content index; rendering the table index).
+func TestConfigTreeTableIndexMapping(t *testing.T) {
+	yaml := "output_dir: /tmp/out\nbatch:\n  watch: true\n"
+	cv := NewConfigView(yaml)
+	cv.RenderTable(50) // mapping is built by rendering
+	// content row 2 = "  watch  true" (index 2 in keyCols)
+	tbl := cv.ContentTableIndex(2)
+	if cv.TableContentIndex(tbl) != 2 {
+		t.Errorf("round-trip failed: content 2 -> table %d -> content %d", tbl, cv.TableContentIndex(tbl))
+	}
+	if cv.IsTableSeparator(tbl) {
+		t.Errorf("table row %d is a separator, want a content row", tbl)
+	}
+}

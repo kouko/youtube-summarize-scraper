@@ -761,7 +761,8 @@ func TestModelEditConfigValueWritesFile(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m.handleConfigSelected(cfgPath)
 	m.focus = PanelConfig
-	m.configCursor = 1 // "  provider: claude-api" (line 1)
+	m.View()                                           // builds the table index mapping
+	m.configCursor = m.configView.ContentTableIndex(1) // content row 1 = provider
 
 	// Enter opens the editor prefilled with the current value.
 	_, cmd := m.handleKey(pressKey("enter"))
@@ -804,7 +805,8 @@ func TestModelEditCancelKeepsFile(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m.handleConfigSelected(cfgPath)
 	m.focus = PanelConfig
-	m.configCursor = 1
+	m.View() // builds the table index mapping
+	m.configCursor = m.configView.ContentTableIndex(1)
 
 	m.handleKey(pressKey("enter"))
 	for _, ch := range "XXXX" {

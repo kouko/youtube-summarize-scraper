@@ -36,6 +36,13 @@ type ConfigView struct {
 	linePaths []string
 	// lineIsValue[i] marks scalar value rows (editable).
 	lineIsValue []bool
+	// separators[i] marks content rows that get a table separator line before
+	// them (section headings, numbered items). Built by walkMapping.
+	separators []bool
+	// table index mapping (built by RenderTable)
+	tableRowToContent []int
+	contentToTableRow []int
+	sepFlags          []bool
 	// error holds any parsing error
 	error error
 }
@@ -64,6 +71,7 @@ func (cv *ConfigView) parse(content string) error {
 	cv.values = nil
 	cv.linePaths = nil
 	cv.lineIsValue = nil
+	cv.separators = nil
 	if doc.Kind == 0 {
 		return nil // empty document
 	}
@@ -95,10 +103,17 @@ func indent(n int) string {
 
 // addHeading appends a full-row line (section heading or list item label).
 func (cv *ConfigView) addHeading(text string) {
+	cv.addHeadingSep(text, false)
+}
+
+// addHeadingSep appends a full-row line with a separator flag (a table
+// separator line precedes top-level sections and numbered items).
+func (cv *ConfigView) addHeadingSep(text string, sep bool) {
 	cv.keyCols = append(cv.keyCols, text)
 	cv.values = append(cv.values, "")
 	cv.linePaths = append(cv.linePaths, "")
 	cv.lineIsValue = append(cv.lineIsValue, false)
+	cv.separators = append(cv.separators, sep)
 }
 
 // addKeyValue appends an indented "key | value" row with edit metadata.
@@ -107,6 +122,7 @@ func (cv *ConfigView) addKeyValue(keyCol, value, path string) {
 	cv.values = append(cv.values, value)
 	cv.linePaths = append(cv.linePaths, path)
 	cv.lineIsValue = append(cv.lineIsValue, true)
+	cv.separators = append(cv.separators, false)
 }
 
 // walkMapping renders a mapping: headings at depth 0, indented key-value
@@ -120,10 +136,10 @@ func (cv *ConfigView) walkMapping(m *yaml.Node, prefix string, depth int) {
 		}
 		switch val.Kind {
 		case yaml.MappingNode:
-			cv.addHeading(indent(depth) + key.Value)
+			cv.addHeadingSep(indent(depth)+key.Value, depth == 0)
 			cv.walkMapping(val, path, depth+1)
 		case yaml.SequenceNode:
-			cv.addHeading(indent(depth) + fmt.Sprintf("%s (%d)", key.Value, len(val.Content)))
+			cv.addHeadingSep(indent(depth)+fmt.Sprintf("%s (%d)", key.Value, len(val.Content)), depth == 0)
 			cv.walkSequence(val, path, depth+1)
 		default:
 			cv.addKeyValue(indent(depth)+key.Value, scalarString(val), path)
@@ -145,7 +161,7 @@ func (cv *ConfigView) walkSequence(seq *yaml.Node, prefix string, depth int) {
 			} else if url := mapValue(item, "url"); url != "" {
 				label += " " + url
 			}
-			cv.addHeading(indent(depth) + label)
+			cv.addHeadingSep(indent(depth)+label, true)
 			cv.walkMapping(item, path, depth+1)
 		default:
 			cv.addKeyValue(indent(depth)+label, scalarString(item), path)
@@ -202,6 +218,105 @@ func (cv *ConfigView) Lines() []string {
 	return out
 }
 
+// RenderTable renders the tree as a bordered two-column table: a header row,
+// a separator line before each section heading and each numbered item, and
+// none between the scalar rows inside an item (user feedback 2026-10-09).
+// tableRows carries the rendered lines; the index-mapping helpers translate
+// between content rows (editing) and table rows (display).
+func (cv *ConfigView) RenderTable(width int) []string {
+	lines := cv.Lines()
+	if len(lines) == 0 {
+		return []string{"(empty)"}
+	}
+	keyW := 0
+	for i, isV := range cv.lineIsValue {
+		if isV {
+			if w := lipgloss.Width(cv.keyCols[i]); w > keyW {
+				keyW = w
+			}
+		}
+	}
+	if keyW < len("Key") {
+		keyW = len("Key")
+	}
+	valW := 0
+	for _, l := range lines {
+		if w := lipgloss.Width(l); w > valW {
+			valW = w
+		}
+	}
+	valW = valW - keyW - 2 // values start after the key column + 2 spaces
+	if valW < len("Value") {
+		valW = len("Value")
+	}
+	total := keyW + valW + 7 // "│ " + key + " │ " + val + " │"
+	bar := strings.Repeat("─", keyW+2) + "┬" + strings.Repeat("─", valW+2)
+	out := make([]string, 0, len(lines)+len(cv.separators)+2)
+	tableRowToContent := make([]int, 0, len(lines)+4)
+	sepFlags := make([]bool, 0, len(lines)+4)
+	contentToTableRow := make([]int, len(lines))
+	addRow := func(row string, content int, isSep bool) {
+		out = append(out, row)
+		tableRowToContent = append(tableRowToContent, content)
+		sepFlags = append(sepFlags, isSep)
+	}
+	addRow("┌"+bar+"┐", -1, false)
+	addRow("│ "+fmt.Sprintf("%-*s", keyW, "Key")+" │ "+fmt.Sprintf("%-*s", valW, "Value")+" │", -1, false)
+	addRow("├"+bar+"┤", -1, false)
+	sepPending := false
+	for i, l := range lines {
+		if cv.separators[i] {
+			sepPending = true
+		}
+		if sepPending {
+			addRow("├"+bar+"┤", -1, true)
+			sepPending = false
+		}
+		var row string
+		if cv.lineIsValue[i] {
+			row = "│ " + fmt.Sprintf("%-*s", keyW, cv.keyCols[i]) + " │ " + fmt.Sprintf("%-*s", valW, cv.values[i]) + " │"
+		} else {
+			// heading: spans both columns
+			pad := total - 2 - lipgloss.Width(l)
+			if pad < 0 {
+				pad = 0
+			}
+			row = "│ " + l + strings.Repeat(" ", pad) + " │"
+		}
+		addRow(row, i, false)
+		contentToTableRow[i] = len(out) - 1
+	}
+	addRow("└"+strings.Repeat("─", keyW+2)+"┴"+strings.Repeat("─", valW+2)+"┘", -1, false)
+	cv.tableRowToContent = tableRowToContent
+	cv.contentToTableRow = contentToTableRow
+	cv.sepFlags = sepFlags
+	return out
+}
+
+// ContentTableIndex maps a content row (keyCols index) to its table row.
+func (cv *ConfigView) ContentTableIndex(contentRow int) int {
+	if contentRow < 0 || contentRow >= len(cv.contentToTableRow) {
+		return -1
+	}
+	return cv.contentToTableRow[contentRow]
+}
+
+// TableContentIndex maps a table row back to its content row.
+func (cv *ConfigView) TableContentIndex(tableRow int) int {
+	if tableRow < 0 || tableRow >= len(cv.tableRowToContent) {
+		return -1
+	}
+	return cv.tableRowToContent[tableRow]
+}
+
+// IsTableSeparator reports whether a table row is a separator line.
+func (cv *ConfigView) IsTableSeparator(tableRow int) bool {
+	if tableRow < 0 || tableRow >= len(cv.sepFlags) {
+		return false
+	}
+	return cv.sepFlags[tableRow]
+}
+
 // EditTargetForLine returns the dotted key path and scalar value of a value
 // line (spec amend2 REQ-8). ok is false for headings and out-of-range lines.
 func (cv *ConfigView) EditTargetForLine(line int) (path, value string, ok bool) {
@@ -248,6 +363,7 @@ func (cv *ConfigView) refreshLines() {
 	cv.values = nil
 	cv.linePaths = nil
 	cv.lineIsValue = nil
+	cv.separators = nil
 	if cv.doc == nil {
 		return
 	}
