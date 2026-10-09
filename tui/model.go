@@ -60,6 +60,10 @@ type Model struct {
 	cancel    context.CancelFunc
 	isRunning bool
 
+	// confirmPending: a first q while running armed the quit confirmation.
+	// The next q confirms (QuitConfirmMsg); any other key disarms it.
+	confirmPending bool
+
 	// configScroll / eventsScroll: scroll offsets for the bottom panels
 	// (0 = newest / top). ↑ increases the offset (older), ↓ decreases.
 	configScroll int
@@ -241,10 +245,23 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // handleKey handles keyboard input.
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch msg.String() {
+	key := msg.String()
+	// Any key other than q/ctrl+c cancels a pending quit confirmation.
+	if key != "q" && key != "ctrl+c" {
+		m.confirmPending = false
+	}
+	switch key {
 	case "ctrl+c", "q":
 		if m.isRunning {
-			// Return a message asking for confirmation
+			// First q arms the confirmation; the second q confirms it. Any
+			// other key (handled below) disarms. This is deliberately not a
+			// QuitConfirmMsg on the first press — Update treats that msg as
+			// the confirmed quit and would cancel the run immediately.
+			if !m.confirmPending {
+				m.confirmPending = true
+				return m, nil
+			}
+			m.confirmPending = false
 			return m, func() tea.Msg { return QuitConfirmMsg{} }
 		}
 		m.closeBridge()
@@ -606,6 +623,10 @@ func (m *Model) panelStyle(focused bool, w, h int) lipgloss.Style {
 }
 
 func (m *Model) renderHintLine() string {
+	if m.confirmPending {
+		return m.styles.ErrorStyle.Render(
+			"Pipeline is running — Press q again to quit, any other key to cancel")
+	}
 	hints := []string{
 		"↑↓ Navigate",
 		"Tab Switch panel",

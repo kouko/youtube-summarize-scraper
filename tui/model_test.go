@@ -110,23 +110,77 @@ func TestModelRKeyNoConfigDoesNothing(t *testing.T) {
 	}
 }
 
-// W4-01 A7 positive: q while running emits a confirm command, not quit.
+// W4-01 A7 positive: q while running asks for confirmation — the first q must
+// neither quit nor cancel, and the view must say so; only the second q emits
+// QuitConfirmMsg. Regression: the first q used to emit QuitConfirmMsg and
+// Update treated that as the confirmation itself, so ONE q killed the whole
+// run (user-reported 2026-10-09 while a real pipeline was running).
 func TestModelQWhileRunningPromptsConfirm(t *testing.T) {
 	m := sizedModel()
 	m.state.UpdateConfig("/tmp/x.yaml", "x")
 	m.isRunning = true
 	m.state.SetRunning(true)
 
+	// First q: arm the confirmation only — no command, no cancel.
 	_, cmd := m.handleKey(pressKey("q"))
-	if cmd == nil {
-		t.Fatal("q while running returned nil cmd, want confirm")
+	if cmd != nil {
+		t.Fatalf("first q returned cmd %#v, want nil (just arm confirm)", cmd)
 	}
-	if msg := cmd(); msg != (QuitConfirmMsg{}) {
-		t.Errorf("cmd() = %#v, want QuitConfirmMsg{}", msg)
-	}
-	// The model must still be running after the first q (confirm pending).
 	if !m.isRunning {
-		t.Error("isRunning false after first q; the confirm was consumed as quit")
+		t.Error("isRunning false after first q; the run was cancelled")
+	}
+	if !m.confirmPending {
+		t.Error("confirmPending false after first q")
+	}
+	if content := viewContent(t, m); !strings.Contains(content, "Press q again") {
+		t.Errorf("first q did not show a confirm hint; view=%q", content[:80])
+	}
+
+	// Second q: emit the confirmation message, still without quitting here.
+	_, cmd2 := m.handleKey(pressKey("q"))
+	if cmd2 == nil {
+		t.Fatal("second q returned nil cmd, want QuitConfirmMsg")
+	}
+	if msg := cmd2(); msg != (QuitConfirmMsg{}) {
+		t.Errorf("second q cmd() = %#v, want QuitConfirmMsg{}", msg)
+	}
+
+	// Update(QuitConfirmMsg) is what actually cancels and quits.
+	got, cmd3 := m.Update(QuitConfirmMsg{})
+	if msg := cmd3(); msg != tea.Quit() {
+		t.Errorf("Update(QuitConfirmMsg) cmd() = %#v, want tea.Quit()", msg)
+	}
+	if got.(*Model).isRunning {
+		t.Error("isRunning still true after confirmed quit")
+	}
+}
+
+// W4-01 A7 negative: any other key while the confirm is pending cancels the
+// confirmation and keeps running.
+func TestModelOtherKeyCancelsQuitConfirm(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	m.isRunning = true
+	m.state.SetRunning(true)
+
+	m.handleKey(pressKey("q")) // arm the confirm
+	if !m.confirmPending {
+		t.Fatal("confirm not armed after q")
+	}
+	m.handleKey(pressKey("tab")) // any other key cancels
+	if m.confirmPending {
+		t.Error("confirm still pending after another key")
+	}
+	if !m.isRunning {
+		t.Error("tab while confirm pending stopped the run")
+	}
+	// q once more must re-arm the confirm, not quit.
+	_, cmd := m.handleKey(pressKey("q"))
+	if cmd != nil {
+		t.Errorf("q after cancel returned cmd %#v, want nil (re-arm only)", cmd)
+	}
+	if !m.confirmPending {
+		t.Error("confirm not re-armed after q")
 	}
 }
 
