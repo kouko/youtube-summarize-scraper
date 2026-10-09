@@ -67,13 +67,13 @@ func TestModelRendersFourPanels(t *testing.T) {
 func TestModelFocusMarkerOnActivePanel(t *testing.T) {
 	m := sizedModel()
 	content := viewContent(t, m)
-	if !strings.Contains(content, "▸ Config File") {
+	if !strings.Contains(content, "> Config File") {
 		t.Error("initial focus marker missing on Config File panel")
 	}
 	// Other panel titles must not carry the marker; use a trailing newline
-	// so "▸ Config File" does not match "▸ Config".
+	// so "> Config File" does not match "> Config".
 	for _, title := range []string{"Config\n", "Execution Status", "Recent Events"} {
-		if strings.Contains(content, "▸ "+title) {
+		if strings.Contains(content, "> "+title) {
 			t.Errorf("focus marker on non-focused panel %q", title)
 		}
 	}
