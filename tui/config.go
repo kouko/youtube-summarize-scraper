@@ -73,8 +73,11 @@ func (cv *ConfigView) flatten(prefix string, v interface{}) [][]string {
 			rows = append(rows, []string{prefix, strings.Join(parts, ", ")})
 		}
 	default:
-		// scalar value
-		rows = append(rows, []string{prefix, fmt.Sprint(val)})
+		// scalar value; escape embedded newlines so a value never splits
+		// the key-value table into misaligned rows
+		s := strings.ReplaceAll(fmt.Sprint(val), "\r", "")
+		s = strings.ReplaceAll(s, "\n", "\\n")
+		rows = append(rows, []string{prefix, s})
 	}
 	return rows
 }

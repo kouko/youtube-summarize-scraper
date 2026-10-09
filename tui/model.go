@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	// bubbletea v2.0.10 (charm.land/bubbletea/v2): a Model is Init()/Update()/
@@ -58,6 +59,11 @@ type Model struct {
 	ctx       context.Context
 	cancel    context.CancelFunc
 	isRunning bool
+
+	// configScroll / eventsScroll: scroll offsets for the bottom panels
+	// (0 = newest / top). ↑ increases the offset (older), ↓ decreases.
+	configScroll int
+	eventsScroll int
 
 	// Styles
 	styles Styles
@@ -269,6 +275,21 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleUp(msg)
 	case "down", "j":
 		return m.handleDown(msg)
+	case "pgup":
+		return m.pageFocused(-5)
+	case "pgdown":
+		return m.pageFocused(5)
+	}
+	return m, nil
+}
+
+// pageFocused pages the focused bottom panel by delta rows.
+func (m *Model) pageFocused(delta int) (tea.Model, tea.Cmd) {
+	switch m.focus {
+	case PanelConfig:
+		m.clampConfigScroll(m.configScroll + delta)
+	case PanelEvents:
+		m.clampEventsScroll(m.eventsScroll + delta)
 	}
 	return m, nil
 }
@@ -286,14 +307,64 @@ func (m *Model) applyPanelHeights() {
 }
 
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	// Navigation reaches the focused panel through Update's forwarding of
-	// key messages to the file picker. Config/events scrolling is
-	// unimplemented. Returning m keeps the main model as the program model.
+	switch m.focus {
+	case PanelConfig:
+		// ↑ reveals earlier config rows.
+		m.clampConfigScroll(m.configScroll - 1)
+	case PanelEvents:
+		// ↑ reveals older events.
+		m.clampEventsScroll(m.eventsScroll + 1)
+	}
+	// File-picker navigation is forwarded by Update; bottom panels scroll
+	// above. Returning m keeps the main model as the program model.
 	return m, nil
 }
 
 func (m *Model) handleDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	switch m.focus {
+	case PanelConfig:
+		// ↓ reveals later config rows.
+		m.clampConfigScroll(m.configScroll + 1)
+	case PanelEvents:
+		// ↓ reveals newer events.
+		m.clampEventsScroll(m.eventsScroll - 1)
+	}
 	return m, nil
+}
+
+// clampConfigScroll keeps the config offset within the parsed row count.
+func (m *Model) clampConfigScroll(v int) {
+	if m.configView == nil {
+		m.configScroll = 0
+		return
+	}
+	max := len(m.configView.Rows()) - 1
+	if max < 0 {
+		max = 0
+	}
+	if v < 0 {
+		v = 0
+	}
+	if v > max {
+		v = max
+	}
+	m.configScroll = v
+}
+
+// clampEventsScroll keeps the events offset within the recorded lines.
+func (m *Model) clampEventsScroll(v int) {
+	s := m.state.Snapshot()
+	max := len(s.RecentEvents) - 1
+	if max < 0 {
+		max = 0
+	}
+	if v < 0 {
+		v = 0
+	}
+	if v > max {
+		v = max
+	}
+	m.eventsScroll = v
 }
 
 // handleConfigSelected handles a config file selection.
@@ -353,7 +424,7 @@ func (m *Model) renderFilePicker(w, h int) string {
 	}
 	content := m.filePicker.View().Content
 	return m.panelStyle(m.focus == PanelFilePicker, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + clipLines(content, w-2, h-3),
+		m.styles.PanelTitle.Render(title) + "\n" + clipLines(content, w-2, h-4),
 	)
 }
 
@@ -368,9 +439,30 @@ func (m *Model) renderConfig(w, h int) string {
 	} else {
 		content = m.configView.Render()
 	}
+	window := windowLines(content, m.configScroll, h-4)
 	return m.panelStyle(m.focus == PanelConfig, w, h).MaxHeight(h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + content,
+		m.styles.PanelTitle.Render(title) + "\n" + window,
 	)
+}
+
+// windowLines returns the slice of content starting at offset, at most n
+// lines long (offset = number of leading rows to skip).
+func windowLines(content string, offset, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	if offset > len(lines) {
+		offset = len(lines)
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + n
+	if end > len(lines) {
+		end = len(lines)
+	}
+	return strings.Join(lines[offset:end], "\n")
 }
 
 func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
@@ -398,7 +490,7 @@ func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 	}
 
 	return m.panelStyle(m.focus == PanelStatus, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + clipLines(b.String(), w-2, h-3),
+		m.styles.PanelTitle.Render(title) + "\n" + clipLines(b.String(), w-2, h-4),
 	)
 }
 
@@ -410,12 +502,23 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 
 	var b strings.Builder
 	events := s.RecentEvents
-	// Show last 10 events
-	start := len(events) - 10
+	visible := h - 4
+	if visible < 0 {
+		visible = 0
+	}
+	// eventsScroll = number of most-recent lines to hide (0 = newest).
+	start := len(events) - visible - m.eventsScroll
 	if start < 0 {
 		start = 0
 	}
-	for i := start; i < len(events); i++ {
+	if start > len(events) {
+		start = len(events)
+	}
+	end := start + visible
+	if end > len(events) {
+		end = len(events)
+	}
+	for i := start; i < end; i++ {
 		line := events[i]
 		// Highlight only ERROR-level lines; a message may legitimately
 		// contain the word "ERROR" at another level (probe: events panel).
@@ -430,7 +533,7 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 	}
 
 	return m.panelStyle(m.focus == PanelEvents, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + clipLines(b.String(), w-2, h-3),
+		m.styles.PanelTitle.Render(title) + "\n" + b.String(),
 	)
 }
 
@@ -512,12 +615,18 @@ func runPipelineWithConfig(configPath string, state *AppState, ctx context.Conte
 	}
 	defer p.Shutdown()
 
-	// Stop the pipeline when the TUI cancels (quit confirm).
+	// Pipeline.Shutdown/ResetContext touch the context pair without their
+	// own synchronization; serialize our uses of them (pipeline code is
+	// out of scope for this change).
+	var pipelineMu sync.Mutex
+	cancel := p.Shutdown
 	stopOnCancel := make(chan struct{})
 	go func() {
 		select {
 		case <-ctx.Done():
-			p.Shutdown()
+			pipelineMu.Lock()
+			cancel()
+			pipelineMu.Unlock()
 		case <-stopOnCancel:
 		}
 	}()
@@ -536,9 +645,12 @@ func runPipelineWithConfig(configPath string, state *AppState, ctx context.Conte
 		slog.Info(fmt.Sprintf("watch: iteration %d starting", iteration))
 		state.SetWatchIter(iteration)
 
+		pipelineMu.Lock()
 		p.ResetContext()
+		cancel = p.Shutdown
 		p.ReloadConfig(configPath)
 		p.RebuildIndex()
+		pipelineMu.Unlock()
 
 		if err := runOneBatch(p, state); err != nil {
 			return err

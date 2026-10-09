@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -322,5 +323,123 @@ func TestModelSelectConfigKeepsLayout(t *testing.T) {
 	// Total must still fit the 30-row terminal.
 	if len(lines) > 31 {
 		t.Errorf("render %d lines for 30-row terminal after selection", len(lines))
+	}
+}
+
+// Regression: the config panel's last row must be the box's bottom border,
+// never clipped content (user-reported: last line was config content).
+func TestConfigPanelBottomBorderVisible(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	big := strings.Repeat("llm.extra_key: value\n", 80)
+	m.configView = NewConfigView("llm:\n  provider: x\n" + big)
+
+	lines := strings.Split(m.View().Content, "\n")
+	// find the config panel: bottom row band contains both ╰ borders; the
+	// config panel is the left one. Its bottom border line must end with ╰.
+	for i, ln := range lines {
+		if strings.Contains(ln, "╰") && i > 0 {
+			left := strings.Split(ln, "╰")[0]
+			if strings.HasPrefix(left, "╭") {
+				continue // top border of a panel
+			}
+			// this is a row-bottom border line; the config (left) half must
+			// end in ╰ (border) not content.
+			plain := stripANSI(ln)
+			if !strings.HasPrefix(plain, "╰") && !strings.Contains(plain[:len(plain)/2], "╰") {
+				// check the LEFT panel's rightmost char in the left half
+				half := plain[:len(plain)/2]
+				if !strings.HasSuffix(strings.TrimRight(half, " "), "╰") {
+					t.Errorf("config panel bottom border missing on line %d: %q", i, plain[:60])
+				}
+			}
+		}
+	}
+}
+
+func stripANSI(s string) string {
+	var b strings.Builder
+	in := false
+	for _, r := range s {
+		if r == '\x1b' {
+			in = true
+			continue
+		}
+		if in {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				in = false
+			}
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// Config panel scrolls with ↑/↓ while focused: content window shifts, the
+// panel box stays fixed.
+func TestConfigPanelScrolls(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	var cfg strings.Builder
+	cfg.WriteString("llm:\n")
+	for i := 0; i < 60; i++ {
+		cfg.WriteString(strings.Repeat(" ", 2) + "opt_" + fmt.Sprint(i) + ": v\n")
+	}
+	m.configView = NewConfigView(cfg.String())
+	m.focus = PanelConfig
+
+	before := m.View().Content
+	_, _ = m.handleDown(pressKey("down"))
+	after := m.View().Content
+	if before == after {
+		t.Error("config content did not change after ↓")
+	}
+	// Panel box must stay the same size (borders unchanged), only content moved.
+	if strings.Count(before, "╰") != strings.Count(after, "╰") {
+		t.Errorf("panel geometry changed after scroll: ╰ count %d -> %d", strings.Count(before, "╰"), strings.Count(after, "╰"))
+	}
+	// Scrolling up at the top is a no-op.
+	_, _ = m.handleUp(pressKey("up"))
+	if m.View().Content != before {
+		t.Error("↑ at top changed content; should be clamped")
+	}
+}
+
+// Events panel scrolls: with many events, ↑ reveals older lines.
+func TestEventsPanelScrolls(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	for i := 0; i < 40; i++ {
+		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
+	}
+	m.focus = PanelEvents
+
+	content := m.View().Content
+	// Default shows the newest visible lines.
+	if !strings.Contains(content, "event-39") {
+		t.Error("default events view missing newest event")
+	}
+	_, _ = m.handleUp(pressKey("up")) // scroll to older
+	scrolled := m.View().Content
+	if !strings.Contains(scrolled, "event-3") {
+		t.Errorf("after ↑ expected older events; content=%q", scrolled[:80])
+	}
+}
+
+// YAML values with embedded newlines render on one line (escaped), so rows
+// stay aligned.
+func TestConfigValueNewlineEscaped(t *testing.T) {
+	yaml := "llm:\n  endpoint: \"http://a\\nb\"\n"
+	cv := NewConfigView(yaml)
+	if cv.Error() != nil {
+		t.Fatalf("parse: %v", cv.Error())
+	}
+	rendered := cv.Render()
+	if strings.Contains(rendered, "\nhttp://") {
+		t.Errorf("value newline not escaped; rendered=%q", rendered)
+	}
+	if !strings.Contains(rendered, "\\n") {
+		t.Errorf("expected literal \\n in value; rendered=%q", rendered)
 	}
 }

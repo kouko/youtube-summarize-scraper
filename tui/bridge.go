@@ -17,6 +17,7 @@ type EventBridge struct {
 	ch   chan string
 	done chan struct{}
 	once sync.Once
+	wg   sync.WaitGroup
 
 	buffer pending
 
@@ -37,12 +38,14 @@ func NewEventBridge(out io.Writer, state *AppState, capacity int) *EventBridge {
 		done:  make(chan struct{}),
 		state: state,
 	}
+	b.wg.Add(1)
 	go b.consume()
 	return b
 }
 
 // consume parses queued lines and applies them to AppState until Close.
 func (b *EventBridge) consume() {
+	defer b.wg.Done()
 	for {
 		select {
 		case <-b.done:
@@ -82,11 +85,13 @@ func (b *EventBridge) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// Close stops the consumer goroutine. Lines queued but not yet consumed are
-// abandoned; later Writes are still accepted and dropped (counted) once the
+// Close stops the consumer goroutine and waits for it to exit, so state
+// writes never race a later Write. Lines queued but not consumed are
+// abandoned; later Writes still succeed and are dropped (counted) once the
 // queue is full. Close is idempotent.
 func (b *EventBridge) Close() {
 	b.once.Do(func() { close(b.done) })
+	b.wg.Wait()
 }
 
 // Dropped returns the number of lines dropped because the queue was full.
