@@ -156,22 +156,36 @@ func tickCmd() tea.Cmd {
 
 // Update handles messages.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// The file picker owns messages the main model does not handle itself:
+	// readDirMsg (the directory listing from its Init command), WindowSizeMsg
+	// (AutoHeight), and its key navigation while focused. Forwarding is safe —
+	// the picker is a no-op for everything else. Keys with focus elsewhere
+	// stay global (tab / r / c / q).
+	if _, isKey := msg.(tea.KeyPressMsg); !isKey || m.focus == PanelFilePicker {
+		if picked, cmd := m.filePicker.Update(msg); cmd != nil {
+			m.filePicker = picked.(*FilePickerModel)
+			cmds = append(cmds, cmd)
+		} else {
+			m.filePicker = picked.(*FilePickerModel)
+		}
+	}
+
+	var cmd tea.Cmd
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil
 
 	case tea.KeyPressMsg:
-		return m.handleKey(msg)
+		_, cmd = m.handleKey(msg)
 
 	case TickMsg:
-		// Refresh state from AppState
-		return m, nil
+		// Refresh happens on every render; nothing to do here.
 
 	case ConfigSelectedMsg:
 		m.handleConfigSelected(msg.Path)
-		return m, nil
 
 	case StartRunMsg:
 		if !m.isRunning && m.state.ConfigPath != "" {
@@ -189,7 +203,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state.SetRunning(false)
 			}()
 		}
-		return m, nil
 
 	case StopRunMsg:
 		if m.isRunning {
@@ -197,7 +210,6 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.isRunning = false
 			m.state.SetRunning(false)
 		}
-		return m, nil
 
 	case QuitConfirmMsg:
 		// User confirmed quit while pipeline is running: cancel and exit.
@@ -207,9 +219,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.isRunning = false
 		m.state.SetRunning(false)
 		m.closeBridge()
-		return m, tea.Quit
+		cmd = tea.Quit
 	}
 
+	if cmd != nil {
+		cmds = append(cmds, cmd)
+	}
+	if len(cmds) > 0 {
+		return m, tea.Batch(cmds...)
+	}
 	return m, nil
 }
 
@@ -254,38 +272,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch m.focus {
-	case PanelFilePicker:
-		// Update the picker in place: returning its model would replace the
-		// whole program model and swap the TUI for the bare picker view.
-		var cmd tea.Cmd
-		var picked tea.Model
-		picked, cmd = m.filePicker.Update(msg)
-		m.filePicker = picked.(*FilePickerModel)
-		return m, cmd
-	case PanelConfig:
-		// Scroll up in config view (if implemented)
-		return m, nil
-	case PanelEvents:
-		// Scroll up in events
-		return m, nil
-	}
+	// Navigation reaches the focused panel through Update's forwarding of
+	// key messages to the file picker. Config/events scrolling is
+	// unimplemented. Returning m keeps the main model as the program model.
 	return m, nil
 }
 
 func (m *Model) handleDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch m.focus {
-	case PanelFilePicker:
-		var cmd tea.Cmd
-		var picked tea.Model
-		picked, cmd = m.filePicker.Update(msg)
-		m.filePicker = picked.(*FilePickerModel)
-		return m, cmd
-	case PanelConfig:
-		return m, nil
-	case PanelEvents:
-		return m, nil
-	}
 	return m, nil
 }
 

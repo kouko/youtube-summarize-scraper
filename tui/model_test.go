@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -199,5 +201,41 @@ func TestModelArrowKeysKeepMainModel(t *testing.T) {
 	_, cmd := after.handleKey(pressKey("q"))
 	if cmd == nil {
 		t.Error("q no longer quits after arrow keys")
+	}
+}
+
+// Regression: the main model must forward the file picker's own messages
+// (readDirMsg from its Init command) to it. Before this fix the directory
+// listing was swallowed, so the picker stayed empty and arrow keys had
+// nothing to move over.
+func TestModelForwardsPickerDirectoryListing(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.yaml"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+
+	m := NewModel(NewAppState())
+
+	// Drive the picker's Init command (readDir) through the main model the
+	// way the program does: the command's message arrives at Update.
+	initCmd := m.filePicker.Init()
+	if initCmd == nil {
+		t.Fatal("picker Init returned nil cmd")
+	}
+	if msg := initCmd(); msg != nil {
+		got, _ := m.Update(msg)
+		m = got.(*Model)
+	}
+
+	content := m.renderFilePicker(60, 20)
+	if !strings.Contains(content, "a.yaml") {
+		t.Errorf("picker did not list a.yaml after readDirMsg was forwarded; content=%q", content)
+	}
+	if strings.Contains(content, "b.txt") {
+		t.Errorf("picker listed b.txt (should be filtered to .yaml/.yml); content=%q", content)
 	}
 }
