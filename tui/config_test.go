@@ -152,3 +152,47 @@ func TestConfigTreeMultilineValueEscaped(t *testing.T) {
 		t.Errorf("expected literal \\n in value; lines=%q", lines)
 	}
 }
+
+// REQ-8 (spec amend2): the tree knows each line's key path and scalar value
+// so the TUI can offer editing (Enter on a value row -> edit -> write back).
+func TestConfigTreeValueForLine(t *testing.T) {
+	yaml := "llm:\n  provider: claude-api\n  model: opus\nplaylists:\n  - name: WL\n    count: 10\n"
+	cv := NewConfigView(yaml)
+	// line 0 = "llm" (section), line 1 = "  provider: claude-api", ...
+	line1 := cv.Lines()[1]
+	path, val, ok := cv.EditTargetForLine(1)
+	if !ok {
+		t.Fatalf("line %q has no edit target", line1)
+	}
+	if path != "llm.provider" || val != "claude-api" {
+		t.Errorf("EditTargetForLine(1) = (%q,%q), want (llm.provider, claude-api)", path, val)
+	}
+	// Section heading lines are not editable.
+	if _, _, ok := cv.EditTargetForLine(0); ok {
+		t.Error("section heading line is editable; want not")
+	}
+}
+
+// REQ-8: setting a value by key path updates the tree and the serialized YAML
+// preserves key order (and, with yaml.Node, comments).
+func TestConfigTreeSetValueWritesBack(t *testing.T) {
+	yaml := "output_dir: /tmp/out\nllm:\n  provider: claude-api\n  model: opus\n"
+	cv := NewConfigView(yaml)
+	if err := cv.SetValue("llm.provider", "ollama"); err != nil {
+		t.Fatalf("SetValue: %v", err)
+	}
+	joined := strings.Join(cv.Lines(), "\n")
+	if !strings.Contains(joined, "provider: ollama") {
+		t.Errorf("tree not updated after SetValue; lines=%q", cv.Lines())
+	}
+	out, err := cv.Serialized()
+	if err != nil {
+		t.Fatalf("serialize: %v", err)
+	}
+	if strings.Index(out, "output_dir") > strings.Index(out, "llm") {
+		t.Errorf("key order not preserved after set; out=%q", out)
+	}
+	if !strings.Contains(out, "provider: ollama") {
+		t.Errorf("serialized YAML missing new value; out=%q", out)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -122,5 +123,25 @@ func TestBridgeDropsNeverBlocksPipeline(t *testing.T) {
 	}
 	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
 		t.Errorf("1000 writes took %v; non-blocking send should be far faster", elapsed)
+	}
+}
+
+// REQ-6: the bridge notifies a callback after applying each event, so the TUI
+// can redraw immediately instead of waiting for the next periodic tick
+// (user-reported: the log area did not refresh promptly).
+func TestBridgeNotifiesAfterApply(t *testing.T) {
+	state := NewAppState()
+	b := NewEventBridge(io.Discard, state, 100)
+	defer b.Close()
+
+	var n atomic.Int32
+	b.SetNotify(func() { n.Add(1) })
+
+	if _, err := b.Write([]byte(`time=1 level=INFO msg="streaming batch complete" success=1 skipped=0 partial=0 failed=0` + "\n")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	waitFor(t, func() bool { return state.Snapshot().Stats.Success == 1 })
+	if n.Load() == 0 {
+		t.Error("SetNotify callback not invoked after an applied event")
 	}
 }

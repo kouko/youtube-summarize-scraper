@@ -15,6 +15,10 @@ import (
 	// option in v2); key events arrive as tea.KeyPressMsg; tea.Every drives
 	// the 250ms re-render tick; tea.Batch groups init commands.
 	tea "charm.land/bubbletea/v2"
+	// bubbles v2.2.1 viewport: scrollable panel with keyboard + native mouse
+	// wheel (spec amend2 REQ-7); textinput: the inline value editor (REQ-8).
+	"charm.land/bubbles/v2/textinput"
+	"charm.land/bubbles/v2/viewport"
 	// lipgloss v2.0.6: Style.Border(b Border, sides ...bool) takes a Border
 	// value first (v1's Border(cond, ...) does not compile); JoinHorizontal/
 	// JoinVertical lay the four panels out.
@@ -68,10 +72,26 @@ type Model struct {
 	// on the focused config card). While open it owns all keys.
 	pickerOpen bool
 
-	// configScroll / eventsScroll: scroll offsets for the bottom panels
-	// (0 = newest / top). ↑ increases the offset (older), ↓ decreases.
-	configScroll int
-	eventsScroll int
+	// program is the running tea program (set by cmd/tui.go). It is used to
+	// poke a redraw when the bridge applies an event (spec amend2 REQ-6); nil
+	// in tests.
+	program *tea.Program
+
+	// viewports scroll the config and events panels (bubbles v2 viewport:
+	// keyboard + native mouse wheel). Spec amend2 REQ-7. They replace the
+	// old manual configScroll/eventsScroll offsets.
+	configVP viewport.Model
+	eventsVP viewport.Model
+
+	// configCursor is the selected line in the config panel (viewport-relative
+	// row); Enter on an editable line opens the value editor. Spec amend2
+	// REQ-8.
+	configCursor int
+
+	// editing: the config value editor is open (bubbles textinput overlay).
+	editing  bool
+	editText textinput.Model
+	editPath string // dotted key path being edited
 
 	// Styles
 	styles Styles
@@ -138,12 +158,29 @@ func NewModelWithBridge(state *AppState, bridge *EventBridge) *Model {
 		filePicker: NewFilePickerModel(),
 		focus:      PanelFilePicker,
 		styles:     DefaultStyles(),
+		configVP:   viewport.New(),
+		eventsVP:   viewport.New(),
+		editText:   textinput.New(),
 	}
 
 	// Initialize config view with empty content
 	m.configView = NewConfigView("")
 
 	return m
+}
+
+// SetProgram wires the running tea program so the bridge can poke an
+// immediate redraw when it applies an event (spec amend2 REQ-6). The poke is
+// async: Program.Send blocks when the program is busy (its message queue is
+// unbuffered), so it runs on its own goroutine and never stalls the event
+// bridge's consumer.
+func (m *Model) SetProgram(p *tea.Program) {
+	m.program = p
+	if m.bridge != nil && p != nil {
+		m.bridge.SetNotify(func() {
+			go p.Send(RefreshMsg{})
+		})
+	}
 }
 
 // closeBridge shuts down the event-bridge consumer, if one is wired.
@@ -200,11 +237,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.height = msg.Height
 		m.applyPanelHeights()
 
+	case tea.MouseWheelMsg:
+		// The wheel scrolls the panel under the pointer (bubbles viewport:
+		// native wheel support, spec amend2 REQ-7). Top panels have nothing
+		// to scroll; the bottom band splits config (left) / events (right).
+		// viewport.Update is value-receiver: assign its result back.
+		if msg.Y >= m.topBandBottom() && m.width > 0 {
+			if msg.X < m.width/2 {
+				m.configVP, _ = m.configVP.Update(msg)
+			} else {
+				m.eventsVP, _ = m.eventsVP.Update(msg)
+			}
+		}
+
 	case tea.KeyPressMsg:
 		_, cmd = m.handleKey(msg)
 
 	case TickMsg:
 		// Refresh happens on every render; nothing to do here.
+
+	case RefreshMsg:
+		// The bridge applied an event; Update returning triggers a re-render
+		// on the next renderer frame (spec amend2 REQ-6).
 
 	case ConfigSelectedMsg:
 		m.pickerOpen = false
@@ -258,6 +312,20 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
 
+	// While the value editor is open it owns everything: typing updates the
+	// textinput, Enter commits (write-back), Esc cancels.
+	if m.editing {
+		switch key {
+		case "enter":
+			m.commitEdit()
+		case "esc":
+			m.editing = false
+		default:
+			m.editText, _ = m.editText.Update(msg)
+		}
+		return m, nil
+	}
+
 	// While the picker popup is open it owns navigation; Esc closes it and
 	// q is not a global quit. (Other keys are forwarded by Update.)
 	if m.pickerOpen {
@@ -273,9 +341,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "enter":
-		// Enter on the focused config card opens the file-picker popup.
-		if m.focus == PanelFilePicker {
+		switch m.focus {
+		case PanelFilePicker:
+			// Enter on the focused config card opens the file-picker popup.
 			m.pickerOpen = true
+		case PanelConfig:
+			m.startEdit()
 		}
 		return m, nil
 
@@ -332,15 +403,38 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) pageFocused(delta int) (tea.Model, tea.Cmd) {
 	switch m.focus {
 	case PanelConfig:
-		m.clampConfigScroll(m.configScroll + delta)
+		if delta > 0 {
+			m.configVP.ScrollDown(delta)
+		} else {
+			m.configVP.ScrollUp(-delta)
+		}
 	case PanelEvents:
-		m.clampEventsScroll(m.eventsScroll + delta)
+		if delta > 0 {
+			m.eventsVP.ScrollDown(delta)
+		} else {
+			m.eventsVP.ScrollUp(-delta)
+		}
 	}
 	return m, nil
 }
 
-// applyPanelHeights sizes the file picker to the top-left panel's inner
-// rows so its listing scrolls inside the band instead of overflowing.
+// topBandBottom returns the first row of the bottom band (the row below the
+// content-sized top band), used to route mouse-wheel events to the panel under
+// the pointer.
+func (m *Model) topBandBottom() int {
+	if m.height == 0 {
+		return 0
+	}
+	total := m.height - 1
+	topHeight := 9
+	if topHeight > total/2 {
+		topHeight = total / 2
+	}
+	return topHeight
+}
+
+// applyPanelHeights sizes the file picker to the popup overlay's inner rows
+// and the viewports to their panels.
 func (m *Model) applyPanelHeights() {
 	if m.width == 0 || m.height == 0 {
 		return
@@ -352,16 +446,33 @@ func (m *Model) applyPanelHeights() {
 		popupH = 10
 	}
 	m.filePicker.SetHeight(popupH - 4)
+
+	// Bottom panels: band height − 2 borders − 1 title row.
+	total := m.height - 1
+	topHeight := 9
+	if topHeight > total/2 {
+		topHeight = total / 2
+	}
+	bottomHeight := total - topHeight
+	inner := bottomHeight - 3
+	m.configVP.SetHeight(inner)
+	m.eventsVP.SetHeight(inner)
+	m.configVP.SetWidth(m.width/2 - 2)
+	m.eventsVP.SetWidth(m.width - m.width/2 - 2)
 }
 
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.focus {
 	case PanelConfig:
-		// ↑ reveals earlier config rows.
-		m.clampConfigScroll(m.configScroll - 1)
+		// ↑ moves the selection cursor up; at the top it scrolls the tree.
+		if m.configCursor > 0 {
+			m.configCursor--
+		} else {
+			m.configVP.ScrollUp(1)
+		}
 	case PanelEvents:
-		// ↑ reveals older events.
-		m.clampEventsScroll(m.eventsScroll + 1)
+		// ↑ reveals older events (the viewport is newest-at-bottom).
+		m.eventsVP.ScrollUp(1)
 	}
 	// File-picker navigation is forwarded by Update; bottom panels scroll
 	// above. Returning m keeps the main model as the program model.
@@ -371,48 +482,78 @@ func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.focus {
 	case PanelConfig:
-		// ↓ reveals later config rows.
-		m.clampConfigScroll(m.configScroll + 1)
+		// ↓ moves the selection cursor down; at the bottom it scrolls.
+		if m.configCursor < m.configVP.Height()-1 {
+			m.configCursor++
+		} else {
+			m.configVP.ScrollDown(1)
+		}
 	case PanelEvents:
-		// ↓ reveals newer events.
-		m.clampEventsScroll(m.eventsScroll - 1)
+		m.eventsVP.ScrollDown(1)
 	}
 	return m, nil
 }
 
-// clampConfigScroll keeps the config offset within the rendered line count.
-func (m *Model) clampConfigScroll(v int) {
-	if m.configView == nil {
-		m.configScroll = 0
-		return
+// syncViewports refreshes the viewport contents from the shared state. Called
+// from View (cheap: the viewport keeps its offset; only content changes).
+func (m *Model) syncViewports() {
+	if m.configView != nil {
+		m.configVP.SetContent(strings.Join(m.configView.Lines(), "\n"))
 	}
-	max := len(m.configView.Lines()) - 1
-	if max < 0 {
-		max = 0
+	events := m.state.Snapshot().RecentEvents
+	m.eventsVP.SetContent(strings.Join(events, "\n"))
+	// Newest events arrive at the bottom; keep the view pinned there unless
+	// the user scrolled up.
+	if m.eventsVP.AtBottom() {
+		m.eventsVP.GotoBottom()
 	}
-	if v < 0 {
-		v = 0
-	}
-	if v > max {
-		v = max
-	}
-	m.configScroll = v
 }
 
-// clampEventsScroll keeps the events offset within the recorded lines.
-func (m *Model) clampEventsScroll(v int) {
-	s := m.state.Snapshot()
-	max := len(s.RecentEvents) - 1
-	if max < 0 {
-		max = 0
+// startEdit opens the value editor for the line under the config cursor
+// (spec amend2 REQ-8). Non-editable lines are a no-op.
+func (m *Model) startEdit() {
+	if m.configView == nil {
+		return
 	}
-	if v < 0 {
-		v = 0
+	// The cursor is a viewport-relative row; translate to a content line.
+	line := m.configVP.YOffset() + m.configCursor
+	path, value, ok := m.configView.EditTargetForLine(line)
+	if !ok {
+		return
 	}
-	if v > max {
-		v = max
+	m.editing = true
+	m.editPath = path
+	m.editText.SetValue(value)
+	m.editText.CursorEnd()
+	m.editText.Focus()
+}
+
+// commitEdit writes the edited value back to the YAML file on disk and
+// reloads the tree (spec amend2 REQ-8). Failures surface in Recent Events.
+func (m *Model) commitEdit() {
+	m.editing = false
+	m.editText.Blur()
+	if m.configView == nil || m.editPath == "" {
+		return
 	}
-	m.eventsScroll = v
+	if err := m.configView.SetValue(m.editPath, m.editText.Value()); err != nil {
+		m.state.AddRecentEvent("ERROR: edit failed: " + err.Error())
+		return
+	}
+	out, err := m.configView.Serialized()
+	if err != nil {
+		m.state.AddRecentEvent("ERROR: edit serialize failed: " + err.Error())
+		return
+	}
+	path := m.state.Snapshot().ConfigPath
+	if path == "" {
+		return
+	}
+	if err := os.WriteFile(path, []byte(out), 0o644); err != nil {
+		m.state.AddRecentEvent("ERROR: writing config: " + err.Error())
+		return
+	}
+	m.state.UpdateConfig(path, out)
 }
 
 // handleConfigSelected handles a config file selection.
@@ -477,6 +618,9 @@ func (m *Model) View() tea.View {
 	}
 	v := tea.NewView(content)
 	v.AltScreen = true
+	// Mouse wheel reporting (spec amend2 REQ-7): cell-motion covers clicks
+	// and wheel; the viewports consume wheel events directly.
+	v.MouseMode = tea.MouseModeCellMotion
 	return v
 }
 
@@ -536,32 +680,36 @@ func (m *Model) renderConfig(w, h int) string {
 	if m.configView == nil {
 		content = "(no config selected)"
 	} else {
-		content = m.configView.Render()
+		lines := append([]string(nil), m.configView.Lines()...)
+		// The selection cursor marks the focused line (viewport-relative row
+		// translated to a content line). Spec amend2 REQ-8.
+		if m.focus == PanelConfig {
+			docLine := m.configVP.YOffset() + m.configCursor
+			if docLine >= 0 && docLine < len(lines) {
+				lines[docLine] = m.styles.FocusedTitle.Render("▸ ") + lines[docLine]
+			}
+		}
+		content = strings.Join(lines, "\n")
 	}
-	window := windowLines(content, m.configScroll, h-4)
+	// The viewport owns scrolling (keyboard + wheel); size it to the panel's
+	// inner rows on every render (cheap; offset is preserved).
+	m.configVP.SetWidth(w - 2)
+	m.configVP.SetHeight(h - 3)
+	m.configVP.SetContent(content)
+	body := m.configVP.View()
+	// The value editor overlays the panel (spec amend2 REQ-8).
+	if m.editing {
+		edit := lipgloss.NewStyle().
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.Color("33")).
+			Padding(0, 1).
+			Render(m.styles.PanelTitle.Render("Edit "+m.editPath) + "\n\n" +
+				m.editText.View() + "\n\nEnter 存檔   Esc 取消")
+		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
+	}
 	return m.panelStyle(m.focus == PanelConfig, w, h).MaxHeight(h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + window,
+		m.styles.PanelTitle.Render(title) + "\n" + body,
 	)
-}
-
-// windowLines returns the slice of content starting at offset, at most n
-// lines long (offset = number of leading rows to skip).
-func windowLines(content string, offset, n int) string {
-	if n <= 0 {
-		return ""
-	}
-	lines := strings.Split(content, "\n")
-	if offset > len(lines) {
-		offset = len(lines)
-	}
-	if offset < 0 {
-		offset = 0
-	}
-	end := offset + n
-	if end > len(lines) {
-		end = len(lines)
-	}
-	return strings.Join(lines[offset:end], "\n")
 }
 
 func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
@@ -600,25 +748,7 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 	}
 
 	var b strings.Builder
-	events := s.RecentEvents
-	visible := h - 4
-	if visible < 0 {
-		visible = 0
-	}
-	// eventsScroll = number of most-recent lines to hide (0 = newest).
-	start := len(events) - visible - m.eventsScroll
-	if start < 0 {
-		start = 0
-	}
-	if start > len(events) {
-		start = len(events)
-	}
-	end := start + visible
-	if end > len(events) {
-		end = len(events)
-	}
-	for i := start; i < end; i++ {
-		line := events[i]
+	for _, line := range s.RecentEvents {
 		// Highlight only ERROR-level lines; a message may legitimately
 		// contain the word "ERROR" at another level (probe: events panel).
 		if strings.Contains(line, "level=ERROR") {
@@ -627,12 +757,21 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 			b.WriteString(line + "\n")
 		}
 	}
-	if len(events) == 0 {
+	if len(s.RecentEvents) == 0 {
 		b.WriteString("(no events)")
+	}
+	// The viewport owns scrolling (keyboard + wheel). Newest events arrive at
+	// the bottom: keep the view pinned there unless the user scrolled up.
+	atBottom := m.eventsVP.AtBottom()
+	m.eventsVP.SetWidth(w - 2)
+	m.eventsVP.SetHeight(h - 3)
+	m.eventsVP.SetContent(b.String())
+	if atBottom {
+		m.eventsVP.GotoBottom()
 	}
 
 	return m.panelStyle(m.focus == PanelEvents, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + b.String(),
+		m.styles.PanelTitle.Render(title) + "\n" + m.eventsVP.View(),
 	)
 }
 
@@ -730,6 +869,10 @@ type StopRunMsg struct{}
 
 // TickMsg is sent periodically to trigger a re-render.
 type TickMsg struct{}
+
+// RefreshMsg pokes an immediate re-render after the bridge applied an event
+// (spec amend2 REQ-6); the periodic tick stays as the fallback.
+type RefreshMsg struct{}
 
 // runPipelineWithConfig loads the selected config and runs the batch (single
 // or watch loop) in-process. Failures are reported to RecentEvents and

@@ -25,6 +25,8 @@ func pressKey(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
 	case "esc":
 		return tea.KeyPressMsg{Code: tea.KeyEsc}
+	case "backspace":
+		return tea.KeyPressMsg{Code: tea.KeyBackspace}
 	default:
 		r := []rune(s)
 		if len(r) == 1 {
@@ -692,5 +694,128 @@ func TestModelTopBandContentSized(t *testing.T) {
 	// The bottom band must start on the very next line (no blank row).
 	if bandBottom+1 >= len(lines) || !strings.Contains(stripANSI(lines[bandBottom+1]), "╭") {
 		t.Errorf("bottom band does not start right after the top band (line %d)", bandBottom)
+	}
+}
+
+// REQ-7 (spec amend2): the wheel scrolls the panel under the pointer without
+// changing focus; scrolling follows the pointer's column (left=config,
+// right=events).
+func TestModelWheelScrollsPanelUnderPointer(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	for i := 0; i < 40; i++ {
+		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
+	}
+	m.focus = PanelStatus // NOT the events panel — wheel must work anyway
+
+	// Render once so the viewports carry content (real flow: terminal user
+	// wheels after the frame is drawn).
+	viewContent(t, m)
+
+	// The events viewport is pinned at the bottom (newest visible); wheel-up
+	// scrolls toward the oldest and must reach event-0 after enough notches.
+	for i := 0; i < 30; i++ {
+		m.Update(tea.MouseWheelMsg{X: 90, Y: 20, Button: tea.MouseWheelUp})
+	}
+	content := viewContent(t, m)
+	if !strings.Contains(content, "event-0") {
+		t.Error("wheel-up over events panel did not scroll to the oldest line")
+	}
+
+	// Wheel-up over the config panel (left half) scrolls the config viewport
+	// and does not move focus.
+	m.Update(tea.MouseWheelMsg{X: 30, Y: 20, Button: tea.MouseWheelUp})
+	if m.focus != PanelStatus {
+		t.Errorf("wheel changed focus to %v", m.focus)
+	}
+}
+
+// REQ-7: viewport keyboard scrolling — ↓ on the focused events panel scrolls
+// down; the offset is kept by the viewport, not the model.
+func TestModelViewportKeyboardScroll(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	for i := 0; i < 40; i++ {
+		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
+	}
+	m.focus = PanelEvents
+
+	before := viewContent(t, m)
+	m.handleKey(pressKey("up")) // scroll toward older events
+	after := viewContent(t, m)
+	if before == after {
+		t.Error("↑ on the focused events panel did not scroll the viewport")
+	}
+	if m.eventsVP.YOffset() == 0 {
+		t.Error("events viewport offset unchanged after ↑ (was pinned at bottom)")
+	}
+}
+
+// REQ-8 (spec amend2): Enter on an editable config line opens the inline
+// editor; committing writes the change back to the YAML file on disk.
+func TestModelEditConfigValueWritesFile(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "c.yaml")
+	os.WriteFile(cfgPath, []byte("llm:\n  provider: claude-api\n"), 0o644)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.handleConfigSelected(cfgPath)
+	m.focus = PanelConfig
+	m.configCursor = 1 // "  provider: claude-api" (line 1)
+
+	// Enter opens the editor prefilled with the current value.
+	_, cmd := m.handleKey(pressKey("enter"))
+	if cmd != nil {
+		t.Fatalf("enter on config line returned cmd, want nil (start edit)")
+	}
+	if !m.editing {
+		t.Fatal("editing not started")
+	}
+	if got := m.editText.Value(); got != "claude-api" {
+		t.Errorf("editor prefill = %q, want claude-api", got)
+	}
+
+	// Clear the prefilled value (backspace to start) then type the new one.
+	for range "claude-api" {
+		m.Update(pressKey("backspace"))
+	}
+	for _, ch := range "ollama" {
+		m.Update(pressKey(string(ch)))
+	}
+	m.Update(pressKey("enter"))
+	if m.editing {
+		t.Fatal("editing still active after commit")
+	}
+	data, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "provider: ollama") {
+		t.Errorf("file not updated; got %q", data)
+	}
+}
+
+// REQ-8: Esc cancels the edit and leaves the file untouched.
+func TestModelEditCancelKeepsFile(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "c.yaml")
+	os.WriteFile(cfgPath, []byte("llm:\n  provider: claude-api\n"), 0o644)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.handleConfigSelected(cfgPath)
+	m.focus = PanelConfig
+	m.configCursor = 1
+
+	m.handleKey(pressKey("enter"))
+	for _, ch := range "XXXX" {
+		m.Update(pressKey(string(ch)))
+	}
+	m.Update(pressKey("esc"))
+	if m.editing {
+		t.Fatal("editing still active after Esc")
+	}
+	data, _ := os.ReadFile(cfgPath)
+	if strings.Contains(string(data), "XXXX") {
+		t.Errorf("file changed after Esc; got %q", data)
 	}
 }

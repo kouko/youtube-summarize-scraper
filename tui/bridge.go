@@ -24,6 +24,12 @@ type EventBridge struct {
 	state   *AppState
 	applied atomic.Uint64
 	dropped atomic.Uint64
+
+	// notify, when set, is called after each applied event so the TUI can
+	// redraw immediately instead of waiting for the next periodic tick
+	// (spec amend2 REQ-6). It must be non-blocking: it runs on the consumer
+	// goroutine.
+	notify func()
 }
 
 // NewEventBridge creates an EventBridge with a queue of the given capacity.
@@ -53,6 +59,9 @@ func (b *EventBridge) consume() {
 		case line := <-b.ch:
 			applyEvent(b.state, ParseLogLine(line))
 			b.applied.Add(1)
+			if b.notify != nil {
+				b.notify()
+			}
 		}
 	}
 }
@@ -97,6 +106,12 @@ func (b *EventBridge) Close() {
 // Dropped returns the number of lines dropped because the queue was full.
 func (b *EventBridge) Dropped() uint64 {
 	return b.dropped.Load()
+}
+
+// SetNotify registers a callback invoked after each applied event (see the
+// notify field). Pass nil to disable. Safe to call any time.
+func (b *EventBridge) SetNotify(fn func()) {
+	b.notify = fn
 }
 
 // Applied returns the number of lines consumed and applied to AppState.

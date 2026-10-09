@@ -37,7 +37,9 @@ var tuiCmd = &cobra.Command{
 		// The model owns the bridge and closes it on quit, so the bridge's
 		// consumer goroutine never outlives the program.
 		model := tui.NewModelWithBridge(state, bridge)
-		_, err := tea.NewProgram(model).Run()
+		program := tea.NewProgram(model)
+		model.SetProgram(program) // bridge events poke an immediate redraw
+		_, err := program.Run()
 		return err
 	},
 }
