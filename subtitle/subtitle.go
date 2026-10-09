@@ -2,6 +2,7 @@ package subtitle
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,6 +11,11 @@ import (
 
 	"github.com/kouko/youtube-summarize-scraper/lang"
 )
+
+// DefaultStderr receives yt-dlp's raw stdout/stderr. It defaults to os.Stderr
+// (CLI behavior unchanged); an embedding UI such as the TUI redirects it to
+// io.Discard so raw progress lines never overwrite the rendered screen.
+var DefaultStderr io.Writer = os.Stderr
 
 // SubtitleResult holds the result of a subtitle download operation.
 type SubtitleResult struct {
@@ -77,8 +83,8 @@ func (d *Downloader) Download(videoURL string, languages []string, outputDir str
 	for _, s := range steps {
 		args := append(s.args, videoURL)
 		cmd := exec.Command(d.ytdlpPath, args...)
-		cmd.Stdout = os.Stderr
-		cmd.Stderr = os.Stderr
+		cmd.Stdout = DefaultStderr
+		cmd.Stderr = DefaultStderr
 
 		_ = cmd.Run() // yt-dlp may return non-zero even when subs are written
 

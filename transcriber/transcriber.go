@@ -3,6 +3,7 @@ package transcriber
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -12,6 +13,11 @@ import (
 	"github.com/kouko/youtube-summarize-scraper/config"
 	"github.com/kouko/youtube-summarize-scraper/lang"
 )
+
+// DefaultStderr receives yt-dlp/whisper's raw output. It defaults to os.Stderr
+// (CLI behavior unchanged); an embedding UI such as the TUI redirects it to
+// io.Discard so raw progress lines never overwrite the rendered screen.
+var DefaultStderr io.Writer = os.Stderr
 
 // TranscribeResult holds the output of a transcription.
 type TranscribeResult struct {
@@ -109,9 +115,10 @@ func (t *Transcriber) downloadAudio(videoURL string, outputPath string, cookieAr
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, t.ytdlpPath, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = DefaultStderr
+	cmd.Stderr = DefaultStderr
 
+	log.SetOutput(DefaultStderr)
 	log.Printf("Downloading audio: %s %v", t.ytdlpPath, args)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("yt-dlp failed: %w", err)
@@ -140,9 +147,10 @@ func (t *Transcriber) runWhisper(modelPath string, audioPath string, outputBase 
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, t.whisperPath, args...)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	cmd.Stdout = DefaultStderr
+	cmd.Stderr = DefaultStderr
 
+	log.SetOutput(DefaultStderr)
 	log.Printf("Running whisper: %s %v", t.whisperPath, args)
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("whisper-cli failed: %w", err)

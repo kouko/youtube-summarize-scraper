@@ -1,6 +1,11 @@
 package subtitle
 
-import "testing"
+import (
+	"bytes"
+	"os"
+	"strings"
+	"testing"
+)
 
 func TestSRTToText(t *testing.T) {
 	tests := []struct {
@@ -129,5 +134,27 @@ func TestExtractLangFromFilename(t *testing.T) {
 					tt.filename, tt.prefix, got, tt.expected)
 			}
 		})
+	}
+}
+
+// The downloader must route subprocess output through Stderr (package-level,
+// default os.Stderr) so an embedding UI can silence yt-dlp's raw progress
+// lines; they must never be hardcoded to os.Stderr.
+func TestDownloaderRoutesSubprocessOutputThroughStderr(t *testing.T) {
+	dir := t.TempDir()
+	if DefaultStderr != os.Stderr {
+		t.Fatalf("DefaultStderr must default to os.Stderr (CLI behavior unchanged), got %T", DefaultStderr)
+	}
+
+	var buf bytes.Buffer
+	saved := DefaultStderr
+	DefaultStderr = &buf
+	defer func() { DefaultStderr = saved }()
+
+	d := NewDownloader("/bin/echo", "")
+	d.Download("arg", nil, dir, "t1-", nil) // /bin/echo writes "arg" and exits 0
+
+	if !strings.Contains(buf.String(), "arg") {
+		t.Errorf("yt-dlp stdout did not land in DefaultStderr; got %q", buf.String())
 	}
 }
