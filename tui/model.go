@@ -611,10 +611,11 @@ func (m *Model) View() tea.View {
 	hint := m.renderHintLine()
 	content := lipgloss.JoinVertical(lipgloss.Left, mainView, hint)
 
-	// While the picker popup is open, overlay it centered on the frame.
+	// While the picker popup is open, overlay it centered on the frame,
+	// keeping the rendered UI visible behind it (user feedback: an empty
+	// background loses context — other apps keep the app behind modals).
 	if m.pickerOpen {
-		content = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.renderPickerPopup(m.width, m.height))
+		content = overlayCentered(content, m.renderPickerPopup(m.width, m.height), m.width, m.height)
 	}
 	v := tea.NewView(content)
 	v.AltScreen = true
@@ -960,4 +961,114 @@ func runOneBatch(p *pipeline.Pipeline, state *AppState) error {
 		stats.Success, stats.Skipped, stats.Partial, stats.Failed,
 	))
 	return nil
+}
+
+// ansiStrip removes ANSI escape sequences from s.
+func ansiStrip(s string) string {
+	var b strings.Builder
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// overlayCentered composites overlay onto base: the overlay's non-blank cells
+// replace the base's cells at the same position; everything else keeps the
+// base. The base UI stays visible behind the popup (user feedback: an empty
+// background loses context).
+func overlayCentered(base, overlay string, width, height int) string {
+	baseLines := strings.Split(base, "\n")
+	ovLines := strings.Split(overlay, "\n")
+	// Trim blank padding lines of the overlay (lipgloss.Place centering).
+	for len(ovLines) > 0 && strings.TrimSpace(ansiStrip(ovLines[len(ovLines)-1])) == "" {
+		ovLines = ovLines[:len(ovLines)-1]
+	}
+	for len(ovLines) > 0 && strings.TrimSpace(ansiStrip(ovLines[0])) == "" {
+		ovLines = ovLines[1:]
+	}
+	ovH := len(ovLines)
+	ovW := 0
+	for _, l := range ovLines {
+		if w := lipgloss.Width(l); w > ovW {
+			ovW = w
+		}
+	}
+	top := (height - ovH) / 2
+	if top < 0 {
+		top = 0
+	}
+	left := (width - ovW) / 2
+	if left < 0 {
+		left = 0
+	}
+	for i, ov := range ovLines {
+		row := top + i
+		if row >= len(baseLines) {
+			break
+		}
+		baseLines[row] = spliceLine(baseLines[row], ov, left, width)
+	}
+	return strings.Join(baseLines, "\n")
+}
+
+// spliceLine replaces the display columns [left, left+ovWidth) of a base row
+// with the overlay row, keeping the base row's visible content before and
+// after (ANSI codes before the cut are preserved; the tail is re-rendered
+// plain, which is fine for box borders).
+func spliceLine(line, ov string, left, width int) string {
+	before := truncateANSI(line, left)
+	after := ansiTail(line, left, width)
+	pad := ""
+	if bw := lipgloss.Width(before); bw < left {
+		pad = strings.Repeat(" ", left-bw)
+	}
+	return before + pad + ov + after
+}
+
+// ansiTail returns the visible suffix of line starting at display column col,
+// truncating to width total columns. ANSI codes before the cut are dropped;
+// a reset closes any styling so the tail renders plain.
+func ansiTail(line string, col, width int) string {
+	var b strings.Builder
+	display := 0
+	inEsc := false
+	cut := false
+	for _, r := range line {
+		if inEsc {
+			if cut {
+				b.WriteRune(r)
+			}
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			inEsc = true
+			continue // drop codes before the cut
+		}
+		if !cut && display >= col {
+			cut = true
+			b.WriteString("\x1b[0m")
+		}
+		if cut {
+			if display >= width {
+				break
+			}
+			b.WriteRune(r)
+		}
+		display++
+	}
+	return b.String()
 }

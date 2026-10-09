@@ -819,3 +819,31 @@ func TestModelEditCancelKeepsFile(t *testing.T) {
 		t.Errorf("file changed after Esc; got %q", data)
 	}
 }
+
+// User feedback (2026-10-09): the popup used to blank the whole frame behind
+// it. The base UI must stay visible around the overlay.
+func TestModelPopupKeepsBackgroundVisible(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 130, Height: 40})
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter"))
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+	lines := strings.Split(m.View().Content, "\n")
+	// The hint line (last row, outside the popup) survives.
+	if !strings.Contains(ansiStrip(lines[len(lines)-1]), "↑↓ Navigate") {
+		t.Error("hint line lost behind the popup")
+	}
+	// The popup frame is present.
+	found := false
+	for _, ln := range lines {
+		if strings.Contains(ln, "Select a config file") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("popup frame missing")
+	}
+}
