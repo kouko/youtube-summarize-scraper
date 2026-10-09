@@ -239,3 +239,23 @@ func TestModelForwardsPickerDirectoryListing(t *testing.T) {
 		t.Errorf("picker listed b.txt (should be filtered to .yaml/.yml); content=%q", content)
 	}
 }
+
+// Regression: the whole TUI must fit the terminal height. The picker used
+// to auto-size itself to the full terminal height, pushing the bottom row
+// of panels off screen (user-reported).
+func TestModelFitsTerminalHeight(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	v := m.View()
+	lines := strings.Count(v.Content, "\n") + 1
+	if lines > 31 { // terminal height + slack for a trailing newline
+		t.Errorf("View renders %d lines for a 30-row terminal; bottom panels are pushed off screen", lines)
+	}
+	content := viewContent(t, m)
+	for _, title := range []string{"Config File", "Execution Status", "Recent Events"} {
+		if !strings.Contains(content, title) {
+			t.Errorf("panel %q missing from view", title)
+		}
+	}
+}

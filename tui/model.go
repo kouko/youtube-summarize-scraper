@@ -141,6 +141,7 @@ func (m *Model) closeBridge() {
 
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
+	m.applyPanelHeights()
 	return tea.Batch(
 		m.filePicker.Init(),
 		tickCmd(),
@@ -177,6 +178,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		m.applyPanelHeights()
 
 	case tea.KeyPressMsg:
 		_, cmd = m.handleKey(msg)
@@ -269,6 +271,17 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.handleDown(msg)
 	}
 	return m, nil
+}
+
+// applyPanelHeights sizes the file picker to the top-left panel's inner
+// height so the 2x2 layout always fits the terminal.
+func (m *Model) applyPanelHeights() {
+	if m.width == 0 || m.height == 0 {
+		return
+	}
+	topHeight := m.height / 2
+	// panel border (2) + title line (1) + one line of slack
+	m.filePicker.SetHeight(topHeight - 4)
 }
 
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {

@@ -32,6 +32,10 @@ func NewFilePickerModel() *FilePickerModel {
 	fp.ShowHidden = false
 	fp.DirAllowed = false
 	fp.FileAllowed = true
+	// AutoHeight sizes the picker to the full terminal height on every
+	// WindowSizeMsg, pushing the bottom panels off screen. The main model
+	// calls SetHeight with the panel's inner height instead (see View).
+	fp.AutoHeight = false
 
 	// Set initial directory: prefer YTSS_CONFIG_DIR, then common ytss config dir, then home
 	startDir := os.Getenv("YTSS_CONFIG_DIR")
@@ -87,4 +91,10 @@ func (m *FilePickerModel) View() tea.View {
 // ChosenPath returns the last selected file path.
 func (m *FilePickerModel) ChosenPath() string {
 	return m.fp.Path
+}
+
+// SetHeight fixes the number of visible rows in the picker (wrapper around
+// the bubbles API; the main model sizes the picker to its panel).
+func (m *FilePickerModel) SetHeight(h int) {
+	m.fp.SetHeight(h)
 }
