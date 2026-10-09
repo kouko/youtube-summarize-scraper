@@ -487,21 +487,6 @@ func (m *Model) handleDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// syncViewports refreshes the viewport contents from the shared state. Called
-// from View (cheap: the viewport keeps its offset; only content changes).
-func (m *Model) syncViewports() {
-	if m.configView != nil {
-		m.configVP.SetContent(strings.Join(m.configView.Lines(), "\n"))
-	}
-	events := m.state.Snapshot().RecentEvents
-	m.eventsVP.SetContent(strings.Join(events, "\n"))
-	// Newest events arrive at the bottom; keep the view pinned there unless
-	// the user scrolled up.
-	if m.eventsVP.AtBottom() {
-		m.eventsVP.GotoBottom()
-	}
-}
-
 // startEdit opens the value editor for the line under the config cursor
 // (spec amend2 REQ-8). Non-editable lines are a no-op.
 func (m *Model) startEdit() {

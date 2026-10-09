@@ -5,7 +5,12 @@ import (
 	"strconv"
 	"strings"
 
+	// lipgloss v2: display-width measurement for the aligned two-column
+	// config table (key column width, value truncation).
 	"charm.land/lipgloss/v2"
+	// yaml.v3: order-preserving parse of the config into a yaml.Node tree,
+	// which both renders the table and is the write-back target for edits
+	// (key order and comments survive).
 	"gopkg.in/yaml.v3"
 )
 
