@@ -4,8 +4,11 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
+
+	"github.com/kouko/youtube-summarize-scraper/embedded"
 )
 
 // W3-01 A4 positive: a batch-complete slog line updates Stats counts.
@@ -148,6 +151,15 @@ func TestRunnerWatchIter(t *testing.T) {
 // I3: the runner logs a watch-iteration line per batch so WatchIter is
 // driven, and a cancelled context stops the loop before the next iteration.
 func TestRunnerWatchLoopCancels(t *testing.T) {
+	// The runner constructs a real pipeline, which extracts the embedded
+	// binaries first. The repo embeds only darwin-arm64, so on other platforms
+	// (CI's ubuntu runner) ExtractAll fails before the watch loop can start:
+	// the skip is an environment fact, not a waived check — the cancel
+	// semantics still run wherever the binaries exist.
+	if _, err := embedded.ExtractAll(); err != nil {
+		t.Skipf("embedded binaries unavailable on %s/%s: %v", runtime.GOOS, runtime.GOARCH, err)
+	}
+
 	state := NewAppState()
 	cfg := writeMinimalConfig(t, "batch:\n  watch: true\n  watch_interval: 3600\n")
 	ctx, cancel := context.WithCancel(context.Background())
@@ -155,10 +167,7 @@ func TestRunnerWatchLoopCancels(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runPipelineWithConfig(cfg, state, ctx) }()
 
-	// Let the first iteration log its watch line, then cancel. The wait spans
-	// pipeline construction (embedded-binary extraction), which under -race on
-	// a cold CI runner can exceed waitFor's 5s budget.
-	waitForWithin(t, func() bool { return state.Snapshot().WatchIter >= 1 }, 30*time.Second)
+	waitFor(t, func() bool { return state.Snapshot().WatchIter >= 1 })
 	cancel()
 
 	select {
