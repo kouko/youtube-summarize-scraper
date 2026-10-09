@@ -345,3 +345,23 @@ func TestConfigCollapsedItemNotEditable(t *testing.T) {
 		t.Error("collapsed item row is an edit target; want not editable")
 	}
 }
+
+// (user feedback 2026-10-09): channels carry channel_name, not name; the
+// inline summary should lead with the identifying field (name/channel_name,
+// then url) so the row is scannable.
+func TestConfigChannelSummaryNameFirst(t *testing.T) {
+	yaml := "channels:\n  - url: https://www.youtube.com/@MeetKevin\n    channel_name: Meet Kevin\n    count: 5\n"
+	cv := NewConfigView(yaml)
+	joined := strings.Join(cv.Lines(), "\n")
+	if !strings.Contains(joined, "[1] Meet Kevin") {
+		t.Errorf("channel label missing channel_name; lines=%q", cv.Lines())
+	}
+	iName := strings.Index(joined, "channel_name=Meet Kevin")
+	iURL := strings.Index(joined, "url=https://www.youtube.com/@MeetKevin")
+	if iName == -1 || iURL == -1 {
+		t.Fatalf("summary missing name or url; lines=%q", cv.Lines())
+	}
+	if iURL < iName {
+		t.Errorf("url precedes channel_name in summary; want the name first")
+	}
+}

@@ -186,7 +186,11 @@ func (cv *ConfigView) walkSequence(seq *yaml.Node, prefix string, depth int) {
 		label := fmt.Sprintf("[%d]", i+1)
 		switch item.Kind {
 		case yaml.MappingNode:
-			if name := mapValue(item, "name"); name != "" {
+			name := mapValue(item, "name")
+			if name == "" {
+				name = mapValue(item, "channel_name")
+			}
+			if name != "" {
 				label += " " + name
 			} else if url := mapValue(item, "url"); url != "" {
 				label += " " + url
@@ -208,18 +212,27 @@ func (cv *ConfigView) walkSequence(seq *yaml.Node, prefix string, depth int) {
 
 // itemInline renders a list item's children as "key=value" pairs joined by
 // spaces (nested maps flatten with dots), for the collapsed one-line view.
+// Identifying fields (name, channel_name, url) come first so the row scans.
 func itemInline(m *yaml.Node) string {
-	var parts []string
+	var names, urls, rest []string
 	for i := 0; i+1 < len(m.Content); i += 2 {
 		k, v := m.Content[i], m.Content[i+1]
+		var parts []string
 		switch v.Kind {
 		case yaml.ScalarNode:
-			parts = append(parts, k.Value+"="+scalarString(v))
+			parts = []string{k.Value + "=" + scalarString(v)}
 		case yaml.MappingNode:
-			parts = append(parts, flattenMapInline(k.Value, v)...)
+			parts = flattenMapInline(k.Value, v)
+		}
+		if k.Value == "url" {
+			urls = append(urls, parts...)
+		} else if k.Value == "name" || k.Value == "channel_name" {
+			names = append(names, parts...)
+		} else {
+			rest = append(rest, parts...)
 		}
 	}
-	return strings.Join(parts, " ")
+	return strings.Join(append(append(names, urls...), rest...), " ")
 }
 
 // flattenMapInline flattens a nested map into dot-prefixed key=value parts.

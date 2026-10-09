@@ -575,8 +575,15 @@ func (m *Model) toggleCollapsedItem() bool {
 	return false
 }
 
+// cursorOnContent reports whether the cursor's table row is a content row
+// (not the header or a separator).
+func (m *Model) cursorOnContent() bool {
+	tableLine := m.configVP.YOffset() + m.configCursor
+	return m.configView != nil && m.configView.TableContentIndex(tableLine) >= 0
+}
+
 // configCursorUp moves the selection cursor up one content row, skipping
-// table separator lines; at the top it scrolls the viewport instead.
+// table separator and header lines; at the top it scrolls the viewport.
 func (m *Model) configCursorUp() {
 	for {
 		if m.configCursor > 0 {
@@ -585,14 +592,14 @@ func (m *Model) configCursorUp() {
 			m.configVP.ScrollUp(1)
 			return
 		}
-		if !m.configView.IsTableSeparator(m.configVP.YOffset() + m.configCursor) {
+		if m.cursorOnContent() {
 			return
 		}
 	}
 }
 
 // configCursorDown moves the selection cursor down one content row, skipping
-// table separator lines; at the bottom it scrolls the viewport instead.
+// table separator and header lines; at the bottom it scrolls the viewport.
 func (m *Model) configCursorDown() {
 	for {
 		if m.configCursor < m.configVP.Height()-1 {
@@ -601,7 +608,7 @@ func (m *Model) configCursorDown() {
 			m.configVP.ScrollDown(1)
 			return
 		}
-		if !m.configView.IsTableSeparator(m.configVP.YOffset() + m.configCursor) {
+		if m.cursorOnContent() {
 			return
 		}
 	}
@@ -682,7 +689,7 @@ func (m *Model) View() tea.View {
 func (m *Model) renderConfigCard(w, h int) string {
 	title := "Config File"
 	if m.focus == PanelFilePicker {
-		title = "▸ " + title
+		title = "> " + title
 	}
 	var b strings.Builder
 	if m.state.Snapshot().ConfigPath == "" {
@@ -726,7 +733,7 @@ func (m *Model) renderPickerPopup(w, h int) string {
 func (m *Model) renderConfig(w, h int) string {
 	title := "Config"
 	if m.focus == PanelConfig {
-		title = "▸ " + title
+		title = "> " + title
 	}
 	var content string
 	if m.configView == nil {
@@ -739,8 +746,12 @@ func (m *Model) renderConfig(w, h int) string {
 		tbl := m.configView.RenderTable(w - 2)
 		if m.focus == PanelConfig {
 			tableRow := m.configVP.YOffset() + m.configCursor
-			if tableRow >= 0 && tableRow < len(tbl) && !m.configView.IsTableSeparator(tableRow) {
-				tbl[tableRow] = m.styles.FocusedTitle.Render("▸") + tbl[tableRow][1:]
+			if tableRow >= 0 && tableRow < len(tbl) && !m.configView.IsTableSeparator(tableRow) &&
+				m.configView.TableContentIndex(tableRow) >= 0 {
+				// '>' replaces the left border 1:1 in width. The previous '▸'
+				// is an ambiguous-width glyph (2 cells in many terminals),
+				// making the marked row one cell wider and wrapping it.
+				tbl[tableRow] = m.styles.FocusedTitle.Render(">") + tbl[tableRow][1:]
 			}
 		}
 		content = strings.Join(tbl, "\n")
@@ -769,7 +780,7 @@ func (m *Model) renderConfig(w, h int) string {
 func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 	title := "Execution Status"
 	if m.focus == PanelStatus {
-		title = "▸ " + title
+		title = "> " + title
 	}
 
 	var b strings.Builder
@@ -798,7 +809,7 @@ func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 	title := "Recent Events"
 	if m.focus == PanelEvents {
-		title = "▸ " + title
+		title = "> " + title
 	}
 
 	var b strings.Builder
