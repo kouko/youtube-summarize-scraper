@@ -367,8 +367,8 @@ func (cv *ConfigView) RenderTable(width int) []string {
 		return []string{"(empty)"}
 	}
 	keyW := 0
-	for i, isV := range cv.lineIsValue {
-		if isV {
+	for i := range cv.keyCols {
+		if cv.lineIsValue[i] || cv.lineIsSummary[i] {
 			if w := lipgloss.Width(cv.keyCols[i]); w > keyW {
 				keyW = w
 			}
@@ -377,18 +377,20 @@ func (cv *ConfigView) RenderTable(width int) []string {
 	if keyW < len("Key") {
 		keyW = len("Key")
 	}
-	valW := 0
-	for _, l := range lines {
-		if w := lipgloss.Width(l); w > valW {
-			valW = w
+	// The table's total width is fixed: value column = width - key - borders
+	// (7). Long values/headings are truncated so no row ever wraps.
+	if keyW > width-7-12 {
+		keyW = width - 7 - 12
+		if keyW < len("Key") {
+			keyW = len("Key")
 		}
 	}
-	valW = valW - keyW - 2 // values start after the key column + 2 spaces
+	valW := width - keyW - 7
 	if valW < len("Value") {
 		valW = len("Value")
 	}
-	total := keyW + valW + 7 // "│ " + key + " │ " + val + " │"
 	bar := strings.Repeat("─", keyW+2) + "┬" + strings.Repeat("─", valW+2)
+
 	out := make([]string, 0, len(lines)+len(cv.separators)+2)
 	tableRowToContent := make([]int, 0, len(lines)+4)
 	sepFlags := make([]bool, 0, len(lines)+4)
@@ -399,7 +401,7 @@ func (cv *ConfigView) RenderTable(width int) []string {
 		sepFlags = append(sepFlags, isSep)
 	}
 	addRow("┌"+bar+"┐", -1, false)
-	addRow("│ "+fmt.Sprintf("%-*s", keyW, "Key")+" │ "+fmt.Sprintf("%-*s", valW, "Value")+" │", -1, false)
+	addRow("│ "+padToWidth("Key", keyW)+" │ "+padToWidth("Value", valW)+" │", -1, false)
 	addRow("├"+bar+"┤", -1, false)
 	sepPending := false
 	for i, l := range lines {
@@ -412,14 +414,13 @@ func (cv *ConfigView) RenderTable(width int) []string {
 		}
 		var row string
 		if cv.lineIsValue[i] || cv.lineIsSummary[i] {
-			row = "│ " + fmt.Sprintf("%-*s", keyW, cv.keyCols[i]) + " │ " + fmt.Sprintf("%-*s", valW, cv.values[i]) + " │"
+			val := padToWidth(truncateANSI(cv.values[i], valW), valW)
+			row = "│ " + padToWidth(cv.keyCols[i], keyW) + " │ " + val + " │"
 		} else {
-			// heading: spans both columns
-			pad := total - 2 - lipgloss.Width(l)
-			if pad < 0 {
-				pad = 0
-			}
-			row = "│ " + l + strings.Repeat(" ", pad) + " │"
+			// heading: spans both columns, truncated to the inner width
+			inner := width - 4 // "│ " ... " │"
+			head := truncateANSI(l, inner)
+			row = "│ " + padToWidth(head, inner) + " │"
 		}
 		addRow(row, i, false)
 		contentToTableRow[i] = len(out) - 1
@@ -429,6 +430,36 @@ func (cv *ConfigView) RenderTable(width int) []string {
 	cv.contentToTableRow = contentToTableRow
 	cv.sepFlags = sepFlags
 	return out
+}
+
+// padToWidth right-pads s to width display columns (ANSI-aware: escape
+// sequences count as zero columns).
+func padToWidth(s string, width int) string {
+	w := visibleWidth(s)
+	if w < width {
+		return s + strings.Repeat(" ", width-w)
+	}
+	return s
+}
+
+// visibleWidth counts the display columns of s, ignoring ANSI escapes.
+func visibleWidth(s string) int {
+	n := 0
+	inEsc := false
+	for _, r := range s {
+		if r == '\x1b' {
+			inEsc = true
+			continue
+		}
+		if inEsc {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		n++
+	}
+	return n
 }
 
 // ContentTableIndex maps a content row (keyCols index) to its table row.

@@ -748,10 +748,11 @@ func (m *Model) renderConfig(w, h int) string {
 			tableRow := m.configVP.YOffset() + m.configCursor
 			if tableRow >= 0 && tableRow < len(tbl) && !m.configView.IsTableSeparator(tableRow) &&
 				m.configView.TableContentIndex(tableRow) >= 0 {
-				// '>' replaces the left border 1:1 in width. The previous '▸'
-				// is an ambiguous-width glyph (2 cells in many terminals),
-				// making the marked row one cell wider and wrapping it.
-				tbl[tableRow] = m.styles.FocusedTitle.Render(">") + tbl[tableRow][1:]
+				// Mark the whole row with the focus style: replaces no
+				// characters, so the row's display width never changes and
+				// it cannot wrap (a '▸' or '>' prefix that swapped the left
+				// border shifted widths in some terminals).
+				tbl[tableRow] = m.styles.FocusedTitle.Render(tbl[tableRow])
 			}
 		}
 		content = strings.Join(tbl, "\n")

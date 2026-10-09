@@ -3,6 +3,8 @@ package tui
 import (
 	"strings"
 	"testing"
+
+	"charm.land/lipgloss/v2"
 )
 
 // W2-02 A3 positive (spec amend1): nested YAML renders as a sectioned tree —
@@ -363,5 +365,18 @@ func TestConfigChannelSummaryNameFirst(t *testing.T) {
 	}
 	if iURL < iName {
 		t.Errorf("url precedes channel_name in summary; want the name first")
+	}
+}
+
+// (user feedback 2026-10-09): a long value (real channel copy_to paths) made
+// table rows exceed the panel width and wrap. Every rendered row must fit the
+// requested width.
+func TestConfigTableRowsFitWidth(t *testing.T) {
+	yaml := "channels:\n  - url: https://www.youtube.com/@MeetKevin\n    channel_name: Meet Kevin\n    copy_to:\n      path: ~/kouko-obsidian-vault/references/finance\n      files: [summary]\n"
+	cv := NewConfigView(yaml)
+	for _, row := range cv.RenderTable(60) {
+		if w := lipgloss.Width(row); w > 60 {
+			t.Errorf("row width %d > 60: %q", w, row)
+		}
 	}
 }
