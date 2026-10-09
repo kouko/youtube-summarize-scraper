@@ -155,8 +155,10 @@ func TestRunnerWatchLoopCancels(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- runPipelineWithConfig(cfg, state, ctx) }()
 
-	// Let the first iteration log its watch line, then cancel.
-	waitFor(t, func() bool { return state.Snapshot().WatchIter >= 1 })
+	// Let the first iteration log its watch line, then cancel. The wait spans
+	// pipeline construction (embedded-binary extraction), which under -race on
+	// a cold CI runner can exceed waitFor's 5s budget.
+	waitForWithin(t, func() bool { return state.Snapshot().WatchIter >= 1 }, 30*time.Second)
 	cancel()
 
 	select {

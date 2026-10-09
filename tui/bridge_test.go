@@ -21,6 +21,21 @@ func waitFor(t *testing.T, cond func() bool) {
 	t.Fatal("condition not met before deadline")
 }
 
+// waitForWithin waits up to d; use for conditions whose critical path includes
+// pipeline construction (embedded-binary extraction), which under -race on a
+// cold CI runner can take well over the 5s waitFor budget.
+func waitForWithin(t *testing.T, cond func() bool, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("condition not met before %s deadline", d)
+}
+
 func TestBridgeForwardsLinesToState(t *testing.T) {
 	state := NewAppState()
 	bridge := NewEventBridge(io.Discard, state, 100)
