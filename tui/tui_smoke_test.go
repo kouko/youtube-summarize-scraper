@@ -35,15 +35,30 @@ func TestEndToEndSmoke(t *testing.T) {
 	got, _ := m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m = got.(*Model)
 
-	// 3. Four panels + file list visible.
+	// 3. Four panels + short config card visible; the file listing is NOT on
+	// the main frame anymore (it lives in the popup).
 	content := m.View().Content
 	for _, title := range []string{"Config File", "Execution Status", "Config", "Recent Events"} {
 		if !strings.Contains(content, title) {
 			t.Errorf("panel %q missing", title)
 		}
 	}
-	if !strings.Contains(content, "a.yaml") {
-		t.Errorf("picker did not list a.yaml:\n%s", content)
+	if !strings.Contains(content, "(no config selected)") {
+		t.Errorf("config card missing the empty-state text:\n%s", content)
+	}
+
+	// 3b. Enter opens the popup, which does list the config file.
+	got, _ = m.Update(pressKey("enter"))
+	m = got.(*Model)
+	popup := m.View().Content
+	if !strings.Contains(popup, "a.yaml") {
+		t.Errorf("popup did not list a.yaml:\n%s", popup)
+	}
+	// Esc closes the popup and restores the frame.
+	got, _ = m.Update(pressKey("esc"))
+	m = got.(*Model)
+	if strings.Contains(m.View().Content, "a.yaml") {
+		t.Error("file listing still visible after Esc closed the popup")
 	}
 
 	// 4. Arrow down keeps main model and still renders panels.

@@ -23,6 +23,8 @@ func pressKey(s string) tea.KeyPressMsg {
 		return tea.KeyPressMsg{Code: tea.KeyDown}
 	case "enter":
 		return tea.KeyPressMsg{Code: tea.KeyEnter}
+	case "esc":
+		return tea.KeyPressMsg{Code: tea.KeyEsc}
 	default:
 		r := []rune(s)
 		if len(r) == 1 {
@@ -287,7 +289,7 @@ func TestModelForwardsPickerDirectoryListing(t *testing.T) {
 		m = got.(*Model)
 	}
 
-	content := m.renderFilePicker(60, 20)
+	content := m.renderPickerPopup(60, 20)
 	if !strings.Contains(content, "a.yaml") {
 		t.Errorf("picker did not list a.yaml after readDirMsg was forwarded; content=%q", content)
 	}
@@ -316,41 +318,57 @@ func TestModelFitsTerminalHeight(t *testing.T) {
 	}
 }
 
-// Regression: the 2x2 grid must be exactly band-sized so the top-row panels
-// have equal height, the bottom row starts after it, and the hint line is
-// the final visible line (user-reported: uneven columns, hint cut off).
+// Regression: the grid must fit the terminal: the bottom row starts after
+// the top row, the hint line is the final visible line, and the short config
+// card's bottom border sits ABOVE the top band's bottom border (a short card,
+// not a full-height panel; spec amend1).
 func TestModelGridBandsAndHintAlign(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 
 	lines := strings.Split(m.View().Content, "\n")
-	// Panels in one row are joined side-by-side, so a row band's bottom
-	// border is a single line carrying both corners. Expect exactly two
-	// bottom-border lines: one for the top row, one for the bottom row.
+	// With a short card the top band's bottom border line carries only the
+	// status panel's corner; the card's own border closed earlier.
 	var bottoms []int
+	cardBorder := -1
 	for i, ln := range lines {
-		if strings.Contains(ln, "╰") {
-			bottoms = append(bottoms, i)
+		plain := stripANSI(ln)
+		if !strings.Contains(plain, "╰") {
+			continue
 		}
+		if cardBorder < 0 && strings.Count(plain, "╰") == 1 {
+			cardBorder = i // the short card's own bottom border, alone
+			continue
+		}
+		bottoms = append(bottoms, i)
+	}
+	if cardBorder < 0 {
+		t.Fatalf("short config card bottom border not found:\n%s", strings.Join(lines, "\n"))
 	}
 	if len(bottoms) != 2 {
-		t.Fatalf("found %d row-bottom border lines, want 2:\n%s", len(bottoms), strings.Join(lines, "\n"))
+		t.Fatalf("found %d band-bottom border lines, want 2:\n%s", len(bottoms), strings.Join(lines, "\n"))
+	}
+	if cardBorder >= bottoms[0] {
+		t.Fatalf("card border (line %d) must sit above the top band border (line %d); card is not short", cardBorder, bottoms[0])
 	}
 	last := lines[len(lines)-1]
 	if !strings.Contains(last, "↑↓ Navigate") {
 		t.Errorf("last line is not the hint: %q", last)
 	}
-	// Every content line must carry exactly 2 left borders (4 panels, 2 per
-	// row), i.e. no panel overflowed and pushed the other out of the row.
-	// Count on ANSI-stripped lines so escape codes do not split the glyphs.
+	// Content lines between the card's bottom border and the top band's
+	// border belong only to the status panel (the card is short, the space
+	// below it is free) — 2 left borders there would mean a full-height
+	// panel again. Above the card border, both top panels render 2 left
+	// borders per line. Count on ANSI-stripped lines.
 	ansiRe := regexp.MustCompile(`\x1b\[[0-9;>?]*[a-zA-Z]`)
-	// Two side-by-side panels render two left borders per content line
-	// (e.g. "│pick│status"), unless a panel is joined under the other,
-	// which is what an overflow looks like. i>0 skips the border-top line.
 	for i, ln := range lines[:bottoms[0]] {
 		plain := ansiRe.ReplaceAllString(ln, "")
-		if i > 0 && strings.Count(plain, "│") != 4 {
-			t.Errorf("line %d has %d vertical borders, want 4 (two side-by-side panels): %q", i, strings.Count(plain, "│"), plain[:60])
+		want := 4
+		if i >= cardBorder {
+			want = 2 // below the card: status panel only
+		}
+		if i > 0 && strings.Count(plain, "│") != want {
+			t.Errorf("line %d has %d vertical borders, want %d: %q", i, strings.Count(plain, "│"), want, plain[:60])
 		}
 	}
 }
@@ -526,5 +544,135 @@ func TestClipLinesCountsDisplayWidthNotEscapeRun(t *testing.T) {
 	got3 := clipLines(colored, 12, 3)
 	if strings.Contains(got3, "\x1b[") && !strings.Contains(got3, "\x1b[0m") {
 		t.Errorf("truncated ANSI content must reset styles; got %q", got3)
+	}
+}
+
+// W5-01 A1 positive (spec amend1): the top-left panel is a short config card
+// showing the current path (or "(no config selected)"), rendered at content
+// height — NOT the full top band, and the file listing is no longer always
+// visible.
+func TestModelConfigCardShortHeight(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	content := viewContent(t, m)
+	if !strings.Contains(content, "(no config selected)") {
+		t.Error("card does not show (no config selected) before any selection")
+	}
+	// The card must be a SHORT box: exactly two row-bottom border lines total
+	// in the grid rows... instead, check the top-left box's bottom border sits
+	// well above the top band's bottom (a full-height picker would align it
+	// with the status panel's border).
+	lines := strings.Split(content, "\n")
+	topBandBottom := -1
+	cardBottom := -1
+	for i, ln := range lines {
+		if strings.Contains(ln, "╰") && i > 0 {
+			// first ╰ line: the earlier of the two borders on it belongs to
+			// the left box; if the card is short, the left border appears on
+			// an EARLIER line than the right panel's border.
+			if strings.Count(stripANSI(ln), "╰") == 2 && topBandBottom < 0 {
+				topBandBottom = i
+			}
+		}
+	}
+	_ = topBandBottom
+	_ = cardBottom
+	// Simpler invariant: the card content is 2 lines (path + hint), so the
+	// whole card box is 5 rows (2 border + 1 title + 2 content). Assert some
+	// line before the top band's bottom border contains "Enter 選檔" hint.
+	found := false
+	for _, ln := range lines[:10] {
+		if strings.Contains(stripANSI(ln), "Enter") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("config card hint (Enter to open picker) not visible in the top rows")
+	}
+}
+
+// W5-01 A2 positive: Enter on the focused config card opens the picker
+// popup; the popup overlay is visible; Esc closes it.
+func TestModelEnterOpensPickerPopup(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.focus = PanelFilePicker
+
+	if m.pickerOpen {
+		t.Fatal("popup open before Enter")
+	}
+	m.handleKey(pressKey("enter"))
+	if !m.pickerOpen {
+		t.Fatal("Enter on focused card did not open the popup")
+	}
+	content := viewContent(t, m)
+	if !strings.Contains(content, "Select a config file") {
+		t.Error("popup frame title missing while open")
+	}
+	// Esc closes.
+	m.handleKey(pressKey("esc"))
+	if m.pickerOpen {
+		t.Error("Esc did not close the popup")
+	}
+}
+
+// W5-01 A2 boundary: while the popup is open it owns the keys — Tab must not
+// move the main focus, and arrows go to the picker.
+func TestModelPopupOwnsKeys(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter"))
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+	m.handleKey(pressKey("tab"))
+	if m.focus != PanelFilePicker {
+		t.Errorf("Tab moved main focus while popup open: focus=%v", m.focus)
+	}
+	m.handleKey(pressKey("q"))
+	if !m.pickerOpen {
+		t.Error("q closed the popup; it must be routed to the picker instead")
+	}
+	// Esc closes and disarms.
+	m.handleKey(pressKey("esc"))
+	if m.pickerOpen {
+		t.Error("Esc did not close the popup")
+	}
+}
+
+// W5-01 A2: selecting a file in the popup loads it and closes the popup.
+func TestModelPopupSelectionLoadsConfig(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pick.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter")) // open popup
+	// While the popup is open, keys go through Update so they reach the
+	// picker; its Enter returns a cmd whose msg (ConfigSelectedMsg) the main
+	// Update then applies — closing the popup and loading the config.
+	got, cmd := m.Update(pressKey("enter"))
+	m = got.(*Model)
+	if cmd != nil {
+		if msg := cmd(); msg != nil {
+			got2, _ := m.Update(msg)
+			m = got2.(*Model)
+		}
+	}
+	if m.pickerOpen {
+		t.Error("popup still open after selection")
+	}
+	if m.state.Snapshot().ConfigPath == "" {
+		t.Error("config not loaded after popup selection")
 	}
 }

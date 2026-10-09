@@ -64,6 +64,10 @@ type Model struct {
 	// The next q confirms (QuitConfirmMsg); any other key disarms it.
 	confirmPending bool
 
+	// pickerOpen: the file-picker popup overlay is showing (opened by Enter
+	// on the focused config card). While open it owns all keys.
+	pickerOpen bool
+
 	// configScroll / eventsScroll: scroll offsets for the bottom panels
 	// (0 = newest / top). ↑ increases the offset (older), ↓ decreases.
 	configScroll int
@@ -171,10 +175,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	// The file picker owns messages the main model does not handle itself:
 	// readDirMsg (the directory listing from its Init command), WindowSizeMsg
-	// (AutoHeight), and its key navigation while focused. Forwarding is safe —
-	// the picker is a no-op for everything else. Keys with focus elsewhere
-	// stay global (tab / r / c / q).
-	if _, isKey := msg.(tea.KeyPressMsg); !isKey || m.focus == PanelFilePicker {
+	// (AutoHeight), and its key navigation while the popup is open or the
+	// picker panel is focused — except Enter, which on the focused card opens
+	// the popup instead of navigating the (hidden) listing.
+	isKey := false
+	keyStr := ""
+	if k, ok := msg.(tea.KeyPressMsg); ok {
+		isKey = true
+		keyStr = k.String()
+	}
+	if !isKey || m.pickerOpen || (m.focus == PanelFilePicker && keyStr != "enter") {
 		if picked, cmd := m.filePicker.Update(msg); cmd != nil {
 			m.filePicker = picked.(*FilePickerModel)
 			cmds = append(cmds, cmd)
@@ -197,6 +207,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Refresh happens on every render; nothing to do here.
 
 	case ConfigSelectedMsg:
+		m.pickerOpen = false
 		m.handleConfigSelected(msg.Path)
 
 	case StartRunMsg:
@@ -246,11 +257,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // handleKey handles keyboard input.
 func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	key := msg.String()
+
+	// While the picker popup is open it owns navigation; Esc closes it and
+	// q is not a global quit. (Other keys are forwarded by Update.)
+	if m.pickerOpen {
+		if key == "esc" {
+			m.pickerOpen = false
+		}
+		return m, nil
+	}
+
 	// Any key other than q/ctrl+c cancels a pending quit confirmation.
 	if key != "q" && key != "ctrl+c" {
 		m.confirmPending = false
 	}
 	switch key {
+	case "enter":
+		// Enter on the focused config card opens the file-picker popup.
+		if m.focus == PanelFilePicker {
+			m.pickerOpen = true
+		}
+		return m, nil
+
 	case "ctrl+c", "q":
 		if m.isRunning {
 			// First q arms the confirmation; the second q confirms it. Any
@@ -349,13 +377,13 @@ func (m *Model) handleDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// clampConfigScroll keeps the config offset within the parsed row count.
+// clampConfigScroll keeps the config offset within the rendered line count.
 func (m *Model) clampConfigScroll(v int) {
 	if m.configView == nil {
 		m.configScroll = 0
 		return
 	}
-	max := len(m.configView.Rows()) - 1
+	max := len(m.configView.Lines()) - 1
 	if max < 0 {
 		max = 0
 	}
@@ -417,31 +445,78 @@ func (m *Model) View() tea.View {
 	bottomHeight := total - topHeight
 
 	// Render each panel
-	filePickerView := m.renderFilePicker(leftWidth, topHeight)
+	configCard := m.renderConfigCard(leftWidth, topHeight)
 	configView := m.renderConfig(leftWidth, bottomHeight)
 	statusView := m.renderStatus(s, rightWidth, topHeight)
 	eventsView := m.renderEvents(s, rightWidth, bottomHeight)
 
-	// Combine into 2x2 grid
-	topRow := lipgloss.JoinHorizontal(lipgloss.Top, filePickerView, statusView)
+	// Combine into 2x2 grid. The config card is a short box, so top-align the
+	// row (lipgloss.JoinHorizontal(Top)) — the space below the card is free.
+	topRow := lipgloss.JoinHorizontal(lipgloss.Top, configCard, statusView)
 	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, configView, eventsView)
 	mainView := lipgloss.JoinVertical(lipgloss.Left, topRow, bottomRow)
 
 	// Add hint line at bottom
 	hint := m.renderHintLine()
-	v := tea.NewView(lipgloss.JoinVertical(lipgloss.Left, mainView, hint))
+	content := lipgloss.JoinVertical(lipgloss.Left, mainView, hint)
+
+	// While the picker popup is open, overlay it centered on the frame.
+	if m.pickerOpen {
+		content = lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.renderPickerPopup(m.width, m.height))
+	}
+	v := tea.NewView(content)
 	v.AltScreen = true
 	return v
 }
 
-func (m *Model) renderFilePicker(w, h int) string {
+// renderConfigCard renders the top-left short card: the current config path,
+// its size, and the "open picker" hint. It never renders the file listing —
+// the picker lives in the popup overlay instead.
+func (m *Model) renderConfigCard(w, h int) string {
 	title := "Config File"
 	if m.focus == PanelFilePicker {
 		title = "▸ " + title
 	}
-	content := m.filePicker.View().Content
-	return m.panelStyle(m.focus == PanelFilePicker, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + clipLines(content, w-2, h-4),
+	var b strings.Builder
+	if m.state.Snapshot().ConfigPath == "" {
+		b.WriteString("(no config selected)\n")
+	} else {
+		fmt.Fprintf(&b, "%s\n", m.state.Snapshot().ConfigPath)
+		if fi, err := os.Stat(m.state.Snapshot().ConfigPath); err == nil {
+			if fi.Size() < 1024 {
+				fmt.Fprintf(&b, "%d B\n", fi.Size())
+			} else {
+				fmt.Fprintf(&b, "%d kB\n", fi.Size()/1024)
+			}
+		}
+	}
+	b.WriteString("Enter 選擇設定檔")
+	// Short card: only as tall as its content (borders + title + 3 content
+	// rows), never the full top band.
+	cardH := 5
+	if h < cardH {
+		cardH = h
+	}
+	return m.panelStyle(m.focus == PanelFilePicker, w, cardH).Render(
+		m.styles.PanelTitle.Render(title) + "\n" + b.String(),
+	)
+}
+
+// renderPickerPopup renders the file-picker overlay frame (centered, sized to
+// the terminal).
+func (m *Model) renderPickerPopup(w, h int) string {
+	pw := w * 3 / 4
+	ph := h * 3 / 4
+	if pw < 30 {
+		pw = 30
+	}
+	if ph < 10 {
+		ph = 10
+	}
+	title := m.styles.PanelTitle.Render("Select a config file")
+	return m.panelStyle(true, pw, ph).Render(
+		title + "\n" + clipLines(m.filePicker.View().Content, pw-2, ph-4),
 	)
 }
 

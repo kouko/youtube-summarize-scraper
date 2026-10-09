@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// W2-02 A3 positive: nested YAML flattens with dot-joined keys and
-// comma-joined arrays.
+// W2-02 A3 positive (spec amend1): nested YAML renders as a sectioned tree —
+// sections get heading lines, nested keys indent, arrays of scalars join.
 func TestConfigViewFlattensNestedYAML(t *testing.T) {
 	yaml := `
 llm:
@@ -22,16 +22,19 @@ whisper:
 	if cv.Error() != nil {
 		t.Fatalf("parse error: %v", cv.Error())
 	}
-	rows := cv.Rows()
-	joined := strings.Join(flat(rows), "\n")
+	joined := strings.Join(cv.Lines(), "\n")
 	for _, want := range []string{
-		"llm.provider.", "claude-api",
-		"llm.model.", "opus",
-		"channels.", "https://a, https://b",
-		"whisper.max_duration.", "1800",
+		"llm",
+		"provider: claude-api",
+		"model: opus",
+		"channels (2)",
+		"[1] https://a",
+		"[2] https://b",
+		"whisper",
+		"max_duration: 1800",
 	} {
 		if !strings.Contains(joined, want) {
-			t.Errorf("rows missing %q; rows=%v", want, rows)
+			t.Errorf("tree missing %q; lines=%q", want, cv.Lines())
 		}
 	}
 }
@@ -81,10 +84,71 @@ func TestConfigViewEmptyYAML(t *testing.T) {
 	}
 }
 
-func flat(rows [][]string) []string {
-	out := make([]string, 0, len(rows)*2)
-	for _, r := range rows {
-		out = append(out, r[0], r[1])
+// W5-02 A3 positive: the tree renderer — top-level sections get heading
+// lines, nested keys indent under them, list items are numbered, and no raw
+// Go map[...] dump ever leaks into the view (the pre-amend1 dot-flatten
+// rendered nested objects as "map[cookie:map[...] ...]" — unreadable).
+func TestConfigTreeSectionsAndItems(t *testing.T) {
+	yaml := `
+output_dir: /tmp/out
+batch:
+  watch: true
+  watch_interval: 10
+playlists:
+  - name: Watch Later
+    url: https://youtube.com/playlist?list=WL
+    count: 10
+    cookie:
+      browser: chrome
+  - name: Graph History
+    url: https://x
+    count: 99
+`
+	cv := NewConfigView(yaml)
+	if cv.Error() != nil {
+		t.Fatalf("parse error: %v", cv.Error())
 	}
-	return out
+	lines := cv.Lines()
+	if len(lines) == 0 {
+		t.Fatal("Lines() empty")
+	}
+	joined := strings.Join(lines, "\n")
+	for _, want := range []string{
+		"output_dir: /tmp/out",
+		"batch", "watch: true", "watch_interval: 10",
+		"playlists (2)",
+		"[1]", "Watch Later", "count: 10",
+		"browser: chrome",
+		"[2]", "Graph History", "count: 99",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("tree missing %q; lines=%q", want, lines)
+		}
+	}
+	if strings.Contains(joined, "map[") {
+		t.Errorf("raw Go map dump leaked into the tree: %q", joined)
+	}
+}
+
+// W5-02 A3: render follows document order, not map iteration order.
+func TestConfigTreePreservesOrder(t *testing.T) {
+	cv := NewConfigView("zzz: 1\naaa: 2\n")
+	lines := cv.Lines()
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "zzz:") {
+		t.Errorf("first line %q, want zzz first (document order)", lines[0])
+	}
+}
+
+// W5-02 boundary: multiline scalar values are escaped so a value never
+// splits the tree into misaligned rows.
+func TestConfigTreeMultilineValueEscaped(t *testing.T) {
+	cv := NewConfigView("llm:\n  prompt: \"line1\\nline2\"\n")
+	lines := cv.Lines()
+	joined := strings.Join(lines, "\n")
+	if strings.Contains(joined, "\nline2") {
+		t.Errorf("value newline not escaped; lines=%q", lines)
+	}
+	if !strings.Contains(joined, "\\n") {
+		t.Errorf("expected literal \\n in value; lines=%q", lines)
+	}
 }
