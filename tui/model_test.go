@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -256,6 +257,45 @@ func TestModelFitsTerminalHeight(t *testing.T) {
 	for _, title := range []string{"Config File", "Execution Status", "Recent Events"} {
 		if !strings.Contains(content, title) {
 			t.Errorf("panel %q missing from view", title)
+		}
+	}
+}
+
+// Regression: the 2x2 grid must be exactly band-sized so the top-row panels
+// have equal height, the bottom row starts after it, and the hint line is
+// the final visible line (user-reported: uneven columns, hint cut off).
+func TestModelGridBandsAndHintAlign(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	lines := strings.Split(m.View().Content, "\n")
+	// Panels in one row are joined side-by-side, so a row band's bottom
+	// border is a single line carrying both corners. Expect exactly two
+	// bottom-border lines: one for the top row, one for the bottom row.
+	var bottoms []int
+	for i, ln := range lines {
+		if strings.Contains(ln, "╰") {
+			bottoms = append(bottoms, i)
+		}
+	}
+	if len(bottoms) != 2 {
+		t.Fatalf("found %d row-bottom border lines, want 2:\n%s", len(bottoms), strings.Join(lines, "\n"))
+	}
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, "↑↓ Navigate") {
+		t.Errorf("last line is not the hint: %q", last)
+	}
+	// Every content line must carry exactly 2 left borders (4 panels, 2 per
+	// row), i.e. no panel overflowed and pushed the other out of the row.
+	// Count on ANSI-stripped lines so escape codes do not split the glyphs.
+	ansiRe := regexp.MustCompile(`\x1b\[[0-9;>?]*[a-zA-Z]`)
+	// Two side-by-side panels render two left borders per content line
+	// (e.g. "│pick│status"), unless a panel is joined under the other,
+	// which is what an overflow looks like. i>0 skips the border-top line.
+	for i, ln := range lines[:bottoms[0]] {
+		plain := ansiRe.ReplaceAllString(ln, "")
+		if i > 0 && strings.Count(plain, "│") != 4 {
+			t.Errorf("line %d has %d vertical borders, want 4 (two side-by-side panels): %q", i, strings.Count(plain, "│"), plain[:60])
 		}
 	}
 }

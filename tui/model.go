@@ -317,11 +317,15 @@ func (m *Model) View() tea.View {
 	s := m.state.Snapshot()
 
 	// Calculate panel dimensions
-	// Layout: 4 panels in 2x2 grid
+	// Layout: 4 panels in 2x2 grid + 1 hint line. Each panel's outer box is
+	// Height(n) rows plus one extra row for the title line inside the border,
+	// so the renderable rows per row-band are: rows = bandHeight - 3.
+	// Solve bandHeights from: top-3 + bottom-3 + hint(1) = m.height.
 	leftWidth := m.width / 2
 	rightWidth := m.width - leftWidth
-	topHeight := m.height / 2
-	bottomHeight := m.height - topHeight - 1 // -1 for hint line
+	total := m.height - 1 // hint line
+	topHeight := total/2 + 2
+	bottomHeight := total - topHeight + 2
 
 	// Render each panel
 	filePickerView := m.renderFilePicker(leftWidth, topHeight)
@@ -347,7 +351,8 @@ func (m *Model) renderFilePicker(w, h int) string {
 		title = "▸ " + title
 	}
 	content := m.filePicker.View().Content
-	return m.panelStyle(m.focus == PanelFilePicker, w, h).Render(
+	st := m.panelStyle(m.focus == PanelFilePicker, w, h).MaxHeight(h)
+	return st.Render(
 		m.styles.PanelTitle.Render(title) + "\n" + content,
 	)
 }
