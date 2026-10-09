@@ -318,57 +318,44 @@ func TestModelFitsTerminalHeight(t *testing.T) {
 	}
 }
 
-// Regression: the grid must fit the terminal: the bottom row starts after
-// the top row, the hint line is the final visible line, and the short config
-// card's bottom border sits ABOVE the top band's bottom border (a short card,
-// not a full-height panel; spec amend1).
+// Regression: the grid must fit the terminal: the top band is content-sized
+// (card and status end on the same line), the bottom band starts right after
+// it, and the hint line is the final visible line (spec amend1 + W5-03).
 func TestModelGridBandsAndHintAlign(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 
 	lines := strings.Split(m.View().Content, "\n")
-	// With a short card the top band's bottom border line carries only the
-	// status panel's corner; the card's own border closed earlier.
+	// Both top panels end on one shared border line (2 corners); the bottom
+	// band's border is the second such line.
 	var bottoms []int
-	cardBorder := -1
 	for i, ln := range lines {
-		plain := stripANSI(ln)
-		if !strings.Contains(plain, "╰") {
-			continue
+		if strings.Contains(stripANSI(ln), "╰") {
+			bottoms = append(bottoms, i)
 		}
-		if cardBorder < 0 && strings.Count(plain, "╰") == 1 {
-			cardBorder = i // the short card's own bottom border, alone
-			continue
-		}
-		bottoms = append(bottoms, i)
-	}
-	if cardBorder < 0 {
-		t.Fatalf("short config card bottom border not found:\n%s", strings.Join(lines, "\n"))
 	}
 	if len(bottoms) != 2 {
 		t.Fatalf("found %d band-bottom border lines, want 2:\n%s", len(bottoms), strings.Join(lines, "\n"))
 	}
-	if cardBorder >= bottoms[0] {
-		t.Fatalf("card border (line %d) must sit above the top band border (line %d); card is not short", cardBorder, bottoms[0])
+	// Content-sized top band: 9 rows max (status content), not half of 30.
+	if bottoms[0] > 9 {
+		t.Errorf("top band ends at line %d, want content-sized (<=9); the empty strip is back", bottoms[0])
+	}
+	// Bands adjacent: the bottom band's top border is on the very next line.
+	if !strings.Contains(stripANSI(lines[bottoms[0]+1]), "╭") {
+		t.Errorf("bottom band does not start right after the top band (line %d)", bottoms[0])
 	}
 	last := lines[len(lines)-1]
 	if !strings.Contains(last, "↑↓ Navigate") {
 		t.Errorf("last line is not the hint: %q", last)
 	}
-	// Content lines between the card's bottom border and the top band's
-	// border belong only to the status panel (the card is short, the space
-	// below it is free) — 2 left borders there would mean a full-height
-	// panel again. Above the card border, both top panels render 2 left
-	// borders per line. Count on ANSI-stripped lines.
+	// Every content line of the top band carries 4 left borders (two
+	// side-by-side panels), i.e. no panel overflowed the row.
 	ansiRe := regexp.MustCompile(`\x1b\[[0-9;>?]*[a-zA-Z]`)
 	for i, ln := range lines[:bottoms[0]] {
 		plain := ansiRe.ReplaceAllString(ln, "")
-		want := 4
-		if i >= cardBorder {
-			want = 2 // below the card: status panel only
-		}
-		if i > 0 && strings.Count(plain, "│") != want {
-			t.Errorf("line %d has %d vertical borders, want %d: %q", i, strings.Count(plain, "│"), want, plain[:60])
+		if i > 0 && strings.Count(plain, "│") != 4 {
+			t.Errorf("line %d has %d vertical borders, want 4: %q", i, strings.Count(plain, "│"), plain[:60])
 		}
 	}
 }
@@ -674,5 +661,36 @@ func TestModelPopupSelectionLoadsConfig(t *testing.T) {
 	}
 	if m.state.Snapshot().ConfigPath == "" {
 		t.Error("config not loaded after popup selection")
+	}
+}
+
+// W5-03 (user feedback): the top band's height is content-driven, not a
+// fixed half of the terminal — the config card and the status panel end on
+// the same line, the bottom band starts immediately after, and no blank
+// rows sit between them (pre-fix: card ended at row 4, status at row 18).
+func TestModelTopBandContentSized(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+
+	lines := strings.Split(m.View().Content, "\n")
+	bandBottom := -1
+	for i, ln := range lines {
+		if strings.Count(stripANSI(ln), "╰") == 2 {
+			bandBottom = i
+			break
+		}
+	}
+	if bandBottom < 0 {
+		t.Fatal("top band bottom border (2 corners) not found")
+	}
+	// Content-sized: status = 5 content rows + title + 2 borders = 8-9 rows;
+	// a half-height band on a 40-row terminal is 19. Anything above ~12 means
+	// the old empty top band is back.
+	if bandBottom > 12 {
+		t.Errorf("top band ends at line %d, want content-sized (~9); the gap is back", bandBottom)
+	}
+	// The bottom band must start on the very next line (no blank row).
+	if bandBottom+1 >= len(lines) || !strings.Contains(stripANSI(lines[bandBottom+1]), "╭") {
+		t.Errorf("bottom band does not start right after the top band (line %d)", bandBottom)
 	}
 }

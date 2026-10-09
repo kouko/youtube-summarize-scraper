@@ -345,10 +345,13 @@ func (m *Model) applyPanelHeights() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	topHeight := (m.height - 1) / 2
-	// Outer box = topHeight; two border rows + one title row leave this
-	// many content rows for the picker listing.
-	m.filePicker.SetHeight(topHeight - 3)
+	// The picker lives in the popup (3/4 of the terminal, borders + title
+	// leave 4 rows), so size it to that overlay, not to the top panel.
+	popupH := m.height * 3 / 4
+	if popupH < 10 {
+		popupH = 10
+	}
+	m.filePicker.SetHeight(popupH - 4)
 }
 
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -441,7 +444,14 @@ func (m *Model) View() tea.View {
 	leftWidth := m.width / 2
 	rightWidth := m.width - leftWidth
 	total := m.height - 1 // hint line
-	topHeight := total / 2
+	// The top panels are content-sized (the config card is ~6 rows, the
+	// status panel 8-9): the top band is a small fixed height and the bottom
+	// band gets the rest, instead of two equal halves that left a tall empty
+	// strip under the short card (user feedback 2026-10-09).
+	topHeight := 9
+	if topHeight > total/2 {
+		topHeight = total / 2
+	}
 	bottomHeight := total - topHeight
 
 	// Render each panel
@@ -492,13 +502,10 @@ func (m *Model) renderConfigCard(w, h int) string {
 		}
 	}
 	b.WriteString("Enter 選擇設定檔")
-	// Short card: only as tall as its content (borders + title + 3 content
-	// rows), never the full top band.
-	cardH := 5
-	if h < cardH {
-		cardH = h
-	}
-	return m.panelStyle(m.focus == PanelFilePicker, w, cardH).Render(
+	// The card fills the content-sized top band (height h, shared with the
+	// status panel) so both boxes end on the same line — the "short card +
+	// blank strip" of the previous layout is gone. Content stays at the top.
+	return m.panelStyle(m.focus == PanelFilePicker, w, h).Render(
 		m.styles.PanelTitle.Render(title) + "\n" + b.String(),
 	)
 }
