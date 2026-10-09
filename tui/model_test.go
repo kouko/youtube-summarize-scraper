@@ -299,3 +299,28 @@ func TestModelGridBandsAndHintAlign(t *testing.T) {
 		}
 	}
 }
+
+// Regression: selecting a config must never grow the layout. The config
+// panel flattens the whole YAML; without clipping, a long config pushes
+// the hint line off screen (user-reported).
+func TestModelSelectConfigKeepsLayout(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+
+	// A config large enough to overflow the bottom band if not clipped.
+	big := "llm:\n  provider: claude-api\n" + strings.Repeat("  extra_key: value\n", 60)
+	m.handleConfigSelected(t.TempDir()) // no-op path guard
+	// Feed the selection directly (bypasses the file read).
+	m.state.UpdateConfig("/tmp/x.yaml", big)
+	m.configView = NewConfigView(big)
+
+	lines := strings.Split(m.View().Content, "\n")
+	last := lines[len(lines)-1]
+	if !strings.Contains(last, "↑↓ Navigate") {
+		t.Errorf("hint pushed off screen after selecting a large config; last line: %q", last[:50])
+	}
+	// Total must still fit the 30-row terminal.
+	if len(lines) > 31 {
+		t.Errorf("render %d lines for 30-row terminal after selection", len(lines))
+	}
+}

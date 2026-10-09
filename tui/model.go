@@ -274,14 +274,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 // applyPanelHeights sizes the file picker to the top-left panel's inner
-// height so the 2x2 layout always fits the terminal.
+// rows so its listing scrolls inside the band instead of overflowing.
 func (m *Model) applyPanelHeights() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	topHeight := m.height / 2
-	// panel border (2) + title line (1) + one line of slack
-	m.filePicker.SetHeight(topHeight - 4)
+	topHeight := (m.height - 1) / 2
+	// Outer box = topHeight; two border rows + one title row leave this
+	// many content rows for the picker listing.
+	m.filePicker.SetHeight(topHeight - 3)
 }
 
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -317,15 +318,15 @@ func (m *Model) View() tea.View {
 	s := m.state.Snapshot()
 
 	// Calculate panel dimensions
-	// Layout: 4 panels in 2x2 grid + 1 hint line. Each panel's outer box is
-	// Height(n) rows plus one extra row for the title line inside the border,
-	// so the renderable rows per row-band are: rows = bandHeight - 3.
-	// Solve bandHeights from: top-3 + bottom-3 + hint(1) = m.height.
+	// Layout: 4 panels in 2x2 grid + 1 hint line. panelStyle fixes each box
+	// to exactly w x h rows (lipgloss Height counts the border; MaxHeight
+	// clips overflow), so the two bands plus the hint fill the terminal:
+	// topHeight + bottomHeight + 1 = m.height.
 	leftWidth := m.width / 2
 	rightWidth := m.width - leftWidth
 	total := m.height - 1 // hint line
-	topHeight := total/2 + 2
-	bottomHeight := total - topHeight + 2
+	topHeight := total / 2
+	bottomHeight := total - topHeight
 
 	// Render each panel
 	filePickerView := m.renderFilePicker(leftWidth, topHeight)
@@ -351,9 +352,8 @@ func (m *Model) renderFilePicker(w, h int) string {
 		title = "▸ " + title
 	}
 	content := m.filePicker.View().Content
-	st := m.panelStyle(m.focus == PanelFilePicker, w, h).MaxHeight(h)
-	return st.Render(
-		m.styles.PanelTitle.Render(title) + "\n" + content,
+	return m.panelStyle(m.focus == PanelFilePicker, w, h).Render(
+		m.styles.PanelTitle.Render(title) + "\n" + clipLines(content, w-2, h-3),
 	)
 }
 
@@ -368,7 +368,7 @@ func (m *Model) renderConfig(w, h int) string {
 	} else {
 		content = m.configView.Render()
 	}
-	return m.panelStyle(m.focus == PanelConfig, w, h).Render(
+	return m.panelStyle(m.focus == PanelConfig, w, h).MaxHeight(h).Render(
 		m.styles.PanelTitle.Render(title) + "\n" + content,
 	)
 }
@@ -398,7 +398,7 @@ func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 	}
 
 	return m.panelStyle(m.focus == PanelStatus, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + b.String(),
+		m.styles.PanelTitle.Render(title) + "\n" + clipLines(b.String(), w-2, h-3),
 	)
 }
 
@@ -430,17 +430,42 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 	}
 
 	return m.panelStyle(m.focus == PanelEvents, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + b.String(),
+		m.styles.PanelTitle.Render(title) + "\n" + clipLines(b.String(), w-2, h-3),
 	)
 }
 
-// panelStyle returns the bordered style for a panel, focused or not.
+// clipLines keeps at most n lines of content and truncates each to width
+// runes, so a panel's content always fits inside its box (border 2 rows +
+// title 1 row leave n content rows). Long configs and listings are clipped,
+// never allowed to push the grid or the hint line off screen.
+func clipLines(content string, width, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	if len(lines) > n {
+		lines = lines[:n]
+	}
+	for i, l := range lines {
+		r := []rune(l)
+		if len(r) > width {
+			lines[i] = string(r[:width])
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// panelStyle returns a fixed-size bordered style for a panel, focused or
+// not. The outer box is exactly w x h: lipgloss's Width, Height and
+// MaxHeight all count the border, and MaxHeight clips content longer than
+// the band so a long listing or config can never push the grid (or the
+// hint line) off screen.
 func (m *Model) panelStyle(focused bool, w, h int) lipgloss.Style {
 	st := m.styles.PanelBorder
 	if focused {
 		st = m.styles.FocusedBorder
 	}
-	return st.Width(w - 2).Height(h - 2)
+	return st.Width(w).Height(h).MaxHeight(h)
 }
 
 func (m *Model) renderHintLine() string {
