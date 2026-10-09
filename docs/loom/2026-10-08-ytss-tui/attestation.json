@@ -1,0 +1,41 @@
+{
+  "schema": "loom-attestation/v2",
+  "change_id": "2026-10-08-ytss-tui",
+  "content_digest": "eb06070a3c800c25b5f3ed89b75781190944b847",
+  "executions": [
+    {
+      "kind": "package-tests",
+      "command": "go test ./...",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "1bb497e3e13a1105cf24e3359fa3ef75de08b66ff8a2839cd7f9ea97824d9eb3"
+    },
+    {
+      "kind": "adversarial",
+      "command": "bash docs/loom/2026-10-08-ytss-tui/evidence/probes/test_events_infoLineWithERRORword_notHighlighted.sh",
+      "artifact": "docs/loom/2026-10-08-ytss-tui/evidence/probes/test_events_infoLineWithERRORword_notHighlighted.sh",
+      "result": "pass",
+      "command_digest": "07bff416c2be0ecac84401fff194af3c284f6143dd49b27f87c0a45bf1c50f18"
+    }
+  ],
+  "verdicts": [
+    {
+      "reviewer": "reviewer-1",
+      "vendor": "claude",
+      "model": "opus",
+      "lens": "code",
+      "verdict": "PASS_WITH_NOTES",
+      "findings": []
+    },
+    {
+      "reviewer": "reviewer-2",
+      "vendor": "claude",
+      "model": "opus",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": []
+    }
+  ],
+  "findings": [],
+  "selection": null
+}
