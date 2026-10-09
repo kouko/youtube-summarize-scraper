@@ -47,3 +47,13 @@ REQ-5 — Keyboard controls → Acceptance #5, #6, #7
 
 ## Open questions
 - Whether to support mouse scrolling in the file picker and log area (deferred; keyboard‑first is sufficient).
+
+## Amend2 — live redraw, viewport scrolling, config editing (2026-10-09, user-approved scope: items 1, 2, 4)
+REQ-6 — Immediate redraw on events → Acceptance #8
+  WHEN the event bridge applies a parsed event, the model redraws on the next tick immediately (bridge pokes the program), not on the next 250ms tick only. The periodic tick remains as a fallback for non-event changes.
+
+REQ-7 — Viewport scrolling → Acceptance #9
+  The config and events panels scroll with a bubbles v2 viewport (native mouse wheel + keyboard), replacing the manual offset windows. ↑↓ scroll the focused panel; the wheel scrolls the panel under the pointer position is out of scope for amend2 (wheel applies to the focused panel).
+
+REQ-8 — Edit selected config values → Acceptance #10
+  On the config panel, Enter opens an inline editor (bubbles textinput) for the value under the cursor; accepting writes the change back to the YAML file on disk (preserving comments and key order via yaml.Node), reloads the in-memory config view, and shows the updated tree. Esc cancels. Only scalar values are editable (maps and lists open their first scalar child); file write failures surface as an error line in Recent Events.
