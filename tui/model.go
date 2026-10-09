@@ -537,10 +537,13 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 	)
 }
 
-// clipLines keeps at most n lines of content and truncates each to width
-// runes, so a panel's content always fits inside its box (border 2 rows +
-// title 1 row leave n content rows). Long configs and listings are clipped,
-// never allowed to push the grid or the hint line off screen.
+// clipLines keeps at most n lines of content and truncates each to a display
+// width of width columns, so a panel's content always fits inside its box
+// (border 2 rows + title 1 row leave n content rows). Truncation counts ANSI
+// escape sequences as zero columns — a styled row keeps its visible text up
+// to the budget — and resets styles on a cut so the color never bleeds into
+// the border. Long configs and listings are clipped, never allowed to push
+// the grid or the hint line off screen.
 func clipLines(content string, width, n int) string {
 	if n <= 0 {
 		return ""
@@ -550,12 +553,43 @@ func clipLines(content string, width, n int) string {
 		lines = lines[:n]
 	}
 	for i, l := range lines {
-		r := []rune(l)
-		if len(r) > width {
-			lines[i] = string(r[:width])
-		}
+		lines[i] = truncateANSI(l, width)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// truncateANSI cuts s to at most width display columns. ANSI escape
+// sequences occupy no columns and are preserved; a cut inside styled text
+// appends a style reset so the remainder of the line stays unstyled.
+func truncateANSI(s string, width int) string {
+	var b strings.Builder
+	col := 0
+	inEsc := false
+	cut := false
+	for _, r := range s {
+		if inEsc {
+			b.WriteRune(r)
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') {
+				inEsc = false
+			}
+			continue
+		}
+		if r == '\x1b' {
+			inEsc = true
+			b.WriteRune(r)
+			continue
+		}
+		if col >= width {
+			cut = true
+			break
+		}
+		b.WriteRune(r)
+		col++
+	}
+	if cut {
+		b.WriteString("\x1b[0m")
+	}
+	return b.String()
 }
 
 // panelStyle returns a fixed-size bordered style for a panel, focused or

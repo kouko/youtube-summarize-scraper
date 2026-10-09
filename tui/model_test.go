@@ -443,3 +443,34 @@ func TestConfigValueNewlineEscaped(t *testing.T) {
 		t.Errorf("expected literal \\n in value; rendered=%q", rendered)
 	}
 }
+
+// clipLines must truncate by DISPLAY width, not raw rune count: ANSI color
+// codes occupy zero columns but many runes, so a colored row (filepicker
+// listing) lost its trailing filename to the width budget (pty-observed).
+func TestClipLinesCountsDisplayWidthNotEscapeRun(t *testing.T) {
+	// "  -rw-------   287B" colored (escape codes), then a plain " leak.yaml"
+	colored := "\x1b[38;5;240m  -rw-------   287B\x1b[m leak.yaml"
+
+	// 25 display columns fit the size but cut the name.
+	got := clipLines(colored, 25, 3)
+	plain := stripANSI(got)
+	if strings.Contains(plain, "leak.yaml") {
+		t.Errorf("25 display columns must cut the name, got %q", plain)
+	}
+	if w := len([]rune(plain)); w > 25 {
+		t.Errorf("clipped row is %d display runes, want <= 25", w)
+	}
+
+	// 40 display columns keep the visible filename.
+	got2 := clipLines(colored, 40, 3)
+	if !strings.Contains(stripANSI(got2), "leak.yaml") {
+		t.Errorf("40 display columns must keep the name, got %q", stripANSI(got2))
+	}
+
+	// Truncating inside colored content must reset the style, so the next
+	// line is not painted with the previous color.
+	got3 := clipLines(colored, 12, 3)
+	if strings.Contains(got3, "\x1b[") && !strings.Contains(got3, "\x1b[0m") {
+		t.Errorf("truncated ANSI content must reset styles; got %q", got3)
+	}
+}
