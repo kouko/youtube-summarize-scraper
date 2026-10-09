@@ -1,7 +1,7 @@
 {
   "schema": "loom-attestation/v2",
   "change_id": "2026-10-08-ytss-tui",
-  "content_digest": "727a4bc83e0621a9623f439ef6b1bcdc373c2b5e",
+  "content_digest": "364d6246e0baba888f49ad3fa1db35f83d368504",
   "executions": [
     {
       "kind": "package-tests",
@@ -25,44 +25,7 @@
       "model": "opus",
       "lens": "code",
       "verdict": "PASS",
-      "findings": [
-        {
-          "severity": "fatal",
-          "anchor": "tui/filepicker.go:28",
-          "text": "DirAllowed=false blocks directory navigation (Round 1)",
-          "disposition": "dismissed — rebutted with bubbles v2.2.1 source evidence and pinned by TestDirNavigationWithDirAllowedFalse"
-        },
-        {
-          "severity": "important",
-          "anchor": "tui/model.go:149",
-          "text": "EventBridge goroutine leaks on quit (Round 1)",
-          "disposition": "fixed — Model owns bridge via NewModelWithBridge, closeBridge in both quit paths"
-        },
-        {
-          "severity": "important",
-          "anchor": "tui/model.go:10",
-          "text": "charm.land external SDK grounding missing (Round 1, x3)",
-          "disposition": "fixed — grounding comments above each import citing pinned versions and v2 API behaviors"
-        },
-        {
-          "severity": "nit",
-          "anchor": "tui/config.go:113",
-          "text": "ConfigView.LipglossStyle unused",
-          "disposition": "fixed — removed"
-        },
-        {
-          "severity": "nit",
-          "anchor": "tui/bridge.go:104",
-          "text": "EventBridge.String unused",
-          "disposition": "fixed — removed"
-        },
-        {
-          "severity": "nit",
-          "anchor": "tui/model.go:176",
-          "text": "pause TODO while hint advertises p Pause",
-          "disposition": "fixed — pause key, message type, and hint removed"
-        }
-      ]
+      "findings": []
     },
     {
       "reviewer": "reviewer-2-code",
@@ -70,20 +33,7 @@
       "model": "opus",
       "lens": "code",
       "verdict": "PASS",
-      "findings": [
-        {
-          "severity": "important",
-          "anchor": "tui/parse.go:34",
-          "text": "WatchIter and QueueLen never updated by parser (Round 1)",
-          "disposition": "fixed — EventWatchIter/EventFetched parse kinds, applyEvent queue accounting, watch loop with context"
-        },
-        {
-          "severity": "nit",
-          "anchor": "tui/parse.go:55",
-          "text": "duplicated unreachable EventWatchIter/EventFetched case blocks (Round 2)",
-          "disposition": "fixed — duplicates removed in 6e120c0"
-        }
-      ]
+      "findings": []
     }
   ],
   "findings": [],
