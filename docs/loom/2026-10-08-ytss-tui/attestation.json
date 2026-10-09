@@ -1,7 +1,7 @@
 {
   "schema": "loom-attestation/v2",
   "change_id": "2026-10-08-ytss-tui",
-  "content_digest": "d08bb8bd3308e3d8dd9abab442bdd43c1f5bf727",
+  "content_digest": "eb06070a3c800c25b5f3ed89b75781190944b847",
   "executions": [
     {
       "kind": "package-tests",
