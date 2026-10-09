@@ -117,9 +117,8 @@ playlists:
 		"output_dir        /tmp/out",
 		"batch", "watch           true", "watch_interval  10",
 		"playlists (2)",
-		"[1] Watch Later", "count         10",
-		"browser     chrome",
-		"[2] Graph History", "count         99",
+		"[1] Watch Later", "name=Watch Later url=https://youtube.com/playlist?list=WL count=10 cookie.browser=chrome",
+		"[2] Graph History", "name=Graph History url=https://x count=99",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("tree missing %q; lines=%q", want, lines)
@@ -271,5 +270,78 @@ func TestConfigTreeTableIndexMapping(t *testing.T) {
 	}
 	if cv.IsTableSeparator(tbl) {
 		t.Errorf("table row %d is a separator, want a content row", tbl)
+	}
+}
+
+// (user feedback 2026-10-09, option B): list items render collapsed on one
+// line ("[1]  | value: name count=10 url=..."); Enter on a collapsed item
+// expands it into its child rows for editing, Enter again (or Esc) collapses.
+func TestConfigListItemCollapseToggle(t *testing.T) {
+	yaml := "playlists:\n  - name: WL\n    count: 10\n    cookie:\n      browser: chrome\n  - name: GH\n    count: 99\n"
+	cv := NewConfigView(yaml)
+
+	// Collapsed by default: "[1]" is a single row, its value summarizes the
+	// item; child rows are NOT in the lines.
+	lines := cv.Lines()
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "count=10") || !strings.Contains(joined, "browser=chrome") {
+		t.Errorf("collapsed summary missing; lines=%q", lines)
+	}
+	if strings.Contains(joined, "\n    name") {
+		t.Errorf("child rows leaked into collapsed view; lines=%q", lines)
+	}
+
+	// Expand item [1]: its children appear; item [2] stays collapsed.
+	idx := -1
+	for i, l := range lines {
+		if strings.Contains(l, "[1]") {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		t.Fatal("item [1] not found")
+	}
+	cv.ExpandItem(idx)
+	lines2 := cv.Lines()
+	j2 := strings.Join(lines2, "\n")
+	if !strings.Contains(j2, "name") || !strings.Contains(j2, "browser") {
+		t.Errorf("expanded children missing; lines=%q", lines2)
+	}
+	if strings.Contains(j2, "\n  [2]") && !strings.Contains(j2, "count=99") {
+		t.Errorf("item [2] should stay collapsed; lines=%q", lines2)
+	}
+
+	// Collapse again, from a child row of the expanded item.
+	childRow := -1
+	for i, l := range lines2 {
+		if strings.Contains(l, "browser") {
+			childRow = i
+			break
+		}
+	}
+	if childRow < 0 {
+		t.Fatal("child row not found after expansion")
+	}
+	cv.CollapseItem(childRow)
+	if got := strings.Join(cv.Lines(), "\n"); strings.Contains(got, "browser") && !strings.Contains(got, "browser=chrome") {
+		t.Errorf("children still visible after collapse; lines=%q", got)
+	}
+}
+
+// Expanded items keep editable child rows; collapsed items are not editable
+// targets (EditTargetForLine fails) so Enter can toggle instead.
+func TestConfigCollapsedItemNotEditable(t *testing.T) {
+	cv := NewConfigView("playlists:\n  - name: WL\n    count: 10\n")
+	lines := cv.Lines()
+	itemRow := -1
+	for i, l := range lines {
+		if strings.Contains(l, "[1]") {
+			itemRow = i
+			break
+		}
+	}
+	if _, _, ok := cv.EditTargetForLine(itemRow); ok {
+		t.Error("collapsed item row is an edit target; want not editable")
 	}
 }

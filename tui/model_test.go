@@ -849,3 +849,47 @@ func TestModelPopupKeepsBackgroundVisible(t *testing.T) {
 		t.Error("popup frame missing")
 	}
 }
+
+// Option B: Enter on a collapsed list-item row expands it (children appear);
+// Enter on the expanded item's heading collapses it back.
+func TestModelEnterTogglesListItem(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "c.yaml")
+	os.WriteFile(cfgPath, []byte("playlists:\n  - name: WL\n    count: 10\n"), 0o644)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.handleConfigSelected(cfgPath)
+	m.focus = PanelConfig
+	m.View()
+
+	// Find the collapsed item row in table coordinates.
+	itemTable := -1
+	tbl := m.configView.RenderTable(118)
+	for i, r := range tbl {
+		if strings.Contains(r, "[1]") && !m.configView.IsTableSeparator(i) {
+			itemTable = i
+			break
+		}
+	}
+	m.configVP.GotoTop()
+	m.configCursor = itemTable - m.configVP.YOffset()
+	m.handleKey(pressKey("enter"))
+	lines := strings.Join(m.configView.Lines(), "\n")
+	if !strings.Contains(lines, "count") || strings.Contains(lines, "count=10") {
+		t.Fatalf("Enter did not expand the item; lines=%q", m.configView.Lines())
+	}
+	// The expanded item's heading row collapses it again.
+	headTable := -1
+	tbl2 := m.configView.RenderTable(118)
+	for i, r := range tbl2 {
+		if strings.Contains(r, "[1]") && !m.configView.IsTableSeparator(i) {
+			headTable = i
+			break
+		}
+	}
+	m.configCursor = headTable - m.configVP.YOffset()
+	m.handleKey(pressKey("enter"))
+	if got := strings.Join(m.configView.Lines(), "\n"); !strings.Contains(got, "count=10") {
+		t.Errorf("Enter on expanded heading did not collapse; lines=%q", m.configView.Lines())
+	}
+}

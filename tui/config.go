@@ -36,9 +36,15 @@ type ConfigView struct {
 	linePaths []string
 	// lineIsValue[i] marks scalar value rows (editable).
 	lineIsValue []bool
+	// lineIsSummary[i] marks collapsed list-item rows: shown in the value
+	// column but not editable (Enter toggles expand instead).
+	lineIsSummary []bool
 	// separators[i] marks content rows that get a table separator line before
 	// them (section headings, numbered items). Built by walkMapping.
 	separators []bool
+	// itemExpanded records which list items (by path, e.g. "playlists.0")
+	// are expanded into child rows for editing (user feedback option B).
+	itemExpanded map[string]bool
 	// table index mapping (built by RenderTable)
 	tableRowToContent []int
 	contentToTableRow []int
@@ -71,6 +77,7 @@ func (cv *ConfigView) parse(content string) error {
 	cv.values = nil
 	cv.linePaths = nil
 	cv.lineIsValue = nil
+	cv.lineIsSummary = nil
 	cv.separators = nil
 	if doc.Kind == 0 {
 		return nil // empty document
@@ -113,7 +120,29 @@ func (cv *ConfigView) addHeadingSep(text string, sep bool) {
 	cv.values = append(cv.values, "")
 	cv.linePaths = append(cv.linePaths, "")
 	cv.lineIsValue = append(cv.lineIsValue, false)
+	cv.lineIsSummary = append(cv.lineIsSummary, false)
 	cv.separators = append(cv.separators, sep)
+}
+
+// addHeadingPath appends a full-row line that carries an item path (used for
+// expanded list-item headings so Enter can collapse them again).
+func (cv *ConfigView) addHeadingPath(text, path string) {
+	cv.keyCols = append(cv.keyCols, text)
+	cv.values = append(cv.values, "")
+	cv.linePaths = append(cv.linePaths, path)
+	cv.lineIsValue = append(cv.lineIsValue, false)
+	cv.lineIsSummary = append(cv.lineIsSummary, false)
+	cv.separators = append(cv.separators, true)
+}
+
+// addSummary appends a collapsed list-item row (key | summary, not editable).
+func (cv *ConfigView) addSummary(keyCol, summary, path string) {
+	cv.keyCols = append(cv.keyCols, keyCol)
+	cv.values = append(cv.values, summary)
+	cv.linePaths = append(cv.linePaths, path)
+	cv.lineIsValue = append(cv.lineIsValue, false)
+	cv.lineIsSummary = append(cv.lineIsSummary, true)
+	cv.separators = append(cv.separators, true)
 }
 
 // addKeyValue appends an indented "key | value" row with edit metadata.
@@ -122,6 +151,7 @@ func (cv *ConfigView) addKeyValue(keyCol, value, path string) {
 	cv.values = append(cv.values, value)
 	cv.linePaths = append(cv.linePaths, path)
 	cv.lineIsValue = append(cv.lineIsValue, true)
+	cv.lineIsSummary = append(cv.lineIsSummary, false)
 	cv.separators = append(cv.separators, false)
 }
 
@@ -161,12 +191,107 @@ func (cv *ConfigView) walkSequence(seq *yaml.Node, prefix string, depth int) {
 			} else if url := mapValue(item, "url"); url != "" {
 				label += " " + url
 			}
-			cv.addHeadingSep(indent(depth)+label, true)
-			cv.walkMapping(item, path, depth+1)
+			if cv.itemExpanded[path] {
+				// Expanded: the item renders as a heading with its child
+				// rows below, so Enter can edit a child value.
+				cv.addHeadingPath(indent(depth)+label, path)
+				cv.walkMapping(item, path, depth+1)
+			} else {
+				// Collapsed: one summary row "key=value key=value ...".
+				cv.addSummary(indent(depth)+label, itemInline(item), path)
+			}
 		default:
 			cv.addKeyValue(indent(depth)+label, scalarString(item), path)
 		}
 	}
+}
+
+// itemInline renders a list item's children as "key=value" pairs joined by
+// spaces (nested maps flatten with dots), for the collapsed one-line view.
+func itemInline(m *yaml.Node) string {
+	var parts []string
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k, v := m.Content[i], m.Content[i+1]
+		switch v.Kind {
+		case yaml.ScalarNode:
+			parts = append(parts, k.Value+"="+scalarString(v))
+		case yaml.MappingNode:
+			parts = append(parts, flattenMapInline(k.Value, v)...)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+// flattenMapInline flattens a nested map into dot-prefixed key=value parts.
+func flattenMapInline(prefix string, m *yaml.Node) []string {
+	var out []string
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k, v := m.Content[i], m.Content[i+1]
+		switch v.Kind {
+		case yaml.MappingNode:
+			out = append(out, flattenMapInline(prefix+"."+k.Value, v)...)
+		case yaml.ScalarNode:
+			out = append(out, prefix+"."+k.Value+"="+scalarString(v))
+		}
+	}
+	return out
+}
+
+// ExpandItem expands a collapsed list item (row = the item's summary row)
+// into its child rows for editing.
+func (cv *ConfigView) ExpandItem(row int) {
+	cv.setItemExpanded(row, true)
+}
+
+// CollapseItem collapses an expanded list item back to its summary row.
+func (cv *ConfigView) CollapseItem(row int) {
+	cv.setItemExpanded(row, false)
+}
+
+func (cv *ConfigView) setItemExpanded(row int, expanded bool) {
+	if row < 0 || row >= len(cv.linePaths) || cv.linePaths[row] == "" {
+		return
+	}
+	// Accept any row of the item (its summary row or a child row): resolve to
+	// the item path by dropping trailing map-key segments.
+	item := itemPathFrom(cv.linePaths[row])
+	if cv.itemExpanded == nil {
+		cv.itemExpanded = map[string]bool{}
+	}
+	cv.itemExpanded[item] = expanded
+	cv.refreshLines()
+}
+
+// itemPathFrom resolves a dotted path to its owning list-item path by
+// dropping trailing map-key segments ("playlists.0.name" -> "playlists.0").
+func itemPathFrom(p string) string {
+	parts := strings.Split(p, ".")
+	for len(parts) > 1 {
+		if _, err := strconv.Atoi(parts[len(parts)-1]); err == nil {
+			return strings.Join(parts, ".")
+		}
+		parts = parts[:len(parts)-1]
+	}
+	return p
+}
+
+// isExpandedItemHeading reports whether a content row is the heading row of
+// an expanded list item: it is a full-row (non-value) row whose owning item
+// path — itself included — is currently expanded.
+func (cv *ConfigView) isExpandedItemHeading(row int) bool {
+	if row < 0 || row >= len(cv.linePaths) || cv.lineIsValue[row] || cv.lineIsSummary[row] {
+		return false
+	}
+	path := cv.linePaths[row]
+	if path == "" {
+		return false
+	}
+	// The heading row of item "playlists.0" carries exactly that path (its
+	// children carry longer paths).
+	if itemPathFrom(path) != path {
+		return false
+	}
+	return cv.itemExpanded[path]
 }
 
 // mapValue returns the string value of a mapping key, or "".
@@ -205,7 +330,7 @@ func (cv *ConfigView) Lines() []string {
 	}
 	out := make([]string, len(cv.keyCols))
 	for i := range cv.keyCols {
-		if cv.lineIsValue[i] {
+		if cv.lineIsValue[i] || cv.lineIsSummary[i] {
 			pad := maxKey + 2 - lipgloss.Width(cv.keyCols[i])
 			if pad < 2 {
 				pad = 2
@@ -273,7 +398,7 @@ func (cv *ConfigView) RenderTable(width int) []string {
 			sepPending = false
 		}
 		var row string
-		if cv.lineIsValue[i] {
+		if cv.lineIsValue[i] || cv.lineIsSummary[i] {
 			row = "│ " + fmt.Sprintf("%-*s", keyW, cv.keyCols[i]) + " │ " + fmt.Sprintf("%-*s", valW, cv.values[i]) + " │"
 		} else {
 			// heading: spans both columns
@@ -363,6 +488,7 @@ func (cv *ConfigView) refreshLines() {
 	cv.values = nil
 	cv.linePaths = nil
 	cv.lineIsValue = nil
+	cv.lineIsSummary = nil
 	cv.separators = nil
 	if cv.doc == nil {
 		return

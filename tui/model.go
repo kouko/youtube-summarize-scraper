@@ -346,6 +346,9 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 			// Enter on the focused config card opens the file-picker popup.
 			m.pickerOpen = true
 		case PanelConfig:
+			if m.toggleCollapsedItem() {
+				return m, nil
+			}
 			m.startEdit()
 		}
 		return m, nil
@@ -545,6 +548,31 @@ func (m *Model) commitEdit() {
 		return
 	}
 	m.state.UpdateConfig(path, out)
+}
+
+// toggleCollapsedItem expands or collapses the list item under the config
+// cursor (user feedback option B). It reports whether the row was a collapsed
+// item row; other rows fall through to value editing.
+func (m *Model) toggleCollapsedItem() bool {
+	if m.configView == nil {
+		return false
+	}
+	tableLine := m.configVP.YOffset() + m.configCursor
+	contentLine := m.configView.TableContentIndex(tableLine)
+	if contentLine < 0 || contentLine >= len(m.configView.lineIsSummary) {
+		return false
+	}
+	if m.configView.lineIsSummary[contentLine] {
+		m.configView.ExpandItem(contentLine)
+		return true
+	}
+	// An expanded item's child row collapses back with Esc; Enter on a value
+	// row edits it. But Enter on an expanded item's own heading row collapses.
+	if m.configView.isExpandedItemHeading(contentLine) {
+		m.configView.CollapseItem(contentLine)
+		return true
+	}
+	return false
 }
 
 // configCursorUp moves the selection cursor up one content row, skipping
