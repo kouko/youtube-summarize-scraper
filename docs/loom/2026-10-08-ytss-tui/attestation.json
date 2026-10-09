@@ -1,7 +1,7 @@
 {
   "schema": "loom-attestation/v2",
   "change_id": "2026-10-08-ytss-tui",
-  "content_digest": "faeebccaa58c1f439b74d878b55787372cbeaa2a",
+  "content_digest": "d08bb8bd3308e3d8dd9abab442bdd43c1f5bf727",
   "executions": [
     {
       "kind": "package-tests",
@@ -24,7 +24,7 @@
       "vendor": "claude",
       "model": "opus",
       "lens": "code",
-      "verdict": "PASS",
+      "verdict": "PASS_WITH_NOTES",
       "findings": []
     },
     {
@@ -32,7 +32,7 @@
       "vendor": "claude",
       "model": "opus",
       "lens": "code",
-      "verdict": "PASS_WITH_NOTES",
+      "verdict": "PASS",
       "findings": []
     }
   ],
