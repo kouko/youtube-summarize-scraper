@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	"charm.land/lipgloss/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,12 +25,16 @@ type ConfigView struct {
 	// doc is the parsed YAML document tree (order-preserving); it is the
 	// write-back target for edits (preserves key order and comments).
 	doc *yaml.Node
-	// lines are the structured view, one string per rendered line
-	lines []string
-	// linePaths[i] is the dotted key path of lines[i] ("" for headings); a
-	// line is editable when it has a path and is a scalar value line.
+	// keyCols[i] is the indented key column of row i (headings and item
+	// labels span the full row, value rows leave the value column empty
+	// here — see values).
+	keyCols []string
+	// values[i] is the scalar value of row i ("" for headings/labels).
+	values []string
+	// linePaths[i] is the dotted key path of row i ("" for headings); a row
+	// is editable when it has a path and a value.
 	linePaths []string
-	// lineIsValue[i] marks scalar "key: value" lines (editable).
+	// lineIsValue[i] marks scalar value rows (editable).
 	lineIsValue []bool
 	// error holds any parsing error
 	error error
@@ -55,7 +60,8 @@ func (cv *ConfigView) parse(content string) error {
 		return err
 	}
 	cv.doc = &doc
-	cv.lines = nil
+	cv.keyCols = nil
+	cv.values = nil
 	cv.linePaths = nil
 	cv.lineIsValue = nil
 	if doc.Kind == 0 {
@@ -66,7 +72,7 @@ func (cv *ConfigView) parse(content string) error {
 		return nil
 	}
 	if root.Kind != yaml.MappingNode {
-		cv.addLine(scalarString(root), "", false)
+		cv.addHeading(scalarString(root))
 		return nil
 	}
 	cv.walkMapping(root, "", 0)
@@ -87,11 +93,20 @@ func indent(n int) string {
 	return strings.Repeat("  ", n)
 }
 
-// addLine appends a rendered line with its edit metadata.
-func (cv *ConfigView) addLine(text, path string, isValue bool) {
-	cv.lines = append(cv.lines, text)
+// addHeading appends a full-row line (section heading or list item label).
+func (cv *ConfigView) addHeading(text string) {
+	cv.keyCols = append(cv.keyCols, text)
+	cv.values = append(cv.values, "")
+	cv.linePaths = append(cv.linePaths, "")
+	cv.lineIsValue = append(cv.lineIsValue, false)
+}
+
+// addKeyValue appends an indented "key | value" row with edit metadata.
+func (cv *ConfigView) addKeyValue(keyCol, value, path string) {
+	cv.keyCols = append(cv.keyCols, keyCol)
+	cv.values = append(cv.values, value)
 	cv.linePaths = append(cv.linePaths, path)
-	cv.lineIsValue = append(cv.lineIsValue, isValue)
+	cv.lineIsValue = append(cv.lineIsValue, true)
 }
 
 // walkMapping renders a mapping: headings at depth 0, indented key-value
@@ -105,13 +120,13 @@ func (cv *ConfigView) walkMapping(m *yaml.Node, prefix string, depth int) {
 		}
 		switch val.Kind {
 		case yaml.MappingNode:
-			cv.addLine(indent(depth)+key.Value, "", false)
+			cv.addHeading(indent(depth) + key.Value)
 			cv.walkMapping(val, path, depth+1)
 		case yaml.SequenceNode:
-			cv.addLine(indent(depth)+fmt.Sprintf("%s (%d)", key.Value, len(val.Content)), "", false)
+			cv.addHeading(indent(depth) + fmt.Sprintf("%s (%d)", key.Value, len(val.Content)))
 			cv.walkSequence(val, path, depth+1)
 		default:
-			cv.addLine(indent(depth)+key.Value+": "+scalarString(val), path, true)
+			cv.addKeyValue(indent(depth)+key.Value, scalarString(val), path)
 		}
 	}
 }
@@ -130,10 +145,10 @@ func (cv *ConfigView) walkSequence(seq *yaml.Node, prefix string, depth int) {
 			} else if url := mapValue(item, "url"); url != "" {
 				label += " " + url
 			}
-			cv.addLine(indent(depth)+label, "", false)
+			cv.addHeading(indent(depth) + label)
 			cv.walkMapping(item, path, depth+1)
 		default:
-			cv.addLine(indent(depth)+label+" "+scalarString(item), path, true)
+			cv.addKeyValue(indent(depth)+label, scalarString(item), path)
 		}
 	}
 }
@@ -160,19 +175,40 @@ func scalarString(n *yaml.Node) string {
 	return s
 }
 
-// Lines returns the structured tree view, one string per line.
+// Lines returns the structured tree view, one string per line. Value rows
+// are aligned into two columns: the widest key column sets the value column
+// start (a table look, user feedback 2026-10-09).
 func (cv *ConfigView) Lines() []string {
-	return cv.lines
+	maxKey := 0
+	for i, isV := range cv.lineIsValue {
+		if isV {
+			if w := lipgloss.Width(cv.keyCols[i]); w > maxKey {
+				maxKey = w
+			}
+		}
+	}
+	out := make([]string, len(cv.keyCols))
+	for i := range cv.keyCols {
+		if cv.lineIsValue[i] {
+			pad := maxKey + 2 - lipgloss.Width(cv.keyCols[i])
+			if pad < 2 {
+				pad = 2
+			}
+			out[i] = cv.keyCols[i] + strings.Repeat(" ", pad) + cv.values[i]
+		} else {
+			out[i] = cv.keyCols[i]
+		}
+	}
+	return out
 }
 
 // EditTargetForLine returns the dotted key path and scalar value of a value
 // line (spec amend2 REQ-8). ok is false for headings and out-of-range lines.
 func (cv *ConfigView) EditTargetForLine(line int) (path, value string, ok bool) {
-	if line < 0 || line >= len(cv.lines) || !cv.lineIsValue[line] {
+	if line < 0 || line >= len(cv.keyCols) || !cv.lineIsValue[line] {
 		return "", "", false
 	}
-	_, value, _ = strings.Cut(cv.lines[line], ": ")
-	return cv.linePaths[line], value, true
+	return cv.linePaths[line], cv.values[line], true
 }
 
 // SetValue updates a scalar value by dotted key path, then re-renders the
@@ -208,7 +244,8 @@ func (cv *ConfigView) Serialized() (string, error) {
 
 // refreshLines re-renders the view lines after an edit.
 func (cv *ConfigView) refreshLines() {
-	cv.lines = nil
+	cv.keyCols = nil
+	cv.values = nil
 	cv.linePaths = nil
 	cv.lineIsValue = nil
 	if cv.doc == nil {
@@ -219,7 +256,7 @@ func (cv *ConfigView) refreshLines() {
 		return
 	}
 	if root.Kind != yaml.MappingNode {
-		cv.addLine(scalarString(root), "", false)
+		cv.addHeading(scalarString(root))
 		return
 	}
 	cv.walkMapping(root, "", 0)

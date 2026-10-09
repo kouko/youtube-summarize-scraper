@@ -25,13 +25,13 @@ whisper:
 	joined := strings.Join(cv.Lines(), "\n")
 	for _, want := range []string{
 		"llm",
-		"provider: claude-api",
-		"model: opus",
+		"provider      claude-api",
+		"model         opus",
 		"channels (2)",
-		"[1] https://a",
-		"[2] https://b",
+		"[1]           https://a",
+		"[2]           https://b",
 		"whisper",
-		"max_duration: 1800",
+		"max_duration  1800",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("tree missing %q; lines=%q", want, cv.Lines())
@@ -114,12 +114,12 @@ playlists:
 	}
 	joined := strings.Join(lines, "\n")
 	for _, want := range []string{
-		"output_dir: /tmp/out",
-		"batch", "watch: true", "watch_interval: 10",
+		"output_dir        /tmp/out",
+		"batch", "watch           true", "watch_interval  10",
 		"playlists (2)",
-		"[1]", "Watch Later", "count: 10",
-		"browser: chrome",
-		"[2]", "Graph History", "count: 99",
+		"[1] Watch Later", "count         10",
+		"browser     chrome",
+		"[2] Graph History", "count         99",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("tree missing %q; lines=%q", want, lines)
@@ -134,7 +134,7 @@ playlists:
 func TestConfigTreePreservesOrder(t *testing.T) {
 	cv := NewConfigView("zzz: 1\naaa: 2\n")
 	lines := cv.Lines()
-	if len(lines) == 0 || !strings.HasPrefix(lines[0], "zzz:") {
+	if len(lines) == 0 || !strings.HasPrefix(lines[0], "zzz ") {
 		t.Errorf("first line %q, want zzz first (document order)", lines[0])
 	}
 }
@@ -182,7 +182,7 @@ func TestConfigTreeSetValueWritesBack(t *testing.T) {
 		t.Fatalf("SetValue: %v", err)
 	}
 	joined := strings.Join(cv.Lines(), "\n")
-	if !strings.Contains(joined, "provider: ollama") {
+	if !strings.Contains(joined, "provider  ollama") {
 		t.Errorf("tree not updated after SetValue; lines=%q", cv.Lines())
 	}
 	out, err := cv.Serialized()
@@ -194,5 +194,26 @@ func TestConfigTreeSetValueWritesBack(t *testing.T) {
 	}
 	if !strings.Contains(out, "provider: ollama") {
 		t.Errorf("serialized YAML missing new value; out=%q", out)
+	}
+}
+
+// (user feedback, 2026-10-09): the tree indents but does not align values —
+// sibling keys' values should start at the same column, like a table.
+func TestConfigTreeAlignedColumns(t *testing.T) {
+	yaml := "batch:\n  watch: true\n  watch_interval: 10\nllm:\n  provider: claude-api\n  model: opus\n"
+	cv := NewConfigView(yaml)
+	lines := cv.Lines()
+	// Siblings under "batch": the values start at the same display column.
+	i1 := strings.Index(lines[1], "true")
+	i2 := strings.Index(lines[2], "10")
+	if i1 == -1 || i2 == -1 {
+		t.Fatalf("values not found in lines %q", lines)
+	}
+	if i1 != i2 {
+		t.Errorf("sibling values not aligned: col %d vs %d\n  %q\n  %q", i1, i2, lines[1], lines[2])
+	}
+	// Headings still occupy a full line (no value column).
+	if strings.Contains(lines[0], "watch") {
+		t.Errorf("heading line %q looks like a value line", lines[0])
 	}
 }
