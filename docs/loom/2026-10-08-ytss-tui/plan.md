@@ -1,6 +1,6 @@
 # ytss TUI — plan
 intent: 2026-10-08-ytss-tui@37fe688
-spec: docs/loom/2026-10-08-ytss-tui/spec.md@f230298
+spec: docs/loom/2026-10-08-ytss-tui/spec.md@amend1
 charter: 1.1
 
 ## Task DAG
@@ -12,6 +12,7 @@ Wave 1 — event bridge (parse slog lines + bounded non-blocking queue + AppStat
 Wave 2 — TUI core (bubbletea v2 model: file picker, config display, layout, keymap)
 Wave 3 — pipeline integration (in-process runner + live status)
 Wave 4 — polish & edge cases (quit confirm, resize, empty dirs)
+Wave 5 — spec amend1: config card + popup picker + sectioned config tree (2026-10-09, user-approved)
 
 **W1-01 Log-line parser**  after: none  acceptance: 3, 4
 - Files: tui/parse.go, tui/parse_test.go
@@ -52,6 +53,16 @@ Wave 4 — polish & edge cases (quit confirm, resize, empty dirs)
 - Files: tui/model.go, tui/model_test.go
 - Test: A7 positive: q while running shows confirm, second q quits after cancel; boundary: q when idle quits immediately; boundary: resize updates layout.
 - Risk: confirm flow loses pipeline exit event; default keep goroutine posting SetRunning(false) — agent-decided.
+
+**W5-01 Config card + popup picker**  after: W4-01  acceptance: 1, 2 (amend1)
+- Files: tui/model.go, tui/model_test.go, tui/filepicker.go
+- Test: A1 positive: card shows current path (or "(no config selected)"), card renders at content height (short card, top-aligned); A2 positive: Enter on focused card opens popup, Enter on a .yaml closes popup and loads it; boundary: Esc closes popup without selecting; boundary: popup owns keys while open.
+- Risk: popup overlay covers the frame; default render popup over the frozen frame with lipgloss.Place, keys routed to picker while open — agent-decided.
+
+**W5-02 Sectioned config tree**  after: W4-01  acceptance: 3 (amend1)
+- Files: tui/config.go, tui/config_test.go
+- Test: A3 positive: top-level sections get heading lines; nested keys render indented; playlists/channels arrays render as numbered items with name/url/count and indented sub-maps (cookie/copy_to); boundary: no raw map[...] dumps anywhere in the output; boundary: invalid YAML renders error text.
+- Risk: deep recursion on exotic YAML; default depth-cap + generic fallback rendering — agent-decided.
 
 ## Simplicity check
 - bubbletea built-in filepicker — taken
