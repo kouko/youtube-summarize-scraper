@@ -173,3 +173,31 @@ func TestModelSecondStartIgnored(t *testing.T) {
 		t.Error("isRunning flipped false by ignored StartRunMsg")
 	}
 }
+
+// Regression: arrow keys with file-picker focus must keep the main Model as
+// the program model. handleUp/handleDown once returned the FilePickerModel
+// itself, which replaced the whole TUI with the bare picker view (alt screen
+// off, q dead) after the first ↑/↓.
+func TestModelArrowKeysKeepMainModel(t *testing.T) {
+	m := sizedModel()
+
+	got, _ := m.Update(pressKey("up"))
+	if _, ok := got.(*Model); !ok {
+		t.Fatalf("after ↑ the program model is %T, want *Model (the TUI was replaced by the picker)", got)
+	}
+	got, _ = m.Update(pressKey("down"))
+	if _, ok := got.(*Model); !ok {
+		t.Fatalf("after ↓ the program model is %T, want *Model", got)
+	}
+	// The four panels must still render, and q must still quit.
+	after := got.(*Model)
+	after.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	content := viewContent(t, after)
+	if !strings.Contains(content, "Execution Status") {
+		t.Error("four-panel layout lost after arrow keys")
+	}
+	_, cmd := after.handleKey(pressKey("q"))
+	if cmd == nil {
+		t.Error("q no longer quits after arrow keys")
+	}
+}

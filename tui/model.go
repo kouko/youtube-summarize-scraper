@@ -256,7 +256,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.focus {
 	case PanelFilePicker:
-		return m.filePicker.Update(msg)
+		// Update the picker in place: returning its model would replace the
+		// whole program model and swap the TUI for the bare picker view.
+		var cmd tea.Cmd
+		var picked tea.Model
+		picked, cmd = m.filePicker.Update(msg)
+		m.filePicker = picked.(*FilePickerModel)
+		return m, cmd
 	case PanelConfig:
 		// Scroll up in config view (if implemented)
 		return m, nil
@@ -270,7 +276,11 @@ func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 func (m *Model) handleDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	switch m.focus {
 	case PanelFilePicker:
-		return m.filePicker.Update(msg)
+		var cmd tea.Cmd
+		var picked tea.Model
+		picked, cmd = m.filePicker.Update(msg)
+		m.filePicker = picked.(*FilePickerModel)
+		return m, cmd
 	case PanelConfig:
 		return m, nil
 	case PanelEvents:
