@@ -1,6 +1,6 @@
 # ytss TUI — plan
 intent: 2026-10-08-ytss-tui@37fe688
-spec: docs/loom/2026-10-08-ytss-tui/spec.md@amend1
+spec: docs/loom/2026-10-08-ytss-tui/spec.md@amend2
 charter: 1.1
 
 ## Task DAG
@@ -63,6 +63,26 @@ Wave 5 — spec amend1: config card + popup picker + sectioned config tree (2026
 - Files: tui/config.go, tui/config_test.go
 - Test: A3 positive: top-level sections get heading lines; nested keys render indented; playlists/channels arrays render as numbered items with name/url/count and indented sub-maps (cookie/copy_to); boundary: no raw map[...] dumps anywhere in the output; boundary: invalid YAML renders error text.
 - Risk: deep recursion on exotic YAML; default depth-cap + generic fallback rendering — agent-decided.
+
+**W5-03 Live redraw**  after: W5-02  acceptance: 8 (amend2 REQ-6)
+- Files: tui/bridge.go, tui/bridge_test.go, cmd/tui.go, tui/model.go
+- Test: SetNotify fires after each applied event; the model redraws via RefreshMsg (Program.Send on its own goroutine — Send blocks on a busy unbuffered queue).
+- Risk: bridge goroutine stalls on Program.Send; default own-goroutine poke — agent-decided.
+
+**W5-04 Viewport scrolling**  after: W5-02  acceptance: 9 (amend2 REQ-7)
+- Files: tui/model.go, tui/model_test.go
+- Test: wheel over a bottom panel scrolls that panel without changing focus; keyboard ↑↓ scrolls the focused panel; events viewport pinned to newest unless scrolled up.
+- Risk: wheel target ambiguity; default pointer-position routing over the bottom band — agent-decided.
+
+**W5-05 Config value editing**  after: W5-04  acceptance: 10 (amend2 REQ-8)
+- Files: tui/config.go, tui/config_test.go, tui/model.go, tui/model_test.go
+- Test: Enter on a value row opens the editor prefilled; commit writes the YAML file (yaml.Node round-trip preserves order/comments) and reloads the tree; Esc cancels; collapsed list items toggle expand/collapse instead.
+- Risk: file corruption on malformed edits; default SetValue rejects non-scalars, write failures surface as ERROR events — agent-decided.
+
+**W5-06 Table display polish**  after: W5-05  acceptance: 3, 9 (user feedback 2026-10-09)
+- Files: tui/config.go, tui/config_test.go, tui/model.go
+- Test: bordered two-column table with separators before sections/items; list items collapsed to one line (Enter expands); name/channel_name-first summaries; every row truncates to the panel width (no wrapping).
+- Risk: ambiguous-width glyphs wrap rows; default ASCII markers + fixed-width table — agent-decided.
 
 ## Simplicity check
 - bubbletea built-in filepicker — taken
