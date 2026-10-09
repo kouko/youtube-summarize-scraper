@@ -380,3 +380,31 @@ func TestConfigTableRowsFitWidth(t *testing.T) {
 		}
 	}
 }
+
+// (user feedback 2026-10-10): a wide key column (deep indent, long collapsed
+// labels) squeezes the value column until values barely show. The key column
+// is capped at 40% of the table width and the key text truncates too, so the
+// value column always keeps >= 50% minus borders.
+func TestConfigTableKeyColumnCapped(t *testing.T) {
+	yaml := "channels:\n  - url: https://www.youtube.com/@VeryLongChannelName\n    channel_name: A Very Long Collapsed Label Indeed\n    count: 5\n"
+	cv := NewConfigView(yaml)
+	rows := cv.RenderTable(60)
+	// find the value column start from the header row: after "│ Key" padding
+	header := rows[1]
+	sep := strings.Index(header[1:], "│") + 1
+	if sep < 0 {
+		t.Fatalf("no column separator in header %q", header)
+	}
+	// value column width = from separator to row end; it must be at least
+	// 40% of the table width
+	valW := lipgloss.Width(header) - sep - 2
+	if valW < 60*2/5 {
+		t.Errorf("value column too narrow (%d) at width 60; header=%q", valW, header)
+	}
+	// keys themselves truncate to the key column (no row exceeds width)
+	for _, r := range rows {
+		if w := lipgloss.Width(r); w > 60 {
+			t.Errorf("row exceeds width: %q", r)
+		}
+	}
+}

@@ -382,13 +382,15 @@ func (cv *ConfigView) RenderTable(width int) []string {
 	if keyW < len("Key") {
 		keyW = len("Key")
 	}
-	// The table's total width is fixed: value column = width - key - borders
-	// (7). Long values/headings are truncated so no row ever wraps.
-	if keyW > width-7-12 {
-		keyW = width - 7 - 12
-		if keyW < len("Key") {
-			keyW = len("Key")
-		}
+	// Cap the key column at 40% of the available inner width so the value
+	// column keeps at least ~60% of the inner width (user feedback: key
+	// column was too wide, squeezing values).
+	maxKeyW := (width - 7) * 40 / 100
+	if keyW > maxKeyW {
+		keyW = maxKeyW
+	}
+	if keyW < len("Key") {
+		keyW = len("Key")
 	}
 	valW := width - keyW - 7
 	if valW < len("Value") {
@@ -420,7 +422,8 @@ func (cv *ConfigView) RenderTable(width int) []string {
 		var row string
 		if cv.lineIsValue[i] || cv.lineIsSummary[i] {
 			val := padToWidth(truncateANSI(cv.values[i], valW), valW)
-			row = "│ " + padToWidth(cv.keyCols[i], keyW) + " │ " + val + " │"
+			key := truncateANSI(cv.keyCols[i], keyW)
+			row = "│ " + padToWidth(key, keyW) + " │ " + val + " │"
 		} else {
 			// heading: spans both columns, truncated to the inner width
 			inner := width - 4 // "│ " ... " │"
