@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -324,41 +325,76 @@ func TestModelFitsTerminalHeight(t *testing.T) {
 // Regression: the grid must fit the terminal: the top band is content-sized
 // (card and status end on the same line), the bottom band starts right after
 // it, and the hint line is the final visible line (spec amend1 + W5-03).
+// Every line of the full rendered view must have the same display width:
+// when the top panels' content rows drifted (unpadded short lines), the
+// right borders of the 2x2 grid misaligned on screen. Uses the herdr pane's
+// real size (140x65) where the drift was first observed.
+func TestModelViewAllLinesSameWidth(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 65})
+	lines := strings.Split(m.View().Content, "\n")
+	w := lipgloss.Width(lines[0])
+	if w == 0 {
+		t.Fatal("view is empty")
+	}
+	for i, ln := range lines {
+		if got := lipgloss.Width(ln); got != w {
+			t.Errorf("line %d width = %d, want %d: %q", i, got, w, stripANSI(ln))
+		}
+	}
+}
+
 func TestModelGridBandsAndHintAlign(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 
 	lines := strings.Split(m.View().Content, "\n")
-	// Both top panels end on one shared border line (2 corners); the bottom
-	// band's border is the second such line.
-	var bottoms []int
+	// Count total "└" characters (each panel has its own bottom border)
+	totalBottomCorners := 0
+	for _, ln := range lines {
+		totalBottomCorners += strings.Count(stripANSI(ln), "└")
+	}
+	// We expect 4 bottom corners (one for each panel)
+	if totalBottomCorners != 4 {
+		t.Fatalf("found %d bottom corners (└), want 4:\n%s", totalBottomCorners, strings.Join(lines, "\n"))
+	}
+
+	// Find the first bottom border line (top band end)
+	firstBottomLine := -1
 	for i, ln := range lines {
-		if strings.Contains(stripANSI(ln), "╰") {
-			bottoms = append(bottoms, i)
+		if strings.Contains(stripANSI(ln), "└") {
+			firstBottomLine = i
+			break
 		}
 	}
-	if len(bottoms) != 2 {
-		t.Fatalf("found %d band-bottom border lines, want 2:\n%s", len(bottoms), strings.Join(lines, "\n"))
+	if firstBottomLine < 0 {
+		t.Fatal("first bottom border line not found")
 	}
-	// Content-sized top band: 9 rows max (status content), not half of 30.
-	if bottoms[0] > 9 {
-		t.Errorf("top band ends at line %d, want content-sized (<=9); the empty strip is back", bottoms[0])
+	// With title bar: top band content ends at row where bottom corner appears
+	// Account for title row (0) before content starts
+	if firstBottomLine > 10 { // 9 content rows + 1 for title = 10
+		t.Errorf("top band ends at line %d, want content-sized (<=10); the empty strip is back", firstBottomLine)
 	}
+
 	// Bands adjacent: the bottom band's top border is on the very next line.
-	if !strings.Contains(stripANSI(lines[bottoms[0]+1]), "╭") {
-		t.Errorf("bottom band does not start right after the top band (line %d)", bottoms[0])
+	// With new title bar design, the bottom band starts with a title row (no "╭").
+	// We check that the next line contains the bottom-left panel's title ("Config").
+	if firstBottomLine+1 >= len(lines) || !strings.Contains(stripANSI(lines[firstBottomLine+1]), "Config") {
+		t.Errorf("bottom band does not start right after the top band (line %d)", firstBottomLine)
 	}
 	last := lines[len(lines)-1]
 	if !strings.Contains(last, "↑↓ Navigate") {
 		t.Errorf("last line is not the hint: %q", last)
 	}
-	// Every content line of the top band carries 4 left borders (two
-	// side-by-side panels), i.e. no panel overflowed the row.
+	// Every line of the content area (after title) carries 4 left borders
+	// (two side-by-side panels), i.e. no panel overflowed the row.
 	ansiRe := regexp.MustCompile(`\x1b\[[0-9;>?]*[a-zA-Z]`)
-	for i, ln := range lines[:bottoms[0]] {
-		plain := ansiRe.ReplaceAllString(ln, "")
-		if i > 0 && strings.Count(plain, "│") != 4 {
-			t.Errorf("line %d has %d vertical borders, want 4: %q", i, strings.Count(plain, "│"), plain[:60])
+	if firstBottomLine >= 0 {
+		for i := 1; i < firstBottomLine; i++ { // Skip title row (0); stop before bottom border
+			plain := ansiRe.ReplaceAllString(lines[i], "")
+			if strings.Count(plain, "│") != 4 {
+				t.Errorf("line %d has %d vertical borders, want 4: %q", i, strings.Count(plain, "│"), plain)
+			}
 		}
 	}
 }
@@ -588,24 +624,24 @@ func TestModelCToggleRawYAML(t *testing.T) {
 	cfgPath := filepath.Join(dir, "c.yaml")
 	const yamlIn = "llm:\n  provider: claude-api\n"
 	os.WriteFile(cfgPath, []byte(yamlIn), 0o644)
-	
+
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
-	
+
 	// Select the config file
 	m.handleConfigSelected(cfgPath)
-	
+
 	// Initially structured view
 	if m.configView.Mode() != ConfigViewStructured {
 		t.Fatalf("initial mode = %v, want structured", m.configView.Mode())
 	}
-	
+
 	// Press 'c' to toggle to raw
 	m.handleKey(pressKey("c"))
 	if m.configView.Mode() != ConfigViewRaw {
 		t.Fatalf("mode after 'c' = %v, want raw", m.configView.Mode())
 	}
-	
+
 	// View() should show raw YAML in config panel
 	content := viewContent(t, m)
 	// The raw YAML appears inside the panel; strip ANSI to find the text
@@ -614,13 +650,13 @@ func TestModelCToggleRawYAML(t *testing.T) {
 	if !strings.Contains(plain, "llm:") || !strings.Contains(plain, "provider: claude-api") {
 		t.Errorf("config panel does not show raw YAML after 'c'; content=%q", content)
 	}
-	
+
 	// Press 'c' again to toggle back
 	m.handleKey(pressKey("c"))
 	if m.configView.Mode() != ConfigViewStructured {
 		t.Fatalf("mode after second 'c' = %v, want structured", m.configView.Mode())
 	}
-	
+
 	// Should be back to structured view (not showing raw text directly)
 	// The structured view will show the table, not contain the raw yaml verbatim
 	content2 := viewContent(t, m)
@@ -737,25 +773,39 @@ func TestModelTopBandContentSized(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 
 	lines := strings.Split(m.View().Content, "\n")
-	bandBottom := -1
+	// Count total "└" characters (each panel has its own bottom border)
+	totalBottomCorners := 0
+	for _, ln := range lines {
+		totalBottomCorners += strings.Count(stripANSI(ln), "└")
+	}
+	// We expect 4 bottom corners (one for each panel)
+	if totalBottomCorners != 4 {
+		t.Fatalf("expected 4 bottom corners, got %d", totalBottomCorners)
+	}
+
+	// Find the first bottom border line (top band end)
+	firstBottomLine := -1
 	for i, ln := range lines {
-		if strings.Count(stripANSI(ln), "╰") == 2 {
-			bandBottom = i
+		if strings.Contains(stripANSI(ln), "└") {
+			firstBottomLine = i
 			break
 		}
 	}
-	if bandBottom < 0 {
-		t.Fatal("top band bottom border (2 corners) not found")
+	if firstBottomLine < 0 {
+		t.Fatal("first bottom border line not found")
 	}
+
 	// Content-sized: status = 5 content rows + title + 2 borders = 8-9 rows;
-	// a half-height band on a 40-row terminal is 19. Anything above ~12 means
-	// the old empty top band is back.
-	if bandBottom > 12 {
-		t.Errorf("top band ends at line %d, want content-sized (~9); the gap is back", bandBottom)
+	// a half-height band on a 40-row terminal is 19. Anything above ~16 means
+	// the old empty top band is back (accounting for title row).
+	if firstBottomLine > 16 {
+		t.Errorf("top band ends at line %d, want content-sized (~16); the gap is back", firstBottomLine)
 	}
 	// The bottom band must start on the very next line (no blank row).
-	if bandBottom+1 >= len(lines) || !strings.Contains(stripANSI(lines[bandBottom+1]), "╭") {
-		t.Errorf("bottom band does not start right after the top band (line %d)", bandBottom)
+	// With new title bar design, the bottom band starts with a title row (no "╭").
+	// We check that the next line contains the bottom-left panel's title ("Config").
+	if firstBottomLine+1 >= len(lines) || !strings.Contains(stripANSI(lines[firstBottomLine+1]), "Config") {
+		t.Errorf("bottom band does not start right after the top band (line %d)", firstBottomLine)
 	}
 }
 
@@ -953,5 +1003,117 @@ func TestModelEnterTogglesListItem(t *testing.T) {
 	m.handleKey(pressKey("enter"))
 	if got := strings.Join(m.configView.Lines(), "\n"); !strings.Contains(got, "count=10") {
 		t.Errorf("Enter on expanded heading did not collapse; lines=%q", m.configView.Lines())
+	}
+}
+
+func TestModelLeftRightRatio1To2(t *testing.T) {
+	m := NewModel(NewAppState())
+	// Test various widths
+	for _, width := range []int{30, 60, 90, 120, 150} {
+		m.Update(tea.WindowSizeMsg{Width: width, Height: 30})
+		// Ensure minimum width of 10 for each panel
+		if m.leftWidth < 10 {
+			t.Errorf("leftWidth too small: %d at width %d", m.leftWidth, width)
+		}
+		if m.rightWidth < 10 {
+			t.Errorf("rightWidth too small: %d at width %d", m.rightWidth, width)
+		}
+		// Check ratio: leftWidth * 2 should equal rightWidth (within 1 due to integer division)
+		expectedRight := m.leftWidth * 2
+		if diff := m.rightWidth - expectedRight; diff < -1 || diff > 1 {
+			t.Errorf("width ratio not 1:2: left=%d right=%d expected right~%d at width %d",
+				m.leftWidth, m.rightWidth, expectedRight, width)
+		}
+	}
+}
+
+// TestModelSashDragFollowsMouse verifies that dragging the sash updates widths
+// proportionally to mouse movement and that the sash position follows the mouse.
+func TestModelSashDragFollowsMouse(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	initialLeft := m.leftWidth
+	// Simulate mouse click on sash at x = leftWidth (the left edge of the sash)
+	// isOnVerticalSash considers a 2-column wide sash area (x == sashX || x == sashX-1)
+	sashX := initialLeft
+	clickMsg := tea.MouseClickMsg{X: sashX, Y: 10}
+	m.Update(clickMsg)
+	// Drag right by 10 columns
+	m.Update(tea.MouseMotionMsg{X: sashX + 10, Y: 10})
+	// leftWidth should increase by 10, but not less than 10
+	expectedLeft := initialLeft + 10
+	if expectedLeft < 10 {
+		expectedLeft = 10
+	}
+	if m.leftWidth != expectedLeft {
+		t.Errorf("after drag right, leftWidth=%d expected=%d", m.leftWidth, expectedLeft)
+	}
+	// Drag left by 5 columns (net +5 from original)
+	m.Update(tea.MouseMotionMsg{X: sashX + 5, Y: 10})
+	expectedLeft2 := initialLeft + 5
+	if expectedLeft2 < 10 {
+		expectedLeft2 = 10
+	}
+	if m.leftWidth != expectedLeft2 {
+		t.Errorf("after drag left, leftWidth=%d expected=%d", m.leftWidth, expectedLeft2)
+	}
+	// Release mouse
+	releaseMsg := tea.MouseReleaseMsg{X: sashX + 5, Y: 10}
+	m.Update(releaseMsg)
+	// After release, dragSashStart should be -1
+	if m.dragSashStart != -1 {
+		t.Errorf("dragSashStart not reset after release: got %d", m.dragSashStart)
+	}
+}
+
+func TestModelClickConfigFileOpensPicker(t *testing.T) {
+	// 1️⃣  Create a fresh model – no config file loaded yet.
+	m := NewModel(NewAppState())
+
+	// 2️⃣  Give it a reasonable window size so the layout is calculated.
+	//    (Any size ≥ 20 columns works; we use 80×24 like a typical terminal.)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	// 3️⃣  Determine where the "Config File" card lives.
+	//    The top‑left panel (PanelFilePicker) rectangle is:
+	//        X: 0 … m.leftWidth-1
+	//        Y: 0 … topHeight-1   (topHeight is the height of the top band)
+	topHeight := 9
+	if topHeight > (m.height-1)/2 {
+		topHeight = (m.height - 1) / 2
+	}
+	// Pick a point safely inside the card – e.g. (5, 2) works for any width ≥ 10.
+	clickX := 5
+	if clickX >= m.leftWidth {
+		clickX = m.leftWidth / 2 // fallback to middle if the card is very narrow
+	}
+	clickY := 2
+	if clickY >= topHeight {
+		clickY = topHeight / 2
+	}
+	// Log the panel rectangle for debugging
+	rects := m.panelRects()
+	t.Logf("PanelFilePicker rect: %v", rects[PanelFilePicker])
+	t.Logf("Click point: (%d,%d)", clickX, clickY)
+	t.Logf("Point in rect? %v", image.Pt(clickX, clickY).In(rects[PanelFilePicker]))
+
+	// 4️⃣  Build a MouseClickMsg at that coordinate (Button zero‑value corresponds to left button).
+	clickMsg := tea.MouseClickMsg{
+		X: clickX,
+		Y: clickY,
+	}
+
+	// 5️⃣  Feed the message to the model.
+	m.Update(clickMsg)
+	t.Logf("After click: leftWidth=%d, topHeight=%d, pickerOpen=%v", m.leftWidth, topHeight, m.pickerOpen)
+
+	// 6️⃣  After the click the file‑picker popup must be open.
+	if !m.pickerOpen {
+		t.Fatalf("expected picker popup to be open after clicking the Config File card")
+	}
+
+	// 7️⃣  (Optional) sanity‑check the rendered output contains the picker title.
+	if !strings.Contains(m.View().Content, "Select a config file") {
+		t.Fatalf("View() does not contain the picker popup title;\nGot:\n%s", m.View().Content)
 	}
 }

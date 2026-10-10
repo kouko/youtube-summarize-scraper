@@ -643,7 +643,7 @@ func (cv *ConfigView) ItemAtPos(screenX, screenY int) int {
 	if tableY < 0 {
 		return -1
 	}
-	
+
 	// Each row is approximately 1 line (plus separators)
 	// We need to count how many lines we've passed including separators
 	row := 0
@@ -656,21 +656,21 @@ func (cv *ConfigView) ItemAtPos(screenX, screenY int) int {
 		}
 		row++
 	}
-	
+
 	if row < 0 || row >= len(cv.lineIsValue) {
 		return -1
 	}
-	
+
 	// Check if this row is a value row (editable)
 	if !cv.lineIsValue[row] {
 		return -1
 	}
-	
+
 	// Verify the column is within bounds (simplified check)
 	if screenX < 0 || screenX >= 80 {
 		return -1
 	}
-	
+
 	return row
 }
 
@@ -680,7 +680,7 @@ func (cv *ConfigView) PosToRow(screenY int) (int, bool) {
 	if tableY < 0 {
 		return 0, false
 	}
-	
+
 	row := 0
 	for i := 0; i < len(cv.sepFlags); i++ {
 		if i >= tableY {
@@ -691,15 +691,15 @@ func (cv *ConfigView) PosToRow(screenY int) (int, bool) {
 		}
 		row++
 	}
-	
+
 	if row < 0 || row >= len(cv.lineIsValue) {
 		return 0, false
 	}
-	
+
 	if !cv.lineIsValue[row] {
 		return 0, false
 	}
-	
+
 	return row, true
 }
 
@@ -716,12 +716,12 @@ func (cv *ConfigView) startEditAtRow(row int) error {
 	if !cv.IsLineEditable(row) {
 		return fmt.Errorf("line %d is not editable", row)
 	}
-	
+
 	path, value, ok := cv.EditTargetForLine(row)
 	if !ok {
 		return fmt.Errorf("could not get edit target for line %d", row)
 	}
-	
+
 	return cv.SetValue(path, value) // This will set the value to itself to start editing
 }
 
@@ -730,17 +730,17 @@ func (cv *ConfigView) showItemEditPopupInfo(itemIdx int) (string, error) {
 	if itemIdx < 0 || itemIdx >= len(cv.lineIsValue) {
 		return "", fmt.Errorf("invalid item index: %d", itemIdx)
 	}
-	
+
 	if !cv.lineIsValue[itemIdx] {
 		return "", fmt.Errorf("item %d is not a value line", itemIdx)
 	}
-	
+
 	// Get the key path for this item
 	path, _, ok := cv.EditTargetForLine(itemIdx)
 	if !ok {
 		return "", fmt.Errorf("could not get path for item %d", itemIdx)
 	}
-	
+
 	return path, nil
 }
 
@@ -749,7 +749,42 @@ func (cv *ConfigView) RectForItem(itemIdx int, offsetX int, offsetY int, cellWid
 	if itemIdx < 0 || itemIdx >= len(cv.lineIsValue) {
 		return image.Rectangle{}
 	}
-	
+
 	y := offsetY + (itemIdx * cellHeight)
 	return image.Rect(offsetX, y, offsetX+cellWidth, y+cellHeight)
+}
+
+// NaturalTableWidth returns the minimum width needed to display the table
+// without truncating any content (key or value columns).
+func (cv *ConfigView) NaturalTableWidth() int {
+	if len(cv.keyCols) == 0 {
+		return 0
+	}
+
+	// Calculate minimum key column width needed
+	keyW := 0
+	for i := range cv.keyCols {
+		if cv.lineIsValue[i] || cv.lineIsSummary[i] {
+			if w := runewidth.StringWidth(cv.keyCols[i]); w > keyW {
+				keyW = w
+			}
+		}
+	}
+	if keyW < len("Key") {
+		keyW = len("Key")
+	}
+
+	// Calculate minimum value column width needed
+	valW := 0
+	for i := range cv.values {
+		if w := runewidth.StringWidth(cv.values[i]); w > valW {
+			valW = w
+		}
+	}
+	if valW < len("Value") {
+		valW = len("Value")
+	}
+
+	// Total width: left border + key padding + key + separator + value padding + value + right border
+	return 2 + 1 + keyW + 2 + 1 + valW + 2 // │ Key │ Value │
 }

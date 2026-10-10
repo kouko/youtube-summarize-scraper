@@ -27,7 +27,7 @@ import (
 
 	"github.com/kouko/youtube-summarize-scraper/config"
 	"github.com/kouko/youtube-summarize-scraper/pipeline"
-	
+
 	// runewidth: display-width of runes (CJK = 2, ASCII = 1).
 	"github.com/mattn/go-runewidth"
 )
@@ -62,11 +62,12 @@ type Model struct {
 	width  int
 	height int
 	focus  FocusedPanel
-	
+
 	// Width tracking for resizable panels (left:config, right:status/events)
-	leftWidth  int
-	rightWidth int
-	dragSashStart int // -1 indicates not dragging, otherwise stores start X position
+	leftWidth           int
+	rightWidth          int
+	dragSashStart       int // -1 indicates not dragging, otherwise stores start X position
+	dragSashStartOffset int // offset from sash start X to leftWidth at click start
 
 	// Pipeline control
 	ctx       context.Context
@@ -103,7 +104,7 @@ type Model struct {
 	editPath string // dotted key path being edited
 
 	// For item editing popup
-	itemEditPopupIdx int // -1 indicates no item edit popup, otherwise stores the item index
+	itemEditPopupIdx int    // -1 indicates no item edit popup, otherwise stores the item index
 	itemEditContent  string // Content being edited in popup
 	itemEditPath     string // dotted key path being edited in popup
 
@@ -167,14 +168,17 @@ func NewModel(state *AppState) *Model {
 // closes it when the program quits, so the bridge consumer never leaks.
 func NewModelWithBridge(state *AppState, bridge *EventBridge) *Model {
 	m := &Model{
-		state:      state,
-		bridge:     bridge,
-		filePicker: NewFilePickerModel(),
-		focus:      PanelFilePicker,
-		styles:     DefaultStyles(),
-		configVP:   viewport.New(),
-		eventsVP:   viewport.New(),
-		editText:   textinput.New(),
+		state:               state,
+		bridge:              bridge,
+		filePicker:          NewFilePickerModel(),
+		focus:               PanelFilePicker,
+		styles:              DefaultStyles(),
+		configVP:            viewport.New(),
+		eventsVP:            viewport.New(),
+		editText:            textinput.New(),
+		dragSashStart:       -1,
+		dragSashStartOffset: 0,
+		itemEditPopupIdx:    -1,
 	}
 
 	// Initialize config view with empty content
@@ -206,12 +210,17 @@ func (m *Model) closeBridge() {
 
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
-	// Initialize width tracking for 1:2 ratio
-	m.leftWidth = m.width / 3
-	if m.leftWidth < 10 {
-		m.leftWidth = 10
+	// Initialize width tracking for 1:2 ratio based on known size, else defaults
+	if m.width > 0 {
+		m.leftWidth = m.width / 3
+		if m.leftWidth < 10 {
+			m.leftWidth = 10
+		}
+		m.rightWidth = m.width - m.leftWidth
+	} else {
+		m.leftWidth = 20
+		m.rightWidth = 40
 	}
-	m.rightWidth = m.width - m.leftWidth
 	m.dragSashStart = -1
 	m.itemEditPopupIdx = -1
 	m.applyPanelHeights()
@@ -238,13 +247,13 @@ func (m *Model) panelRects() map[FocusedPanel]image.Rectangle {
 
 	rects := make(map[FocusedPanel]image.Rectangle)
 	// PanelFilePicker (top-left)
-	rects[PanelFilePicker] = image.Rect(0, 0, m.leftWidth-1, topHeight-1)
+	rects[PanelFilePicker] = image.Rect(0, 0, m.leftWidth, topHeight)
 	// PanelStatus (top-right)
-	rects[PanelStatus] = image.Rect(m.leftWidth, 0, m.width-1, topHeight-1)
+	rects[PanelStatus] = image.Rect(m.leftWidth, 0, m.width, topHeight)
 	// PanelConfig (bottom-left)
-	rects[PanelConfig] = image.Rect(0, topHeight, m.leftWidth-1, m.height-2) // -2 for hint line
+	rects[PanelConfig] = image.Rect(0, topHeight, m.leftWidth, m.height-1) // -1 for hint line
 	// PanelEvents (bottom-right)
-	rects[PanelEvents] = image.Rect(m.leftWidth, topHeight, m.width-1, m.height-2)
+	rects[PanelEvents] = image.Rect(m.leftWidth, topHeight, m.width, m.height-1)
 	return rects
 }
 
@@ -274,10 +283,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		isKey = true
 		keyStr = k.String()
 	}
-	
+
 	// Allow Tab/Shift+Tab to always be handled by the main model for focus switching
 	// Also allow 'c' for config toggle and 'r' for run to work from any panel
-	shouldForwardToPicker := !isKey || m.pickerOpen || (m.focus == PanelFilePicker && keyStr != "enter" && keyStr != "tab" && keyStr != "shift+tab" && keyStr != "c" && keyStr != "r")
+	// Forward to file picker if:
+	// - it's a non-key message that the file picker owns (readDirMsg, WindowSizeMsg, etc.)
+	// - OR it's a non-key mouse message AND the picker popup is open (so file picker can handle internal mouse interactions)
+	// - OR it's a key message and (picker is open OR picker panel is focused and key is not excluded)
+	shouldForwardToPicker := false
+	if !isKey {
+		// Non-key messages
+		switch msg.(type) {
+		case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg:
+			// Forward mouse messages only when picker popup is open
+			shouldForwardToPicker = m.pickerOpen
+		default:
+			// readDirMsg, WindowSizeMsg, etc. that file picker owns
+			shouldForwardToPicker = true
+		}
+	} else {
+		// Key messages: forward when picker is open or picker panel focused (except excluded keys)
+		shouldForwardToPicker = m.pickerOpen || (m.focus == PanelFilePicker && keyStr != "enter" && keyStr != "tab" && keyStr != "shift+tab" && keyStr != "c" && keyStr != "r")
+	}
 	if !shouldForwardToPicker {
 		// Process the message normally in the main model
 	} else {
@@ -294,9 +321,33 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		// If user hasn't dragged the sash, reset to 1:2 ratio based on new size
+		if m.dragSashStart == -1 {
+			idealLeft := m.width / 3
+			if idealLeft < 10 {
+				idealLeft = 10
+			}
+			idealRight := m.width - idealLeft
+			if idealRight < 10 {
+				// Not enough space for 1:2 with min 10 each
+				if m.width < 20 {
+					// Too narrow, split evenly
+					idealLeft = m.width / 2
+					idealRight = m.width - idealLeft
+				} else {
+					idealLeft = m.width - 10
+					idealRight = 10
+				}
+			}
+			m.leftWidth = idealLeft
+			m.rightWidth = idealRight
+		}
 		m.applyPanelHeights()
 
 	case tea.MouseWheelMsg:
+		if m.pickerOpen {
+			break
+		}
 		// The wheel scrolls the panel under the pointer (bubbles viewport:
 		// native wheel support, spec amend2 REQ-7). Top panels have nothing
 		// to scroll; the bottom band splits config (left) / events (right).
@@ -310,12 +361,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseClickMsg:
+		if m.pickerOpen {
+			break
+		}
 		m.handleMouseClick(msg.Mouse())
 
 	case tea.MouseMotionMsg:
+		if m.pickerOpen {
+			break
+		}
 		m.handleMouseMotion(msg.Mouse())
 
 	case tea.MouseReleaseMsg:
+		if m.pickerOpen {
+			break
+		}
 		m.handleMouseRelease(msg.Mouse())
 
 	case tea.KeyPressMsg:
@@ -475,6 +535,7 @@ func (m *Model) handleMouseClick(mouse tea.Mouse) {
 	// Handle clicking the vertical sash to start dragging
 	if m.isOnVerticalSash(mouse.X, mouse.Y) {
 		m.dragSashStart = mouse.X
+		m.dragSashStartOffset = mouse.X - m.leftWidth
 		return
 	}
 
@@ -486,8 +547,8 @@ func (m *Model) handleMouseClick(mouse tea.Mouse) {
 func (m *Model) handleMouseMotion(mouse tea.Mouse) {
 	// Handle dragging in progress
 	if m.dragSashStart != -1 {
-		delta := mouse.X - m.dragSashStart
-		newLeft := m.leftWidth + delta
+		// leftWidth = mouse.X - offset
+		newLeft := mouse.X - m.dragSashStartOffset
 		// Enforce minimum width constraints
 		if newLeft < 10 {
 			newLeft = 10
@@ -511,15 +572,14 @@ func (m *Model) handleMouseRelease(mouse tea.Mouse) {
 // handleClickPanel handles left-click interactions on panels
 func (m *Model) handleClickPanel(mouse tea.Mouse) {
 	rects := m.panelRects()
-	var hitPanel FocusedPanel
+	hitPanel := FocusedPanel(-1)
 	for p, r := range rects {
 		if image.Pt(mouse.X, mouse.Y).In(r) {
 			hitPanel = p
 			break
 		}
 	}
-
-	if hitPanel == 0 || hitPanel > PanelCount {
+	if hitPanel == -1 || hitPanel > PanelCount {
 		// Clicked empty space - close any open popups/editors
 		m.editing = false
 		m.itemEditPopupIdx = -1
@@ -531,7 +591,7 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) {
 	switch hitPanel {
 	case PanelFilePicker:
 		// Click on config file card - open file picker popup
-		if m.configView != nil && m.configView.Mode() != ConfigViewRaw {
+		if !m.pickerOpen {
 			m.pickerOpen = true
 		}
 	case PanelConfig:
@@ -559,27 +619,27 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) {
 		// Events panel - just focus
 		break
 	}
-	}
+}
 
 // showItemEditPopup shows the full key-value edit popup for a channel/playlist item
 func (m *Model) showItemEditPopup(itemIdx int) {
 	if m.configView == nil {
 		return
 	}
-	
+
 	path, err := m.configView.showItemEditPopupInfo(itemIdx)
 	if err != nil {
 		m.state.AddRecentEvent("ERROR: " + err.Error())
 		return
 	}
-	
+
 	// Get the full serialized YAML for this item
 	serialized, err := m.configView.Serialized()
 	if err != nil {
 		m.state.AddRecentEvent("ERROR: " + err.Error())
 		return
 	}
-	
+
 	m.itemEditPopupIdx = itemIdx
 	m.itemEditContent = serialized
 	m.itemEditPath = path
@@ -659,8 +719,8 @@ func (m *Model) applyPanelHeights() {
 	inner := bottomHeight - 3
 	m.configVP.SetHeight(inner)
 	m.eventsVP.SetHeight(inner)
-	m.configVP.SetWidth(m.width/2 - 2)
-	m.eventsVP.SetWidth(m.width - m.width/2 - 2)
+	m.configVP.SetWidth(m.leftWidth - 2)
+	m.eventsVP.SetWidth(m.rightWidth - 2)
 }
 
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
@@ -824,8 +884,16 @@ func (m *Model) View() tea.View {
 	// to exactly w x h rows (lipgloss Height counts the border; MaxHeight
 	// clips overflow), so the two bands plus the hint fill the terminal:
 	// topHeight + bottomHeight + 1 = m.height.
-	leftWidth := m.width / 2
-	rightWidth := m.width - leftWidth
+	// Initialize width tracking if not set (e.g., first render before Init completes)
+	if m.leftWidth == 0 {
+		m.leftWidth = m.width / 3
+		if m.leftWidth < 10 {
+			m.leftWidth = 10
+		}
+		m.rightWidth = m.width - m.leftWidth
+	}
+	leftWidth := m.leftWidth
+	rightWidth := m.rightWidth
 	total := m.height - 1 // hint line
 	// The top panels are content-sized (the config card is ~6 rows, the
 	// status panel 8-9): the top band is a small fixed height and the bottom
@@ -872,9 +940,6 @@ func (m *Model) View() tea.View {
 // the picker lives in the popup overlay instead.
 func (m *Model) renderConfigCard(w, h int) string {
 	title := "Config File"
-	if m.focus == PanelFilePicker {
-		title = "> " + title
-	}
 	var b strings.Builder
 	if m.state.Snapshot().ConfigPath == "" {
 		b.WriteString("(no config selected)\n")
@@ -889,12 +954,7 @@ func (m *Model) renderConfigCard(w, h int) string {
 		}
 	}
 	b.WriteString("Enter 選擇設定檔")
-	// The card fills the content-sized top band (height h, shared with the
-	// status panel) so both boxes end on the same line — the "short card +
-	// blank strip" of the previous layout is gone. Content stays at the top.
-	return m.panelStyle(m.focus == PanelFilePicker, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + b.String(),
-	)
+	return RenderPanelWithTitle(title, b.String(), w, h, m.focus == PanelFilePicker)
 }
 
 // renderPickerPopup renders the file-picker overlay frame (centered, sized to
@@ -908,17 +968,16 @@ func (m *Model) renderPickerPopup(w, h int) string {
 	if ph < 10 {
 		ph = 10
 	}
-	title := m.styles.PanelTitle.Render("Select a config file")
-	return m.panelStyle(true, pw, ph).Render(
-		title + "\n" + clipLines(m.filePicker.View().Content, pw-2, ph-4),
+	return PopupStyle().Width(pw).Height(ph).Render(
+		lipgloss.JoinVertical(lipgloss.Top,
+			PopupTitleStyle().Width(pw-2).Render("Select a config file"),
+			clipLines(m.filePicker.View().Content, pw-2, ph-4),
+		),
 	)
 }
 
 func (m *Model) renderConfig(w, h int) string {
 	title := "Config"
-	if m.focus == PanelConfig {
-		title = "> " + title
-	}
 	var content string
 	if m.configView == nil {
 		content = "(no config selected)"
@@ -929,7 +988,16 @@ func (m *Model) renderConfig(w, h int) string {
 			// sections and items. The cursor is a table row; the marker only
 			// lands on content rows (separators are skipped). REQ-8 editing
 			// keeps its content-row index via the mapping helpers.
-			tbl := m.configView.RenderTable(w - 2)
+			// Calculate natural table width (capped to reasonable max) to allow
+			// horizontal scrolling when content is wider than panel
+			natWidth := m.configView.NaturalTableWidth()
+			if natWidth < 40 { // minimum reasonable width
+				natWidth = 40
+			}
+			if natWidth > 120 { // maximum reasonable width
+				natWidth = 120
+			}
+			tbl := m.configView.RenderTable(natWidth)
 			if m.focus == PanelConfig {
 				tableRow := m.configVP.YOffset() + m.configCursor
 				if tableRow >= 0 && tableRow < len(tbl) && !m.configView.IsTableSeparator(tableRow) &&
@@ -950,6 +1018,7 @@ func (m *Model) renderConfig(w, h int) string {
 	// inner rows on every render (cheap; offset is preserved).
 	m.configVP.SetWidth(w - 2)
 	m.configVP.SetHeight(h - 3)
+	// Set content to table rendered at natural width (allows horizontal scrolling)
 	m.configVP.SetContent(content)
 	body := m.configVP.View()
 	// The value editor overlays the panel (spec amend2 REQ-8).
@@ -958,20 +1027,19 @@ func (m *Model) renderConfig(w, h int) string {
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("33")).
 			Padding(0, 1).
-			Render(m.styles.PanelTitle.Render("Edit "+m.editPath) + "\n\n" +
-				m.editText.View() + "\n\nEnter 存檔   Esc 取消")
+			Render(lipgloss.JoinVertical(lipgloss.Top,
+				TitleStyle(true).Width(w-4).Render("Edit "+m.editPath),
+				"\n\n"+
+					m.editText.View()+
+					"\n\nEnter 存檔   Esc 取消",
+			))
 		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
 	}
-	return m.panelStyle(m.focus == PanelConfig, w, h).MaxHeight(h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + body,
-	)
+	return RenderPanelWithTitle(title, body, w, h, m.focus == PanelConfig)
 }
 
 func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 	title := "Execution Status"
-	if m.focus == PanelStatus {
-		title = "> " + title
-	}
 
 	var b strings.Builder
 	fmt.Fprintf(&b, "Watch Iteration: %d\n", s.WatchIter)
@@ -991,16 +1059,11 @@ func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 		b.WriteString("Status: Stopped\n")
 	}
 
-	return m.panelStyle(m.focus == PanelStatus, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + clipLines(b.String(), w-2, h-4),
-	)
+	return RenderPanelWithTitle(title, clipLines(b.String(), w-2, h-4), w, h, m.focus == PanelStatus)
 }
 
 func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 	title := "Recent Events"
-	if m.focus == PanelEvents {
-		title = "> " + title
-	}
 
 	var b strings.Builder
 	for _, line := range s.RecentEvents {
@@ -1025,9 +1088,7 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 		m.eventsVP.GotoBottom()
 	}
 
-	return m.panelStyle(m.focus == PanelEvents, w, h).Render(
-		m.styles.PanelTitle.Render(title) + "\n" + m.eventsVP.View(),
-	)
+	return RenderPanelWithTitle(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents)
 }
 
 // clipLines keeps at most n lines of content and truncates each to a display
@@ -1092,11 +1153,7 @@ func truncateANSI(s string, width int) string {
 // the band so a long listing or config can never push the grid (or the
 // hint line) off screen.
 func (m *Model) panelStyle(focused bool, w, h int) lipgloss.Style {
-	st := m.styles.PanelBorder
-	if focused {
-		st = m.styles.FocusedBorder
-	}
-	return st.Width(w).Height(h).MaxHeight(h)
+	return PanelBorderStyle(focused).Width(w).Height(h).MaxHeight(h)
 }
 
 func (m *Model) renderHintLine() string {
@@ -1111,7 +1168,7 @@ func (m *Model) renderHintLine() string {
 		"r Run",
 		"q Quit",
 	}
-	return m.styles.KeyHintStyle.Render(strings.Join(hints, "  "))
+	return HintStyle().Render(strings.Join(hints, "  "))
 }
 
 // QuitConfirmMsg is sent when user confirms quitting while pipeline is running.
