@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"fmt"
+	"image"
 	"log/slog"
 	"os"
 	"strings"
@@ -61,6 +62,11 @@ type Model struct {
 	width  int
 	height int
 	focus  FocusedPanel
+	
+	// Width tracking for resizable panels (left:config, right:status/events)
+	leftWidth  int
+	rightWidth int
+	dragSashStart int // -1 indicates not dragging, otherwise stores start X position
 
 	// Pipeline control
 	ctx       context.Context
@@ -95,6 +101,11 @@ type Model struct {
 	editing  bool
 	editText textinput.Model
 	editPath string // dotted key path being edited
+
+	// For item editing popup
+	itemEditPopupIdx int // -1 indicates no item edit popup, otherwise stores the item index
+	itemEditContent  string // Content being edited in popup
+	itemEditPath     string // dotted key path being edited in popup
 
 	// Styles
 	styles Styles
@@ -195,6 +206,14 @@ func (m *Model) closeBridge() {
 
 // Init implements tea.Model.
 func (m *Model) Init() tea.Cmd {
+	// Initialize width tracking for 1:2 ratio
+	m.leftWidth = m.width / 3
+	if m.leftWidth < 10 {
+		m.leftWidth = 10
+	}
+	m.rightWidth = m.width - m.leftWidth
+	m.dragSashStart = -1
+	m.itemEditPopupIdx = -1
 	m.applyPanelHeights()
 	return tea.Batch(
 		m.filePicker.Init(),
@@ -207,6 +226,37 @@ func tickCmd() tea.Cmd {
 	return tea.Every(250*time.Millisecond, func(t time.Time) tea.Msg {
 		return TickMsg{}
 	})
+}
+
+// panelRects returns the screen rectangles for each panel
+func (m *Model) panelRects() map[FocusedPanel]image.Rectangle {
+	topHeight := 9
+	total := m.height - 1
+	if topHeight > total/2 {
+		topHeight = total / 2
+	}
+
+	rects := make(map[FocusedPanel]image.Rectangle)
+	// PanelFilePicker (top-left)
+	rects[PanelFilePicker] = image.Rect(0, 0, m.leftWidth-1, topHeight-1)
+	// PanelStatus (top-right)
+	rects[PanelStatus] = image.Rect(m.leftWidth, 0, m.width-1, topHeight-1)
+	// PanelConfig (bottom-left)
+	rects[PanelConfig] = image.Rect(0, topHeight, m.leftWidth-1, m.height-2) // -2 for hint line
+	// PanelEvents (bottom-right)
+	rects[PanelEvents] = image.Rect(m.leftWidth, topHeight, m.width-1, m.height-2)
+	return rects
+}
+
+// isOnVerticalSash checks if the given coordinates are on the vertical sash
+func (m *Model) isOnVerticalSash(x, y int) bool {
+	sashX := m.leftWidth
+	// Sash spans the full height minus hint line
+	if y < 0 || y >= m.height-1 {
+		return false
+	}
+	// Allow a 1-column wide sash area
+	return x == sashX || x == sashX-1
 }
 
 // Update handles messages.
@@ -224,7 +274,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		isKey = true
 		keyStr = k.String()
 	}
-	if !isKey || m.pickerOpen || (m.focus == PanelFilePicker && keyStr != "enter") {
+	
+	// Allow Tab/Shift+Tab to always be handled by the main model for focus switching
+	// Also allow 'c' for config toggle and 'r' for run to work from any panel
+	shouldForwardToPicker := !isKey || m.pickerOpen || (m.focus == PanelFilePicker && keyStr != "enter" && keyStr != "tab" && keyStr != "shift+tab" && keyStr != "c" && keyStr != "r")
+	if !shouldForwardToPicker {
+		// Process the message normally in the main model
+	} else {
 		if picked, cmd := m.filePicker.Update(msg); cmd != nil {
 			m.filePicker = picked.(*FilePickerModel)
 			cmds = append(cmds, cmd)
@@ -246,12 +302,21 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// to scroll; the bottom band splits config (left) / events (right).
 		// viewport.Update is value-receiver: assign its result back.
 		if msg.Y >= m.topBandBottom() && m.width > 0 {
-			if msg.X < m.width/2 {
+			if msg.X < m.leftWidth {
 				m.configVP, _ = m.configVP.Update(msg)
 			} else {
 				m.eventsVP, _ = m.eventsVP.Update(msg)
 			}
 		}
+
+	case tea.MouseClickMsg:
+		m.handleMouseClick(msg.Mouse())
+
+	case tea.MouseMotionMsg:
+		m.handleMouseMotion(msg.Mouse())
+
+	case tea.MouseReleaseMsg:
+		m.handleMouseRelease(msg.Mouse())
 
 	case tea.KeyPressMsg:
 		_, cmd = m.handleKey(msg)
@@ -403,6 +468,137 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m.pageFocused(5)
 	}
 	return m, nil
+}
+
+// handleMouseClick handles mouse click events.
+func (m *Model) handleMouseClick(mouse tea.Mouse) {
+	// Handle clicking the vertical sash to start dragging
+	if m.isOnVerticalSash(mouse.X, mouse.Y) {
+		m.dragSashStart = mouse.X
+		return
+	}
+
+	// Handle click on panels
+	m.handleClickPanel(mouse)
+}
+
+// handleMouseMotion handles mouse drag events.
+func (m *Model) handleMouseMotion(mouse tea.Mouse) {
+	// Handle dragging in progress
+	if m.dragSashStart != -1 {
+		delta := mouse.X - m.dragSashStart
+		newLeft := m.leftWidth + delta
+		// Enforce minimum width constraints
+		if newLeft < 10 {
+			newLeft = 10
+		}
+		if newLeft > m.width-10 {
+			newLeft = m.width - 10
+		}
+		m.leftWidth = newLeft
+		m.rightWidth = m.width - m.leftWidth
+		m.applyPanelHeights()
+		return
+	}
+}
+
+// handleMouseRelease handles mouse release events.
+func (m *Model) handleMouseRelease(mouse tea.Mouse) {
+	// Handle drag end
+	m.dragSashStart = -1
+}
+
+// handleClickPanel handles left-click interactions on panels
+func (m *Model) handleClickPanel(mouse tea.Mouse) {
+	rects := m.panelRects()
+	var hitPanel FocusedPanel
+	for p, r := range rects {
+		if image.Pt(mouse.X, mouse.Y).In(r) {
+			hitPanel = p
+			break
+		}
+	}
+
+	if hitPanel == 0 || hitPanel > PanelCount {
+		// Clicked empty space - close any open popups/editors
+		m.editing = false
+		m.itemEditPopupIdx = -1
+		return
+	}
+
+	m.focus = hitPanel
+
+	switch hitPanel {
+	case PanelFilePicker:
+		// Click on config file card - open file picker popup
+		if m.configView != nil && m.configView.Mode() != ConfigViewRaw {
+			m.pickerOpen = true
+		}
+	case PanelConfig:
+		if m.itemEditPopupIdx >= 0 {
+			// Click in config panel while item edit popup is open - close it
+			m.itemEditPopupIdx = -1
+		} else if m.configView != nil && m.configView.Mode() == ConfigViewStructured {
+			// Check if clicked on a channel/playlist item
+			if itemIdx := m.configView.ItemAtPos(mouse.X, mouse.Y); itemIdx >= 0 {
+				m.showItemEditPopup(itemIdx)
+			} else {
+				// Click on regular config row - start editing if editable
+				if row, ok := m.configView.PosToRow(mouse.Y); ok {
+					m.startEditAtRow(row)
+				}
+			}
+		} else if m.configView != nil && m.configView.Mode() == ConfigViewRaw {
+			// In raw mode, click just focuses the panel
+			// Could add raw mode editing here if needed
+		}
+	case PanelStatus:
+		// Could add start/pause button handling here
+		break
+	case PanelEvents:
+		// Events panel - just focus
+		break
+	}
+	}
+
+// showItemEditPopup shows the full key-value edit popup for a channel/playlist item
+func (m *Model) showItemEditPopup(itemIdx int) {
+	if m.configView == nil {
+		return
+	}
+	
+	path, err := m.configView.showItemEditPopupInfo(itemIdx)
+	if err != nil {
+		m.state.AddRecentEvent("ERROR: " + err.Error())
+		return
+	}
+	
+	// Get the full serialized YAML for this item
+	serialized, err := m.configView.Serialized()
+	if err != nil {
+		m.state.AddRecentEvent("ERROR: " + err.Error())
+		return
+	}
+	
+	m.itemEditPopupIdx = itemIdx
+	m.itemEditContent = serialized
+	m.itemEditPath = path
+}
+
+// startEditAtRow starts editing at the specified content row (for mouse clicks)
+func (m *Model) startEditAtRow(row int) {
+	if m.configView == nil {
+		return
+	}
+	path, value, ok := m.configView.EditTargetForLine(row)
+	if !ok {
+		return
+	}
+	m.editing = true
+	m.editPath = path
+	m.editText.SetValue(value)
+	m.editText.CursorEnd()
+	m.editText.Focus()
 }
 
 // pageFocused pages the focused bottom panel by delta rows.

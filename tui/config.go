@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"image"
 	"strconv"
 	"strings"
 
@@ -630,4 +631,125 @@ func (cv *ConfigView) Render() string {
 		return cv.Raw()
 	}
 	return ""
+}
+
+// ItemAtPos returns the index of the list item at the given screen coordinates,
+// or -1 if not over any item. Coordinates are relative to the top-left of
+// the rendered config table.
+func (cv *ConfigView) ItemAtPos(screenX, screenY int) int {
+	// Convert screen coordinates to table coordinates
+	// The table starts after the header (3 rows: top border, header, separator)
+	tableY := screenY - 3
+	if tableY < 0 {
+		return -1
+	}
+	
+	// Each row is approximately 1 line (plus separators)
+	// We need to count how many lines we've passed including separators
+	row := 0
+	for i := 0; i < len(cv.sepFlags); i++ {
+		if i >= tableY {
+			break
+		}
+		if cv.sepFlags[i] {
+			tableY++ // separator takes an extra line
+		}
+		row++
+	}
+	
+	if row < 0 || row >= len(cv.lineIsValue) {
+		return -1
+	}
+	
+	// Check if this row is a value row (editable)
+	if !cv.lineIsValue[row] {
+		return -1
+	}
+	
+	// Verify the column is within bounds (simplified check)
+	if screenX < 0 || screenX >= 80 {
+		return -1
+	}
+	
+	return row
+}
+
+// PosToRow converts a Y coordinate (screenY) to a content row index
+func (cv *ConfigView) PosToRow(screenY int) (int, bool) {
+	tableY := screenY - 3 // Account for table header
+	if tableY < 0 {
+		return 0, false
+	}
+	
+	row := 0
+	for i := 0; i < len(cv.sepFlags); i++ {
+		if i >= tableY {
+			break
+		}
+		if cv.sepFlags[i] {
+			tableY++
+		}
+		row++
+	}
+	
+	if row < 0 || row >= len(cv.lineIsValue) {
+		return 0, false
+	}
+	
+	if !cv.lineIsValue[row] {
+		return 0, false
+	}
+	
+	return row, true
+}
+
+// IsLineEditable checks if a line (by content index) is editable
+func (cv *ConfigView) IsLineEditable(line int) bool {
+	if line < 0 || line >= len(cv.lineIsValue) {
+		return false
+	}
+	return cv.lineIsValue[line] && !cv.lineIsSummary[line]
+}
+
+// startEditAtRow begins editing at the specified content row
+func (cv *ConfigView) startEditAtRow(row int) error {
+	if !cv.IsLineEditable(row) {
+		return fmt.Errorf("line %d is not editable", row)
+	}
+	
+	path, value, ok := cv.EditTargetForLine(row)
+	if !ok {
+		return fmt.Errorf("could not get edit target for line %d", row)
+	}
+	
+	return cv.SetValue(path, value) // This will set the value to itself to start editing
+}
+
+// showItemEditPopupInfo returns information needed to show the item edit popup
+func (cv *ConfigView) showItemEditPopupInfo(itemIdx int) (string, error) {
+	if itemIdx < 0 || itemIdx >= len(cv.lineIsValue) {
+		return "", fmt.Errorf("invalid item index: %d", itemIdx)
+	}
+	
+	if !cv.lineIsValue[itemIdx] {
+		return "", fmt.Errorf("item %d is not a value line", itemIdx)
+	}
+	
+	// Get the key path for this item
+	path, _, ok := cv.EditTargetForLine(itemIdx)
+	if !ok {
+		return "", fmt.Errorf("could not get path for item %d", itemIdx)
+	}
+	
+	return path, nil
+}
+
+// RectForItem returns the screen rectangle for the given item index
+func (cv *ConfigView) RectForItem(itemIdx int, offsetX int, offsetY int, cellWidth int, cellHeight int) image.Rectangle {
+	if itemIdx < 0 || itemIdx >= len(cv.lineIsValue) {
+		return image.Rectangle{}
+	}
+	
+	y := offsetY + (itemIdx * cellHeight)
+	return image.Rect(offsetX, y, offsetX+cellWidth, y+cellHeight)
 }
