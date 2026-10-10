@@ -958,7 +958,7 @@ func (m *Model) renderConfigCard(w, h int) string {
 }
 
 // renderPickerPopup renders the file-picker overlay frame (centered, sized to
-// the terminal).
+// the terminal). It uses the same half-block title bar as the panels.
 func (m *Model) renderPickerPopup(w, h int) string {
 	pw := w * 3 / 4
 	ph := h * 3 / 4
@@ -968,12 +968,9 @@ func (m *Model) renderPickerPopup(w, h int) string {
 	if ph < 10 {
 		ph = 10
 	}
-	return PopupStyle().Width(pw).Height(ph).Render(
-		lipgloss.JoinVertical(lipgloss.Top,
-			PopupTitleStyle().Width(pw-2).Render("Select a config file"),
-			clipLines(m.filePicker.View().Content, pw-2, ph-4),
-		),
-	)
+	// innerW = pw-2, content rows = innerH-1 = ph-3 (title row takes one).
+	return RenderPopupWithTitle("Select a config file",
+		clipLines(m.filePicker.View().Content, pw-2, ph-3), pw, ph)
 }
 
 func (m *Model) renderConfig(w, h int) string {
@@ -1023,16 +1020,23 @@ func (m *Model) renderConfig(w, h int) string {
 	body := m.configVP.View()
 	// The value editor overlays the panel (spec amend2 REQ-8).
 	if m.editing {
-		edit := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.Color("33")).
-			Padding(0, 1).
-			Render(lipgloss.JoinVertical(lipgloss.Top,
-				TitleStyle(true).Width(w-4).Render("Edit "+m.editPath),
-				"\n\n"+
-					m.editText.View()+
-					"\n\nEnter 存檔   Esc 取消",
-			))
+		// Popup size: width ~2/3 of panel, height enough for title+input+hint.
+		ew := w * 2 / 3
+		if ew < 30 {
+			ew = 30
+		}
+		if ew > w-2 {
+			ew = w - 2
+		}
+		eh := 7 // title + blank + input + blank + hint + borders
+		// Content: blank line, input, blank line, hint
+		content := strings.Join([]string{
+			"",
+			m.editText.View(),
+			"",
+			"Enter 存檔   Esc 取消",
+		}, "\n")
+		edit := RenderPopupWithTitle("Edit "+m.editPath, content, ew, eh)
 		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
 	}
 	return RenderPanelWithTitle(title, body, w, h, m.focus == PanelConfig)
