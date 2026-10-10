@@ -26,6 +26,9 @@ import (
 
 	"github.com/kouko/youtube-summarize-scraper/config"
 	"github.com/kouko/youtube-summarize-scraper/pipeline"
+	
+	// runewidth: display-width of runes (CJK = 2, ASCII = 1).
+	"github.com/mattn/go-runewidth"
 )
 
 // Panel indicates which panel currently has focus.
@@ -724,23 +727,28 @@ func (m *Model) renderConfig(w, h int) string {
 	if m.configView == nil {
 		content = "(no config selected)"
 	} else {
-		// Table view: bordered two-column table with separator lines before
-		// sections and items. The cursor is a table row; the marker only
-		// lands on content rows (separators are skipped). REQ-8 editing
-		// keeps its content-row index via the mapping helpers.
-		tbl := m.configView.RenderTable(w - 2)
-		if m.focus == PanelConfig {
-			tableRow := m.configVP.YOffset() + m.configCursor
-			if tableRow >= 0 && tableRow < len(tbl) && !m.configView.IsTableSeparator(tableRow) &&
-				m.configView.TableContentIndex(tableRow) >= 0 {
-				// Mark the whole row with the focus style: replaces no
-				// characters, so the row's display width never changes and
-				// it cannot wrap (a '▸' or '>' prefix that swapped the left
-				// border shifted widths in some terminals).
-				tbl[tableRow] = m.styles.FocusedTitle.Render(tbl[tableRow])
+		switch m.configView.Mode() {
+		case ConfigViewStructured:
+			// Table view: bordered two-column table with separator lines before
+			// sections and items. The cursor is a table row; the marker only
+			// lands on content rows (separators are skipped). REQ-8 editing
+			// keeps its content-row index via the mapping helpers.
+			tbl := m.configView.RenderTable(w - 2)
+			if m.focus == PanelConfig {
+				tableRow := m.configVP.YOffset() + m.configCursor
+				if tableRow >= 0 && tableRow < len(tbl) && !m.configView.IsTableSeparator(tableRow) &&
+					m.configView.TableContentIndex(tableRow) >= 0 {
+					// Mark the whole row with the focus style: replaces no
+					// characters, so the row's display width never changes and
+					// it cannot wrap (a '▸' or '>' prefix that swapped the left
+					// border shifted widths in some terminals).
+					tbl[tableRow] = m.styles.FocusedTitle.Render(tbl[tableRow])
+				}
 			}
+			content = strings.Join(tbl, "\n")
+		case ConfigViewRaw:
+			content = m.configView.Render()
 		}
-		content = strings.Join(tbl, "\n")
 	}
 	// The viewport owns scrolling (keyboard + wheel); size it to the panel's
 	// inner rows on every render (cheap; offset is preserved).
@@ -868,12 +876,13 @@ func truncateANSI(s string, width int) string {
 			b.WriteRune(r)
 			continue
 		}
-		if col >= width {
+		runeWidth := runewidth.RuneWidth(r)
+		if col+runeWidth > width {
 			cut = true
 			break
 		}
 		b.WriteRune(r)
-		col++
+		col += runeWidth
 	}
 	if cut {
 		b.WriteString("\x1b[0m")
@@ -1108,6 +1117,7 @@ func ansiTail(line string, col, width int) string {
 			inEsc = true
 			continue // drop codes before the cut
 		}
+		runeWidth := runewidth.RuneWidth(r)
 		if !cut && display >= col {
 			cut = true
 			b.WriteString("\x1b[0m")
@@ -1118,7 +1128,7 @@ func ansiTail(line string, col, width int) string {
 			}
 			b.WriteRune(r)
 		}
-		display++
+		display += runeWidth
 	}
 	return b.String()
 }

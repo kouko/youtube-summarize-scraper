@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 )
 
 func pressKey(s string) tea.KeyPressMsg {
@@ -578,6 +579,67 @@ func TestModelConfigCardShortHeight(t *testing.T) {
 	}
 	if !found {
 		t.Error("config card hint (Enter to open picker) not visible in the top rows")
+	}
+}
+
+// W2-02 A3 positive (spec amend2): 'c' toggles between structured tree and raw YAML view.
+func TestModelCToggleRawYAML(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "c.yaml")
+	const yamlIn = "llm:\n  provider: claude-api\n"
+	os.WriteFile(cfgPath, []byte(yamlIn), 0o644)
+	
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	
+	// Select the config file
+	m.handleConfigSelected(cfgPath)
+	
+	// Initially structured view
+	if m.configView.Mode() != ConfigViewStructured {
+		t.Fatalf("initial mode = %v, want structured", m.configView.Mode())
+	}
+	
+	// Press 'c' to toggle to raw
+	m.handleKey(pressKey("c"))
+	if m.configView.Mode() != ConfigViewRaw {
+		t.Fatalf("mode after 'c' = %v, want raw", m.configView.Mode())
+	}
+	
+	// View() should show raw YAML in config panel
+	content := viewContent(t, m)
+	// The raw YAML appears inside the panel; strip ANSI to find the text
+	plain := stripANSI(content)
+	// Check for key parts of the YAML content (split across panel lines with borders)
+	if !strings.Contains(plain, "llm:") || !strings.Contains(plain, "provider: claude-api") {
+		t.Errorf("config panel does not show raw YAML after 'c'; content=%q", content)
+	}
+	
+	// Press 'c' again to toggle back
+	m.handleKey(pressKey("c"))
+	if m.configView.Mode() != ConfigViewStructured {
+		t.Fatalf("mode after second 'c' = %v, want structured", m.configView.Mode())
+	}
+	
+	// Should be back to structured view (not showing raw text directly)
+	// The structured view will show the table, not contain the raw yaml verbatim
+	content2 := viewContent(t, m)
+	if strings.Contains(stripANSI(content2), yamlIn) {
+		t.Errorf("config panel incorrectly shows raw YAML after toggling back to structured; content=%q", content2)
+	}
+}
+
+// W5-02 A3 boundary (spec amend2): config table rows use display-width (not rune count)
+// so CJK characters (width=2) do not misalign the table borders.
+func TestModelConfigTableCJKWidth(t *testing.T) {
+	cv := NewConfigView("playlists:\n  - name: \"稍後觀看\"\n    count: 10\n")
+	tbl := cv.RenderTable(60)
+	borderWidth := lipgloss.Width(tbl[0])
+	for i, row := range tbl {
+		w := lipgloss.Width(row)
+		if w != borderWidth {
+			t.Errorf("row %d width=%d, want border width=%d; row=%q", i, w, borderWidth, row)
+		}
 	}
 }
 

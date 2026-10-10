@@ -12,6 +12,8 @@ import (
 	// which both renders the table and is the write-back target for edits
 	// (key order and comments survive).
 	"gopkg.in/yaml.v3"
+	// runewidth: display-width of runes (CJK = 2, ASCII = 1).
+	"github.com/mattn/go-runewidth"
 )
 
 // ConfigDisplayMode toggles between structured and raw views.
@@ -452,7 +454,7 @@ func padToWidth(s string, width int) string {
 
 // visibleWidth counts the display columns of s, ignoring ANSI escapes.
 func visibleWidth(s string) int {
-	n := 0
+	var b strings.Builder
 	inEsc := false
 	for _, r := range s {
 		if r == '\x1b' {
@@ -465,9 +467,9 @@ func visibleWidth(s string) int {
 			}
 			continue
 		}
-		n++
+		b.WriteRune(r)
 	}
-	return n
+	return runewidth.StringWidth(b.String())
 }
 
 // ContentTableIndex maps a content row (keyCols index) to its table row.
