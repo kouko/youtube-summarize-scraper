@@ -107,8 +107,16 @@ func RenderPanelWithTitle(title string, content string, w, h int, active bool, h
 	// Row 1: hint row (if hint provided)
 	hintRow := 1
 	if hint != "" {
-		// Center the hint in the available width
-		hintArea := lipgloss.NewStyle().Width(innerW).Align(lipgloss.Center).Render(hint)
+		// Use a lighter background for hint row to distinguish from title bar
+		// and content area. Left-align the hint text.
+		hintBG := lipgloss.Color("#333333") // lighter than title bar
+		hintStyle := lipgloss.NewStyle().
+			Background(hintBG).
+			Foreground(lipgloss.Color("#AAAAAA")).
+			Width(innerW).
+			Align(lipgloss.Left).
+			Padding(0, 1)
+		hintArea := hintStyle.Render(hint)
 		lines = append(lines, vBar+hintArea+vBar)
 		hintRow++
 	}
