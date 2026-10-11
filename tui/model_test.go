@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -860,7 +861,10 @@ func TestModelPickerDirRowMouseClickNavigates(t *testing.T) {
 		t.Errorf("current directory = %q, want %q", got, sub)
 	}
 
-	// Now the first row is inner.yaml; clicking it selects the config.
+	// Now the first row is inner.yaml; clicking it selects the config. The
+	// user has seen the reloaded listing before clicking again, so the
+	// double-click guard window has passed.
+	m.lastPickerNavClick.at = time.Now().Add(-pickerNavClickGuard - time.Millisecond)
 	x, y = pickerRowClickPoint(m, 0)
 	m.Update(tea.MouseClickMsg{X: x, Y: y})
 	if m.pickerOpen {
@@ -868,6 +872,171 @@ func TestModelPickerDirRowMouseClickNavigates(t *testing.T) {
 	}
 	if got := m.state.Snapshot().ConfigPath; !strings.HasSuffix(got, filepath.Join("sub", "inner.yaml")) {
 		t.Errorf("config path = %q, want .../sub/inner.yaml", got)
+	}
+}
+
+// pickerNavClickGuard is the double-click guard window; a test helper below
+// manipulates the recorded click to simulate its expiry.
+
+// Regression (2026-10-11, user report): a double-click on a directory row
+// used to close the popup. The first click navigates into the directory and
+// the listing reloads, so the second press of the double-click lands on the
+// same coordinates which now show the new directory's first file — selecting
+// it and closing the popup. The guard must ignore that second click: the
+// popup stays open showing the new directory.
+func TestModelPickerDirRowDoubleClickIgnored(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "default.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter"))
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+
+	// First click: navigate into sub. Row 0 is the only entry (sub).
+	x, y := pickerRowClickPoint(m, 0)
+	got, cmd := m.Update(tea.MouseClickMsg{X: x, Y: y})
+	m = got.(*Model)
+	if !m.pickerOpen {
+		t.Fatal("first click of the double-click closed the popup")
+	}
+	if cmd == nil {
+		t.Fatal("directory click did not return the reload command")
+	}
+	if msg := cmd(); msg != nil {
+		m.Update(msg) // readDirMsg reloads the listing for sub
+	}
+	if got := m.filePicker.CurrentDirectory(); got != sub {
+		t.Fatalf("current directory = %q, want %q", got, sub)
+	}
+
+	// Second click on the SAME coordinates: sub's first file (default.yaml)
+	// is now at row 0. Without the guard this selects the file and closes the
+	// popup; with the guard it is ignored.
+	got, cmd = m.Update(tea.MouseClickMsg{X: x, Y: y})
+	m = got.(*Model)
+	if !m.pickerOpen {
+		t.Fatalf("second click of the double-click closed the popup (ChosenPath=%q)", m.filePicker.ChosenPath())
+	}
+	if cmd != nil {
+		t.Fatal("double-click second press must not produce a command")
+	}
+	if m.filePicker.ChosenPath() != "" {
+		t.Errorf("double-click second press selected a file: %q", m.filePicker.ChosenPath())
+	}
+}
+
+// The double-click guard is a time window: once it expires, a click on the
+// same coordinates is a normal click again and selects the file.
+func TestModelPickerGuardExpires(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "default.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter"))
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+
+	// Navigate into sub (records the guard).
+	x, y := pickerRowClickPoint(m, 0)
+	got, cmd := m.Update(tea.MouseClickMsg{X: x, Y: y})
+	m = got.(*Model)
+	if msg := cmd(); msg != nil {
+		m.Update(msg)
+	}
+	if m.filePicker.CurrentDirectory() != sub {
+		t.Fatalf("current directory = %q, want %q", m.filePicker.CurrentDirectory(), sub)
+	}
+
+	// Simulate the guard window passing.
+	m.lastPickerNavClick.at = time.Now().Add(-pickerNavClickGuard - time.Millisecond)
+
+	// Same coordinates now select sub's first file and close the popup.
+	m.Update(tea.MouseClickMsg{X: x, Y: y})
+	if m.pickerOpen {
+		t.Fatal("guard expiry click did not select the file; popup still open")
+	}
+	if m.filePicker.ChosenPath() == "" {
+		t.Error("guard expiry click did not select the file")
+	}
+}
+
+// The guard only ignores a second click on the SAME coordinates. A click on a
+// different row right after navigating is an intentional selection.
+func TestModelPickerGuardAllowsDifferentRow(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "alpha.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "beta.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter"))
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+
+	// Navigate into sub (records the guard on the row-0 coordinates).
+	x, y := pickerRowClickPoint(m, 0)
+	got, cmd := m.Update(tea.MouseClickMsg{X: x, Y: y})
+	m = got.(*Model)
+	if msg := cmd(); msg != nil {
+		m.Update(msg)
+	}
+	if m.filePicker.CurrentDirectory() != sub {
+		t.Fatalf("current directory = %q, want %q", m.filePicker.CurrentDirectory(), sub)
+	}
+
+	// A click on a DIFFERENT row (beta.yaml at row 1) right after navigating
+	// must select the file and close the popup.
+	x2, y2 := pickerRowClickPoint(m, 1)
+	m.Update(tea.MouseClickMsg{X: x2, Y: y2})
+	if m.pickerOpen {
+		t.Fatal("different-row click was blocked by the double-click guard")
+	}
+	if got := m.filePicker.ChosenPath(); !strings.HasSuffix(got, filepath.Join("sub", "beta.yaml")) {
+		t.Errorf("config path = %q, want .../sub/beta.yaml", got)
 	}
 }
 

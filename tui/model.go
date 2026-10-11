@@ -50,7 +50,21 @@ const PanelCount = 4
 const (
 	pickerPopupHint = "[Enter] Select  [Esc] Cancel"
 	editPopupHint   = "[Enter] Save  [Esc] Cancel"
+
+	// pickerNavClickGuard is how long after a mouse click navigates into a
+	// directory a second click on the exact same spot is ignored. A
+	// double-click's second press lands on the reloaded listing and would
+	// select the new directory's first file, closing the popup. 400ms covers
+	// typical double-click intervals (macOS allows up to ~500ms).
+	pickerNavClickGuard = 400 * time.Millisecond
 )
+
+// pickerNavClick records a mouse click that navigated into a directory, so a
+// fast second click on the same coordinates (a double-click) can be ignored.
+type pickerNavClick struct {
+	at   time.Time
+	x, y int
+}
 
 // Model is the main TUI model.
 type Model struct {
@@ -88,6 +102,14 @@ type Model struct {
 	// pickerOpen: the file-picker popup overlay is showing (opened by Enter
 	// on the focused config card). While open it owns all keys.
 	pickerOpen bool
+
+	// lastPickerNavClick guards against the second click of a double-click on
+	// a directory row: the first click navigates into the directory and the
+	// listing reloads, so the same coordinates now show a different entry
+	// (often the new directory's first file) and the second click would
+	// select it and close the popup (regression 2026-10-11). Only clicks that
+	// actually navigated into a directory are recorded.
+	lastPickerNavClick pickerNavClick
 
 	// program is the running tea program (set by cmd/tui.go). It is used to
 	// poke a redraw when the bridge applies an event (spec amend2 REQ-6); nil
@@ -410,6 +432,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case ConfigSelectedMsg:
 		m.pickerOpen = false
+		m.lastPickerNavClick = pickerNavClick{}
 		m.handleConfigSelected(msg.Path)
 
 	case StartRunMsg:
@@ -480,11 +503,13 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	if m.pickerOpen {
 		if key == "esc" {
 			m.pickerOpen = false
+			m.lastPickerNavClick = pickerNavClick{}
 			return m, nil
 		}
 		if key == "enter" {
 			if path := m.filePicker.ChosenPath(); path != "" {
 				m.pickerOpen = false
+				m.lastPickerNavClick = pickerNavClick{}
 				m.handleConfigSelected(path)
 			}
 			return m, nil
@@ -694,6 +719,18 @@ func (m *Model) handlePickerPopupClick(mouse tea.Mouse) tea.Cmd {
 		}
 		return nil
 	}
+	// Ignore the second click of a double-click on a directory row. The first
+	// click navigated in and the listing reloaded, so these coordinates now
+	// show a different entry (often the new directory's first file) and the
+	// second click would select it and close the popup.
+	if g := m.lastPickerNavClick; !g.at.IsZero() &&
+		g.x == mouse.X && g.y == mouse.Y &&
+		time.Since(g.at) < pickerNavClickGuard {
+		if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+			fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] double-click on directory row ignored (guard %v left)\n", pickerNavClickGuard-time.Since(g.at))
+		}
+		return nil
+	}
 	// Content area: title row, hint rows (same layout the renderer uses),
 	// then a separator row; the file list starts below them.
 	hintLines := popupHintLineCount(pickerPopupHint, rect.Dx(), rect.Dy())
@@ -712,10 +749,14 @@ func (m *Model) handlePickerPopupClick(mouse tea.Mouse) tea.Cmd {
 		// Enter landed on a file: close the popup and load it, exactly like
 		// the keyboard path in handleKey.
 		m.pickerOpen = false
+		m.lastPickerNavClick = pickerNavClick{}
 		m.handleConfigSelected(path)
 		return nil
 	}
-	// A directory was opened: the picker returned its reload command.
+	// A directory was opened: the picker returned its reload command. Record
+	// the click so the second press of a double-click on the same spot is
+	// ignored until the guard window expires.
+	m.lastPickerNavClick = pickerNavClick{at: time.Now(), x: mouse.X, y: mouse.Y}
 	return pickerCmd
 }
 

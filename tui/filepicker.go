@@ -39,7 +39,7 @@ func NewFilePickerModel() *FilePickerModel {
 	// WindowSizeMsg, pushing the bottom panels off screen. The main model
 	// calls SetHeight with the panel's inner height instead (see View).
 	fp.AutoHeight = false
-	
+
 	// Set up logging for mouse click debugging if enabled
 	if logFile := os.Getenv("YTSS_FILEPICKER_LOG"); logFile != "" {
 		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
@@ -49,7 +49,7 @@ func NewFilePickerModel() *FilePickerModel {
 		}
 		log.SetFlags(log.LstdFlags | log.Lshortfile)
 	}
-	
+
 	// Set initial directory: prefer YTSS_CONFIG_DIR, then common ytss config dir, then home
 	startDir := os.Getenv("YTSS_CONFIG_DIR")
 	if startDir == "" {
@@ -69,7 +69,7 @@ func NewFilePickerModel() *FilePickerModel {
 	if startDir != "" {
 		fp.CurrentDirectory = startDir
 	}
-	
+
 	return &FilePickerModel{fp: fp}
 }
 
@@ -161,7 +161,7 @@ func (m *FilePickerModel) HandleMouseClick(contentY int) (bool, tea.Cmd) {
 	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
 		log.Printf("[HandleMouseClick] target=%d", target)
 	}
-	
+
 	var cmds []tea.Cmd
 	// Move the cursor to the clicked row with the same keys the picker
 	// handles for keyboard navigation.
