@@ -69,6 +69,23 @@ func RenderPanelWithTitle(title string, content string, w, h int, active bool) s
 		return ""
 	}
 
+	/* ---------- Shared colors: title bar and border use the same palette ---------- */
+	titleBG := TitleInactiveBG
+	borderColor := PanelBorderInactive
+	if active {
+		titleBG = TitleActiveBG
+		borderColor = PanelBorderActive
+	}
+	// The half-block glyphs (▐▌) are filled shapes: their FOREGROUND is the
+	// fill color, so paint them with the title background color to make the
+	// title bar look like one continuous strip.
+	halfBlock := lipgloss.NewStyle().Foreground(titleBG)
+	leftCap := halfBlock.Render("▐")
+	rightCap := halfBlock.Render("▌")
+	// Border glyphs (│ └─┘) share the panel border color for a uniform frame.
+	bd := lipgloss.NewStyle().Foreground(borderColor)
+	vBar := bd.Render("│")
+
 	/* ---------- 1. Title row with half-block elements ---------- */
 	titleStr := TitleWithMarker(active, title)
 	// TitleStyle pads 1 column each side; lipgloss Width pads to innerW but
@@ -83,7 +100,7 @@ func RenderPanelWithTitle(title string, content string, w, h int, active bool) s
 	// Row 0: title bar with half-block elements. "▐" + innerW + "▌" is
 	// exactly w columns: the half-blocks replace the top border and connect
 	// seamlessly with the vertical │ borders below.
-	lines = append(lines, "▐"+titleArea+"▌")
+	lines = append(lines, leftCap+titleArea+rightCap)
 
 	/* ---------- Content area (starts immediately after title row) ---------- */
 	contentLines := strings.Split(content, "\n")
@@ -106,12 +123,11 @@ func RenderPanelWithTitle(title string, content string, w, h int, active bool) s
 		} else {
 			line = strings.Repeat(" ", innerW)
 		}
-		lines = append(lines, "│"+line+"│")
+		lines = append(lines, vBar+line+vBar)
 	}
 
 	// Bottom border line
-	bottomLine := "└" + strings.Repeat("─", innerW) + "┘"
-	lines = append(lines, bottomLine)
+	lines = append(lines, bd.Render("└"+strings.Repeat("─", innerW)+"┘"))
 
 	return strings.Join(lines, "\n")
 }
@@ -126,6 +142,13 @@ func RenderPopupWithTitle(title string, content string, w, h int) string {
 		return ""
 	}
 
+	/* ---------- Shared colors: title bar and border use the same palette ---------- */
+	halfBlock := lipgloss.NewStyle().Foreground(PopupTitleBG)
+	leftCap := halfBlock.Render("▐")
+	rightCap := halfBlock.Render("▌")
+	bd := lipgloss.NewStyle().Foreground(PopupBorder)
+	vBar := bd.Render("│")
+
 	titleArea := PopupTitleStyle().Width(innerW).Render(title)
 	if lipgloss.Width(title)+2 > innerW {
 		title = truncateANSI(title, innerW-2)
@@ -135,7 +158,7 @@ func RenderPopupWithTitle(title string, content string, w, h int) string {
 	var lines []string
 
 	// Row 0: title bar with half-block elements.
-	lines = append(lines, "▐"+titleArea+"▌")
+	lines = append(lines, leftCap+titleArea+rightCap)
 
 	/* ---------- Content area (starts immediately after title row) ---------- */
 	contentLines := strings.Split(content, "\n")
@@ -152,12 +175,11 @@ func RenderPopupWithTitle(title string, content string, w, h int) string {
 		} else {
 			line = strings.Repeat(" ", innerW)
 		}
-		lines = append(lines, "│"+line+"│")
+		lines = append(lines, vBar+line+vBar)
 	}
 
 	// Bottom border
-	bottomLine := "└" + strings.Repeat("─", innerW) + "┘"
-	lines = append(lines, bottomLine)
+	lines = append(lines, bd.Render("└"+strings.Repeat("─", innerW)+"┘"))
 
 	return strings.Join(lines, "\n")
 }

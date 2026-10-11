@@ -11,12 +11,13 @@ var (
 	TitleFG         = lipgloss.Color("#FFFFFF") // White text
 
 	// Panel border colors
-	PanelBorderActive   = lipgloss.Color("#4A90D9") // SteelBlue
-	PanelBorderInactive = lipgloss.Color("#555555") // Medium gray
+	// Use the same colors as title backgrounds for a unified frame.
+	PanelBorderActive   = TitleActiveBG   // SteelBlue
+	PanelBorderInactive = TitleInactiveBG // Dark gray
 
 	// Popup colors
 	PopupBG      = lipgloss.Color("#2B2B2B") // Almost black
-	PopupBorder  = lipgloss.Color("#888888") // Gray border
+	PopupBorder  = PopupTitleBG              // Same as title background (dark orange)
 	PopupTitleBG = lipgloss.Color("#FFA500") // Dark orange
 	PopupTitleFG = lipgloss.Color("#FFFFFF") // White
 
