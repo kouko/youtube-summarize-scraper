@@ -3,6 +3,7 @@ package tui
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 
 	// bubbles v2.2.1 filepicker: Enter on a directory always navigates into
 	// it (Open branch); DirAllowed only gates selecting a directory as Path,
@@ -20,6 +21,7 @@ type ConfigSelectedMsg struct {
 
 // FilePickerModel wraps bubbletea's filepicker with ytss-specific behavior:
 // it filters .yaml/.yml and emits ConfigSelectedMsg when a file is picked.
+// It also adds mouse click support for selecting files and navigating directories.
 type FilePickerModel struct {
 	fp     filepicker.Model
 	chosen string // last selected path, to detect new selections
@@ -97,4 +99,64 @@ func (m *FilePickerModel) ChosenPath() string {
 // the bubbles API; the main model sizes the picker to its panel).
 func (m *FilePickerModel) SetHeight(h int) {
 	m.fp.SetHeight(h)
+}
+
+// CurrentDirectory returns the current directory of the file picker.
+func (m *FilePickerModel) CurrentDirectory() string {
+	return m.fp.CurrentDirectory
+}
+
+// HandleMouseClick maps a click on the popup's file list to the picker: the
+// cursor moves to the clicked row and Enter is sent, so a click behaves like
+// keyboard navigation (Enter on a directory opens it, on a file selects it).
+// contentY is a 0-based row inside the popup's content area, where row 0 is
+// the first visible file (files[minIdx]).
+//
+// Returns whether the click was handled and any command the picker produced
+// (the directory reload cmd, which the caller must run). The selection side
+// effect (loading the config, closing the popup) is applied by the caller,
+// mirroring the keyboard path in handleKey.
+func (m *FilePickerModel) HandleMouseClick(contentY int) (bool, tea.Cmd) {
+	// The picker renders one file per line: rows 0..maxIdx-minIdx map to
+	// files[minIdx+row]. Its window/cursor fields are unexported; read the
+	// three ints via reflection (names match bubbles v2.2.1). Unexported
+	// fields cannot be read with Interface(), but Int() works.
+	fp := reflect.ValueOf(&m.fp).Elem()
+	selF := fp.FieldByName("selected")
+	minF := fp.FieldByName("minIdx")
+	maxF := fp.FieldByName("maxIdx")
+	if !selF.IsValid() || !minF.IsValid() || !maxF.IsValid() {
+		return false, nil
+	}
+	selected, minIdx, maxIdx := int(selF.Int()), int(minF.Int()), int(maxF.Int())
+	if contentY < 0 || contentY > maxIdx-minIdx {
+		// Above the file list (title/hint/separator rows) or below the
+		// visible files (padding rows).
+		return false, nil
+	}
+	target := minIdx + contentY
+
+	var cmds []tea.Cmd
+	// Move the cursor to the clicked row with the same keys the picker
+	// handles for keyboard navigation.
+	step := tea.KeyDown
+	n := target - selected
+	if n < 0 {
+		step = tea.KeyUp
+		n = -n
+	}
+	for i := 0; i < n; i++ {
+		var c tea.Cmd
+		m.fp, c = m.fp.Update(tea.KeyPressMsg{Code: step})
+		if c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	// Enter: navigate into a directory or select the highlighted file.
+	var c tea.Cmd
+	m.fp, c = m.fp.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if c != nil {
+		cmds = append(cmds, c)
+	}
+	return true, tea.Batch(cmds...)
 }

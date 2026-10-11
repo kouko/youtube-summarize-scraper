@@ -15,8 +15,8 @@ func TestRenderPanelRowsAllSameWidth(t *testing.T) {
 	const w = 30
 	out := RenderPanelWithTitle("T", "short\na somewhat longer line", w, 7, false, "")
 	rows := strings.Split(out, "\n")
-	if len(rows) != 6 {
-		t.Fatalf("got %d rows, want 6", len(rows))
+	if len(rows) != 7 {
+		t.Fatalf("got %d rows, want 7", len(rows))
 	}
 	for i, line := range rows {
 		if got := lipgloss.Width(line); got != w {
@@ -51,15 +51,15 @@ func TestRenderPanelRowsOverlongTruncated(t *testing.T) {
 
 // A hint longer than the panel's text area wraps to additional hint lines
 // instead of being truncated. Every rendered row still spans exactly the
-// panel width (right border never drifts), the total row count stays h-1,
-// and the content area shrinks by the wrapped lines.
+// panel width (right border never drifts), the total row count stays h, and
+// the content area shrinks by the wrapped lines.
 func TestRenderPanelHintWraps(t *testing.T) {
 	const w = 20
 	longHint := strings.Repeat("hint ", 12) // ~60 cols, must wrap in a 16-col text area
 	out := RenderPanelWithTitle("T", "content", w, 7, false, longHint)
 	rows := strings.Split(out, "\n")
-	if len(rows) != 6 { // h-1 rows
-		t.Fatalf("got %d rows, want 6", len(rows))
+	if len(rows) != 7 { // exactly h rows
+		t.Fatalf("got %d rows, want 7", len(rows))
 	}
 	sepIdx := -1
 	for i, line := range rows {
@@ -83,8 +83,8 @@ func TestRenderPanelHintShortSingleLine(t *testing.T) {
 	const w = 20
 	out := RenderPanelWithTitle("T", "content", w, 7, false, "[c] Switch")
 	rows := strings.Split(out, "\n")
-	if len(rows) != 6 {
-		t.Fatalf("got %d rows, want 6", len(rows))
+	if len(rows) != 7 {
+		t.Fatalf("got %d rows, want 7", len(rows))
 	}
 	sepIdx := -1
 	for i, line := range rows {

@@ -45,6 +45,13 @@ const (
 // PanelCount is the number of panels.
 const PanelCount = 4
 
+// Popup hint texts (kept as constants so the renderer and the click hit
+// tests always agree on the exact segment layout).
+const (
+	pickerPopupHint = "[Enter] Select  [Esc] Cancel"
+	editPopupHint   = "[Enter] Save  [Esc] Cancel"
+)
+
 // Model is the main TUI model.
 type Model struct {
 	// State shared with event bridge
@@ -295,8 +302,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Non-key messages
 		switch msg.(type) {
 		case tea.MouseClickMsg, tea.MouseMotionMsg, tea.MouseReleaseMsg, tea.MouseWheelMsg:
-			// Forward mouse messages only when picker popup is open
-			shouldForwardToPicker = m.pickerOpen
+			// Do NOT forward mouse messages to file picker when picker popup is open;
+			// we will handle them in handleClickPanel to support mouse clicks on hint segments and file list.
+			shouldForwardToPicker = false
 		default:
 			// readDirMsg, WindowSizeMsg, etc. that file picker owns
 			shouldForwardToPicker = true
@@ -361,10 +369,22 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 	case tea.MouseClickMsg:
+		mouse := msg.Mouse()
+		// Popup overlays own clicks: hint segments act like their keys and
+		// the picker's file list is clickable. Clicks never fall through to
+		// the panels underneath an open overlay.
 		if m.pickerOpen {
-			break
+			cmd = m.handlePickerPopupClick(mouse)
+		} else if m.editing {
+			if key, ok := m.popupHintHitTest(mouse, m.editPopupRect(), editPopupHint); ok {
+				cmd = m.dispatchHintKey(key)
+			} else {
+				// Not on hint; let the editor handle it
+				m.editText, _ = m.editText.Update(msg)
+			}
+		} else {
+			cmd = m.handleMouseClick(mouse)
 		}
-		cmd = m.handleMouseClick(msg.Mouse())
 
 	case tea.MouseMotionMsg:
 		if m.pickerOpen {
@@ -583,7 +603,9 @@ func (m *Model) handleMouseRelease(mouse tea.Mouse) {
 // handleClickPanel maps a click position to a panel, focuses it, and runs the
 // panel's click behaviour. A click on a hint segment triggers the segment's
 // key action (same as pressing the key); returns any command the action
-// produced.
+// produced. It only runs while no popup overlay or inline editor is open —
+// with the picker popup open, Update routes clicks to handlePickerPopupClick,
+// with the editor open, to the editor.
 func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 	rects := m.panelRects()
 	hitPanel := FocusedPanel(-1)
@@ -646,9 +668,41 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 	return nil
 }
 
+// handlePickerPopupClick routes a click while the file picker popup is open.
+// Hint segments trigger their key action; a click on a file row moves the
+// picker cursor there and applies Enter (a directory opens, a file is
+// selected) — the same effect as the keyboard path. Clicks on the title or
+// separator and clicks outside the overlay do nothing. Returns any command
+// the click produced.
+func (m *Model) handlePickerPopupClick(mouse tea.Mouse) tea.Cmd {
+	rect := m.pickerPopupRect()
+	if key, ok := m.popupHintHitTest(mouse, rect, pickerPopupHint); ok {
+		return m.dispatchHintKey(key)
+	}
+	if !popupHitTest(mouse, rect) {
+		return nil
+	}
+	// Content area: title row, hint rows (same layout the renderer uses),
+	// then a separator row; the file list starts below them.
+	contentStartY := rect.Min.Y + 1 + popupHintLineCount(pickerPopupHint, rect.Dx(), rect.Dy()) + 1
+	handled, pickerCmd := m.filePicker.HandleMouseClick(mouse.Y - contentStartY)
+	if !handled {
+		return nil
+	}
+	if path := m.filePicker.ChosenPath(); path != "" {
+		// Enter landed on a file: close the popup and load it, exactly like
+		// the keyboard path in handleKey.
+		m.pickerOpen = false
+		m.handleConfigSelected(path)
+		return nil
+	}
+	// A directory was opened: the picker returned its reload command.
+	return pickerCmd
+}
+
 // hintHitTest maps a click inside a panel to a hint segment. Hint rows sit
 // directly below the title bar (panel row 0): line i is at Min.Y+1+i, and
-// the text area starts at Min.X+2 (border + left padding). Returns the
+// the text area starts at Min.X+1 (right after the left border). Returns the
 // segment's Key when the click lands on an actionable segment.
 func (m *Model) hintHitTest(mouse tea.Mouse, p FocusedPanel, rect image.Rectangle) (string, bool) {
 	segs := m.hintSegmentsFor(p)
@@ -664,13 +718,163 @@ func (m *Model) hintHitTest(mouse tea.Mouse, p FocusedPanel, rect image.Rectangl
 	if row < 0 || row >= len(lines) {
 		return "", false
 	}
-	col := mouse.X - (rect.Min.X + 2)
+	// Hint text starts immediately after the left border (no padding), so
+	// column 0 of the text area is the panel's second column.
+	col := mouse.X - (rect.Min.X + 1)
 	for _, pw := range lines[row] {
 		if segs[pw.seg].Key != "" && col >= pw.startCol && col < pw.endCol {
 			return segs[pw.seg].Key, true
 		}
 	}
 	return "", false
+}
+
+// popupRect computes the screen rectangle of the file picker popup overlay.
+func (m *Model) pickerPopupRect() image.Rectangle {
+	if !m.pickerOpen {
+		return image.Rect(0, 0, 0, 0)
+	}
+	pw := m.width * 3 / 4
+	if pw < 30 {
+		pw = 30
+	}
+	ph := m.height * 3 / 4
+	if ph < 10 {
+		ph = 10
+	}
+	// The actual popup dimensions may be smaller due to centering trimming.
+	// Use the exact same logic as overlayCentered to compute the rendered size.
+	overlayStr := m.renderPickerPopup(m.width, m.height)
+	ovLines := strings.Split(overlayStr, "\n")
+	// Trim blank padding lines (same as overlayCentered)
+	for len(ovLines) > 0 && strings.TrimSpace(ansiStrip(ovLines[len(ovLines)-1])) == "" {
+		ovLines = ovLines[:len(ovLines)-1]
+	}
+	for len(ovLines) > 0 && strings.TrimSpace(ansiStrip(ovLines[0])) == "" {
+		ovLines = ovLines[1:]
+	}
+	ovH := len(ovLines)
+	ovW := 0
+	for _, l := range ovLines {
+		if w := lipgloss.Width(l); w > ovW {
+			ovW = w
+		}
+	}
+	top := (m.height - ovH) / 2
+	if top < 0 {
+		top = 0
+	}
+	left := (m.width - ovW) / 2
+	if left < 0 {
+		left = 0
+	}
+	return image.Rect(left, top, left+ovW, top+ovH)
+}
+
+// editPopupRect computes the screen rectangle of the inline edit popup.
+// It is centered within the config panel.
+func (m *Model) editPopupRect() image.Rectangle {
+	if !m.editing || m.configView == nil {
+		return image.Rect(0, 0, 0, 0)
+	}
+	rects := m.panelRects()
+	configRect := rects[PanelConfig]
+	// Panel inner area (excluding borders)
+	panelInnerW := configRect.Dx() - 2
+	panelInnerH := configRect.Dy() - 2
+	// Edit popup size
+	ew := panelInnerW * 2 / 3
+	if ew < 30 {
+		ew = 30
+	}
+	if ew > panelInnerW-2 {
+		ew = panelInnerW - 2
+	}
+	eh := 9
+	// Centered within panel inner area
+	left := configRect.Min.X + 1 + (panelInnerW-ew)/2
+	top := configRect.Min.Y + 1 + (panelInnerH-eh)/2
+	if left < configRect.Min.X+1 {
+		left = configRect.Min.X + 1
+	}
+	if top < configRect.Min.Y+1 {
+		top = configRect.Min.Y + 1
+	}
+	return image.Rect(left, top, left+ew, top+eh)
+}
+
+// popupHitTest checks if a mouse click is within the given popup rectangle.
+func popupHitTest(mouse tea.Mouse, rect image.Rectangle) bool {
+	return image.Pt(mouse.X, mouse.Y).In(rect)
+}
+
+// popupHintHitTest checks if a mouse click hits a hint segment in the given popup.
+func (m *Model) popupHintHitTest(mouse tea.Mouse, rect image.Rectangle, hint string) (string, bool) {
+	if hint == "" {
+		return "", false
+	}
+	// Parse the hint string into segments. Expected format:
+	// "[Enter] Select  [Esc] Cancel" -> two segments with keys "enter" and "esc"
+	segs := parsePopupHint(hint)
+	if len(segs) == 0 {
+		return "", false
+	}
+	innerW := rect.Dx() - 2
+	if innerW < 1 {
+		return "", false
+	}
+	// The hint rows are laid out with the same logic as panels
+	hintWords := layoutHintSegments(segs, innerW-2, rect.Dy()-3)
+	row := mouse.Y - (rect.Min.Y + 1) // hint rows start at Min.Y+1 (below title bar)
+	if row < 0 || row >= len(hintWords) {
+		return "", false
+	}
+	// Text starts at Min.X+1 (after left border)
+	col := mouse.X - (rect.Min.X + 1)
+	for _, pw := range hintWords[row] {
+		if segs[pw.seg].Key != "" && col >= pw.startCol && col < pw.endCol {
+			return segs[pw.seg].Key, true
+		}
+	}
+	return "", false
+}
+
+// parsePopupHint parses a popup hint string like "[Enter] Select  [Esc] Cancel"
+// into separate segments with appropriate keys.
+func parsePopupHint(hint string) []HintSegment {
+	var segs []HintSegment
+	// Split by double space (segment separator)
+	parts := strings.Split(hint, "  ")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		key := ""
+		text := part
+		// Extract key from bracketed notation like "[Enter]" or "[Esc]"
+		if strings.HasPrefix(part, "[") {
+			end := strings.Index(part, "]")
+			if end > 1 {
+				keyStr := strings.ToLower(part[1:end])
+				// Map key strings to actual key names
+				switch keyStr {
+				case "enter":
+					key = "enter"
+				case "esc":
+					key = "esc"
+				case "save":
+					key = "enter"
+				case "cancel":
+					key = "esc"
+				}
+				// Keep the full text including brackets for display
+				text = part
+			}
+		}
+		segs = append(segs, HintSegment{Text: text, Key: key})
+	}
+	return segs
 }
 
 // hintSegmentsFor returns the hint row segments of a panel. Key is the
@@ -786,22 +990,23 @@ func (m *Model) applyPanelHeights() {
 	if m.width == 0 || m.height == 0 {
 		return
 	}
-	// The picker lives in the popup (3/4 of the terminal, borders + title
-	// leave 4 rows), so size it to that overlay, not to the top panel.
+	// The picker lives in the popup (3/4 of the terminal); its inner content
+	// area is borders + title + hint + separator, i.e. popupH - 4 rows.
 	popupH := m.height * 3 / 4
 	if popupH < 10 {
 		popupH = 10
 	}
 	m.filePicker.SetHeight(popupH - 4)
 
-	// Bottom panels: band height − 2 borders − 1 title row.
+	// Bottom panels: band height − 2 borders − 1 title row − 2 hint rows
+	// (hint + separator; a wrapped hint clips the last content row).
 	total := m.height - 1
 	topHeight := 9
 	if topHeight > total/2 {
 		topHeight = total / 2
 	}
 	bottomHeight := total - topHeight
-	inner := bottomHeight - 3
+	inner := bottomHeight - 5
 	m.configVP.SetHeight(inner)
 	m.eventsVP.SetHeight(inner)
 	m.configVP.SetWidth(m.leftWidth - 2)
@@ -1044,6 +1249,7 @@ func (m *Model) renderConfigCard(w, h int) string {
 
 // renderPickerPopup renders the file-picker overlay frame (centered, sized to
 // the terminal). It uses the same half-block title bar as the panels.
+// The title shows the current directory for context.
 func (m *Model) renderPickerPopup(w, h int) string {
 	pw := w * 3 / 4
 	ph := h * 3 / 4
@@ -1053,9 +1259,20 @@ func (m *Model) renderPickerPopup(w, h int) string {
 	if ph < 10 {
 		ph = 10
 	}
-	// innerW = pw-2, content rows calculated by RenderPopupWithTitle (accounts for hint rows).
-	return RenderPopupWithTitle("Select a config file",
-		clipLines(m.filePicker.View().Content, pw-2, ph-3), pw, ph, "[Enter] Select  [Esc] Cancel")
+	if pw > w-2 {
+		pw = w - 2
+	}
+	if ph > h-2 {
+		ph = h - 2
+	}
+	// innerW = pw-2; the content area is innerH - 2 (hint + separator),
+	// so clip the picker content to that.
+	title := fmt.Sprintf("Select a config file (%s)", m.filePicker.CurrentDirectory())
+	if len(title) > pw-2 {
+		title = title[:pw-5] + "..."
+	}
+	return RenderPopupWithTitle(title,
+		clipLines(m.filePicker.View().Content, pw-2, ph-4), pw, ph, pickerPopupHint)
 }
 
 func (m *Model) renderConfig(w, h int) string {
@@ -1119,7 +1336,7 @@ func (m *Model) renderConfig(w, h int) string {
 			"",
 			m.editText.View(),
 		}, "\n")
-		edit := RenderPopupWithTitle("Edit "+m.editPath, content, ew, eh, "[Enter] Save  [Esc] Cancel")
+		edit := RenderPopupWithTitle("Edit "+m.editPath, content, ew, eh, editPopupHint)
 		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
 	}
 	// Hint row for config panel

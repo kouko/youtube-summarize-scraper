@@ -764,6 +764,113 @@ func TestModelPopupSelectionLoadsConfig(t *testing.T) {
 	}
 }
 
+// pickerRowClickPoint returns screen coordinates of a click on the picker
+// popup's file-list row n (0 = first visible file), using the same popup
+// geometry the renderer and handlePickerPopupClick apply (title row, hint
+// rows, separator row, then the file list).
+func pickerRowClickPoint(m *Model, n int) (int, int) {
+	rect := m.pickerPopupRect()
+	hintRows := popupHintLineCount(pickerPopupHint, rect.Dx(), rect.Dy())
+	y := rect.Min.Y + 1 + hintRows + 1 + n
+	x := rect.Min.X + 2 // inside the content area, past the left border
+	return x, y
+}
+
+// Regression: with the picker popup open, a click on a file row in the list
+// selects that file and closes the popup. The click must reach the picker
+// through Update — previously a MouseClickMsg that was not on a hint segment
+// was swallowed while the popup was open, so list clicks did nothing.
+func TestModelPickerFileListMouseClickSelectsFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter")) // open the popup
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+
+	// The picker lists files alphabetically: row 0 = alpha.yaml, row 1 =
+	// beta.yaml. Click beta.yaml.
+	x, y := pickerRowClickPoint(m, 1)
+	m.Update(tea.MouseClickMsg{X: x, Y: y})
+
+	if m.pickerOpen {
+		t.Error("popup still open after clicking a file row")
+	}
+	if got := m.state.Snapshot().ConfigPath; !strings.HasSuffix(got, "beta.yaml") {
+		t.Errorf("config path = %q, want .../beta.yaml", got)
+	}
+}
+
+// Regression: clicking a directory row navigates into it (the popup stays
+// open and the listing reloads via the picker's command), then a click on a
+// file row inside selects that config.
+func TestModelPickerDirRowMouseClickNavigates(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "inner.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "outer.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter")) // open the popup
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+
+	// Dirs sort before files: row 0 = sub. Click it to navigate in.
+	x, y := pickerRowClickPoint(m, 0)
+	_, cmd := m.Update(tea.MouseClickMsg{X: x, Y: y})
+	if !m.pickerOpen {
+		t.Fatal("clicking a directory row closed the popup")
+	}
+	if cmd == nil {
+		t.Fatal("clicking a directory row did not return the reload command")
+	}
+	if msg := cmd(); msg != nil {
+		m.Update(msg) // readDirMsg reloads the listing for the new directory
+	}
+	if got := m.filePicker.CurrentDirectory(); got != sub {
+		t.Errorf("current directory = %q, want %q", got, sub)
+	}
+
+	// Now the first row is inner.yaml; clicking it selects the config.
+	x, y = pickerRowClickPoint(m, 0)
+	m.Update(tea.MouseClickMsg{X: x, Y: y})
+	if m.pickerOpen {
+		t.Error("popup still open after clicking inner.yaml")
+	}
+	if got := m.state.Snapshot().ConfigPath; !strings.HasSuffix(got, filepath.Join("sub", "inner.yaml")) {
+		t.Errorf("config path = %q, want .../sub/inner.yaml", got)
+	}
+}
+
 // W5-03 (user feedback): the top band's height is content-driven, not a
 // fixed half of the terminal — the config card and the status panel end on
 // the same line, the bottom band starts immediately after, and no blank
@@ -1131,7 +1238,7 @@ func hintClickPoint(m *Model, p FocusedPanel, key string) (int, int, bool) {
 	for li, line := range lines {
 		for _, pw := range line {
 			if segs[pw.seg].Key == key {
-				x := rect.Min.X + 2 + (pw.startCol+pw.endCol)/2 // +2: border + padding
+				x := rect.Min.X + 1 + (pw.startCol+pw.endCol)/2 // +1: left border
 				y := rect.Min.Y + 1 + li                        // hint rows sit below the title bar
 				return x, y, true
 			}
@@ -1212,5 +1319,65 @@ func TestHintClickInfoSegmentDoesNothing(t *testing.T) {
 	}
 	if m.focus != PanelEvents {
 		t.Errorf("focus = %v, want PanelEvents (click should still focus)", m.focus)
+	}
+}
+
+// Panels must render exactly the requested height: a panel built with h rows
+// (title + hint + separator + content + bottom border) must produce exactly
+// h lines. The old arithmetic produced h-1 lines, which shifted the bottom
+// band up one row and made every bottom-panel hint click miss by one row.
+func TestPanelRendersExactHeight(t *testing.T) {
+	segs := []HintSegment{
+		{Text: "[↑↓] Navigate"},
+		{Text: "[Enter] Edit", Key: "enter"},
+		{Text: "[c] Switch View", Key: "c"},
+	}
+	for h := 6; h <= 20; h++ {
+		got := strings.Split(RenderPanelWithSegments("Config", "a\nb\n", 40, h, true, segs), "\n")
+		if len(got) != h {
+			t.Errorf("RenderPanelWithSegments h=%d produced %d lines (want %d)", h, len(got), h)
+		}
+	}
+	for h := 6; h <= 20; h++ {
+		got := strings.Split(RenderPopupWithTitle("Edit x", "a\nb\n", 60, h, "[Enter] Save"), "\n")
+		if len(got) != h {
+			t.Errorf("RenderPopupWithTitle h=%d produced %d lines (want %d)", h, len(got), h)
+		}
+		gotNoHint := strings.Split(RenderPopupWithTitle("Edit x", "a\nb\n", 60, h, ""), "\n")
+		if len(gotNoHint) != h {
+			t.Errorf("RenderPopupWithTitle (no hint) h=%d produced %d lines (want %d)", h, len(gotNoHint), h)
+		}
+	}
+}
+
+// The rendered grid must sit exactly where panelRects says: the bottom band's
+// title is at PanelConfig.Min.Y and its hint row at Min.Y+1. When the top
+// band renders one row short this drifts by one and hint clicks miss.
+func TestPanelRectsMatchRenderedGrid(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	lines := strings.Split(m.View().Content, "\n")
+
+	rect := m.panelRects()[PanelConfig]
+	titleLine := lines[rect.Min.Y]
+	if !strings.Contains(stripANSI(titleLine), "Config") {
+		t.Errorf("bottom band title not at PanelConfig.Min.Y=%d; line: %q", rect.Min.Y, stripANSI(titleLine))
+	}
+	if !strings.Contains(stripANSI(lines[rect.Min.Y+1]), "Enter] Edit") {
+		t.Errorf("bottom band hint not at PanelConfig.Min.Y+1=%d; line: %q",
+			rect.Min.Y+1, stripANSI(lines[rect.Min.Y+1]))
+	}
+	// And the click point derived from the real render must hit the segment.
+	m.configView = NewConfigView("llm:\n  provider: x\n")
+	renderedHint := stripANSI(lines[rect.Min.Y+1])
+	// strings.Index is a byte index, but the click needs the display column
+	// (↑/↓ are multi-byte); lipgloss.Width of the prefix gives the column.
+	x := lipgloss.Width(renderedHint[:strings.Index(renderedHint, "[c]")]) + 1
+	if key, ok := m.hintHitTest(tea.Mouse{X: x, Y: rect.Min.Y + 1}, PanelConfig, rect); !ok || key != "c" {
+		t.Fatalf("hintHitTest at rendered [c] (x=%d) = %q, want \"c\"", x, key)
+	}
+	after, _ := m.Update(tea.MouseClickMsg{X: x, Y: rect.Min.Y + 1})
+	if after.(*Model).configView.Mode() != ConfigViewRaw {
+		t.Error("click at the rendered [c] position did not toggle the config view")
 	}
 }
