@@ -269,7 +269,9 @@ func RenderPanelWithSegments(title string, content string, w, h int, active bool
 
 // RenderPopupWithTitle renders a popup whose title bar uses half-block elements.
 // The left/right border lines start directly below the title bar (no top corners).
-func RenderPopupWithTitle(title string, content string, w, h int) string {
+// Optional hint string is rendered below the title bar, wrapped to multiple lines
+// if needed, followed by a subtle separator line. Content area shrinks accordingly.
+func RenderPopupWithTitle(title string, content string, w, h int, hint string) string {
 	innerW := w - 2
 	innerH := h - 2
 
@@ -295,10 +297,27 @@ func RenderPopupWithTitle(title string, content string, w, h int) string {
 	// Row 0: title bar with half-block elements.
 	lines = append(lines, leftCap+titleArea+rightCap)
 
-	/* ---------- Content area (starts immediately after title row) ---------- */
+	// Hint rows (optional)
+	hintRows := 0
+	if hint != "" {
+		// Convert hint to a single informational segment
+		segs := []HintSegment{{Text: hint}}
+		hintWords := layoutHintSegments(segs, innerW-2, innerH-3)
+		for _, words := range hintWords {
+			lines = append(lines, vBar+renderPlacedHintLine(words, segs, innerW)+vBar)
+			hintRows++
+		}
+		// Separator row
+		sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#2A2A2A"))
+		sepLine := sepStyle.Render(strings.Repeat("▔", innerW))
+		lines = append(lines, vBar+sepLine+vBar)
+		hintRows++
+	}
+
+	/* ---------- Content area (starts after title and hint rows) ---------- */
 	contentLines := strings.Split(content, "\n")
-	// We have used 1 row for title; remaining rows = innerH - 1
-	rows := innerH - 1
+	// We have used 1 (title) + hintRows rows; remaining rows = innerH - 1 - hintRows
+	rows := innerH - 1 - hintRows
 	for i := 0; i < rows; i++ {
 		var line string
 		if i < len(contentLines) {

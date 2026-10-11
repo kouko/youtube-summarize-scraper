@@ -1053,9 +1053,9 @@ func (m *Model) renderPickerPopup(w, h int) string {
 	if ph < 10 {
 		ph = 10
 	}
-	// innerW = pw-2, content rows = innerH-1 = ph-3 (title row takes one).
+	// innerW = pw-2, content rows calculated by RenderPopupWithTitle (accounts for hint rows).
 	return RenderPopupWithTitle("Select a config file",
-		clipLines(m.filePicker.View().Content, pw-2, ph-3), pw, ph)
+		clipLines(m.filePicker.View().Content, pw-2, ph-3), pw, ph, "[Enter] Select  [Esc] Cancel")
 }
 
 func (m *Model) renderConfig(w, h int) string {
@@ -1113,15 +1113,13 @@ func (m *Model) renderConfig(w, h int) string {
 		if ew > w-2 {
 			ew = w - 2
 		}
-		eh := 7 // title + blank + input + blank + hint + borders
+		eh := 9 // title + hint + separator + blank + input + blank + borders
 		// Content: blank line, input, blank line, hint
 		content := strings.Join([]string{
 			"",
 			m.editText.View(),
-			"",
-			"Enter 存檔   Esc 取消",
 		}, "\n")
-		edit := RenderPopupWithTitle("Edit "+m.editPath, content, ew, eh)
+		edit := RenderPopupWithTitle("Edit "+m.editPath, content, ew, eh, "[Enter] Save  [Esc] Cancel")
 		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
 	}
 	// Hint row for config panel
