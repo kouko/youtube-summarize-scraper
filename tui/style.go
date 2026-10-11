@@ -62,7 +62,8 @@ func PopupTitleStyle() lipgloss.Style {
 //	content : inner content string (may contain newlines)
 //	w, h    : total width and height **including** the outer border
 //	active  : true if the panel is focused
-func RenderPanelWithTitle(title string, content string, w, h int, active bool) string {
+//	hint    : optional hint string to display below title bar
+func RenderPanelWithTitle(title string, content string, w, h int, active bool, hint string) string {
 	innerW := w - 2 // inner width (excluding left/right borders)
 	innerH := h - 2 // inner height (excluding top/bottom borders)
 
@@ -103,10 +104,19 @@ func RenderPanelWithTitle(title string, content string, w, h int, active bool) s
 	// seamlessly with the vertical │ borders below.
 	lines = append(lines, leftCap+titleArea+rightCap)
 
-	/* ---------- Content area (starts immediately after title row) ---------- */
+	// Row 1: hint row (if hint provided)
+	hintRow := 1
+	if hint != "" {
+		// Center the hint in the available width
+		hintArea := lipgloss.NewStyle().Width(innerW).Align(lipgloss.Center).Render(hint)
+		lines = append(lines, vBar+hintArea+vBar)
+		hintRow++
+	}
+
+	/* ---------- Content area (starts after title and hint rows) ---------- */
 	contentLines := strings.Split(content, "\n")
-	// We have used 1 row for title; remaining rows = innerH - 1
-	rows := innerH - 1
+	// We have used hintRow rows for title and hint; remaining rows = innerH - hintRow
+	rows := innerH - hintRow
 	for i := 0; i < rows; i++ {
 		var line string
 		if i < len(contentLines) {

@@ -962,8 +962,9 @@ func (m *Model) renderConfigCard(w, h int) string {
 			}
 		}
 	}
-	b.WriteString("Enter 選擇設定檔")
-	return RenderPanelWithTitle(title, b.String(), w, h, m.focus == PanelFilePicker)
+	// Hint for the hint row; keep content area for path/size only
+	hint := "Enter 選擇設定檔"
+	return RenderPanelWithTitle(title, b.String(), w, h, m.focus == PanelFilePicker, hint)
 }
 
 // renderPickerPopup renders the file-picker overlay frame (centered, sized to
@@ -1048,7 +1049,9 @@ func (m *Model) renderConfig(w, h int) string {
 		edit := RenderPopupWithTitle("Edit "+m.editPath, content, ew, eh)
 		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
 	}
-	return RenderPanelWithTitle(title, body, w, h, m.focus == PanelConfig)
+	// Hint row for config panel
+	hint := "↑↓ 導航  Enter 編輯  c 切換視圖"
+	return RenderPanelWithTitle(title, body, w, h, m.focus == PanelConfig, hint)
 }
 
 func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
@@ -1072,7 +1075,7 @@ func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 		b.WriteString("Status: Stopped\n")
 	}
 
-	return RenderPanelWithTitle(title, clipLines(b.String(), w-2, h-4), w, h, m.focus == PanelStatus)
+	return RenderPanelWithTitle(title, clipLines(b.String(), w-2, h-4), w, h, m.focus == PanelStatus, "r 執行/停止")
 }
 
 func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
@@ -1101,7 +1104,7 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 		m.eventsVP.GotoBottom()
 	}
 
-	return RenderPanelWithTitle(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents)
+	return RenderPanelWithTitle(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents, "↑↓ 滾動")
 }
 
 // clipLines keeps at most n lines of content and truncates each to a display

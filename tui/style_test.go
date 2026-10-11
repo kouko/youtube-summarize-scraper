@@ -13,7 +13,7 @@ import (
 // unpadded.
 func TestRenderPanelRowsAllSameWidth(t *testing.T) {
 	const w = 30
-	out := RenderPanelWithTitle("T", "short\na somewhat longer line", w, 7, false)
+	out := RenderPanelWithTitle("T", "short\na somewhat longer line", w, 7, false, "")
 	rows := strings.Split(out, "\n")
 	if len(rows) != 6 {
 		t.Fatalf("got %d rows, want 6", len(rows))
@@ -29,7 +29,7 @@ func TestRenderPanelRowsAllSameWidth(t *testing.T) {
 // rune or byte count, or the right border drifts on CJK-only rows.
 func TestRenderPanelRowsCJKWidth(t *testing.T) {
 	const w = 20
-	out := RenderPanelWithTitle("面板", "漢字測試", w, 4, false)
+	out := RenderPanelWithTitle("面板", "漢字測試", w, 4, false, "")
 	for i, line := range strings.Split(out, "\n") {
 		if got := lipgloss.Width(line); got != w {
 			t.Errorf("row %d width = %d, want %d: %q", i, got, w, line)
@@ -41,7 +41,7 @@ func TestRenderPanelRowsCJKWidth(t *testing.T) {
 // never push the right border out of the panel.
 func TestRenderPanelRowsOverlongTruncated(t *testing.T) {
 	const w = 20
-	out := RenderPanelWithTitle("T", strings.Repeat("x", 100), w, 4, false)
+	out := RenderPanelWithTitle("T", strings.Repeat("x", 100), w, 4, false, "")
 	for i, line := range strings.Split(out, "\n") {
 		if got := lipgloss.Width(line); got != w {
 			t.Errorf("row %d width = %d, want %d: %q", i, got, w, line)
