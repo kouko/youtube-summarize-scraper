@@ -963,7 +963,7 @@ func (m *Model) renderConfigCard(w, h int) string {
 		}
 	}
 	// Hint for the hint row; keep content area for path/size only
-	hint := strings.ReplaceAll("[Enter] 選擇設定檔", "\n", " ")
+	hint := strings.ReplaceAll("[Enter] Select Config", "\n", " ")
 	return RenderPanelWithTitle(title, b.String(), w, h, m.focus == PanelFilePicker, hint)
 }
 
@@ -1050,7 +1050,7 @@ func (m *Model) renderConfig(w, h int) string {
 		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
 	}
 	// Hint row for config panel
-	hint := strings.ReplaceAll("[↑↓] 導航  [Enter] 編輯  [c] 切換視圖", "\n", " ")
+	hint := strings.ReplaceAll("[↑↓] Navigate  [Enter] Edit  [c] Switch View", "\n", " ")
 	return RenderPanelWithTitle(title, body, w, h, m.focus == PanelConfig, hint)
 }
 
@@ -1075,7 +1075,7 @@ func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 		b.WriteString("Status: Stopped\n")
 	}
 
-	return RenderPanelWithTitle(title, clipLines(b.String(), w-2, h-4), w, h, m.focus == PanelStatus, strings.ReplaceAll("[r] 執行/停止", "\n", " "))
+	return RenderPanelWithTitle(title, clipLines(b.String(), w-2, h-4), w, h, m.focus == PanelStatus, strings.ReplaceAll("[r] Run/Stop", "\n", " "))
 }
 
 func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
@@ -1104,7 +1104,7 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 		m.eventsVP.GotoBottom()
 	}
 
-	return RenderPanelWithTitle(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents, strings.ReplaceAll("[↑↓] 滾動", "\n", " "))
+	return RenderPanelWithTitle(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents, strings.ReplaceAll("[↑↓] Scroll", "\n", " "))
 }
 
 // clipLines keeps at most n lines of content and truncates each to a display
