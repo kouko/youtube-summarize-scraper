@@ -335,6 +335,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Key messages: forward when picker is open or picker panel focused (except excluded keys)
 		shouldForwardToPicker = m.pickerOpen || (m.focus == PanelFilePicker && keyStr != "enter" && keyStr != "tab" && keyStr != "shift+tab" && keyStr != "c" && keyStr != "r")
 	}
+	// Enter may select a file. The picker never clears Path on directory
+	// navigation, so a stale path from an earlier selection would make the
+	// post-Enter checks (handleKey here, handlePickerPopupClick for the mouse)
+	// believe a file was chosen even when this Enter just opened a directory.
+	// Clearing right before the picker handles Enter makes a non-empty Path
+	// afterwards mean "this Enter selected a file".
+	if isKey && m.pickerOpen && keyStr == "enter" {
+		m.filePicker.ClearChosenPath()
+	}
 	if !shouldForwardToPicker {
 		// Process the message normally in the main model
 	} else {

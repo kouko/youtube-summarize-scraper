@@ -117,6 +117,15 @@ func (m *FilePickerModel) CurrentDirectory() string {
 	return m.fp.CurrentDirectory
 }
 
+// ClearChosenPath resets the picker's selected path. The bubbles picker keeps
+// Path set after a selection and never clears it on directory navigation, so a
+// later "is a path chosen?" check would report a stale file even when the user
+// just opened a directory. Callers clear it right before an Enter that may
+// select, so a non-empty Path afterwards means this Enter selected a file.
+func (m *FilePickerModel) ClearChosenPath() {
+	m.fp.Path = ""
+}
+
 // HandleMouseClick maps a click on the popup's file list to the picker: the
 // cursor moves to the clicked row and Enter is sent, so a click behaves like
 // keyboard navigation (Enter on a directory opens it, on a file selects it).
@@ -163,6 +172,10 @@ func (m *FilePickerModel) HandleMouseClick(contentY int) (bool, tea.Cmd) {
 	}
 
 	var cmds []tea.Cmd
+	// Clear any previously chosen path first: the picker never clears Path on
+	// navigation, so without this a click on a directory would leave a stale
+	// file path that the caller reads as "a file was selected".
+	m.fp.Path = ""
 	// Move the cursor to the clicked row with the same keys the picker
 	// handles for keyboard navigation.
 	step := tea.KeyDown

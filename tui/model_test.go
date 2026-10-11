@@ -878,6 +878,170 @@ func TestModelPickerDirRowMouseClickNavigates(t *testing.T) {
 // pickerNavClickGuard is the double-click guard window; a test helper below
 // manipulates the recorded click to simulate its expiry.
 
+// Regression (2026-10-12, user report): a single click on a directory row
+// closed the popup once the user had selected any file earlier. The bubbles
+// picker keeps Path set after a selection and never clears it on directory
+// navigation, so ChosenPath() reported the stale file and the code treated a
+// directory click as a file selection. Clearing Path before the selection
+// check makes a non-empty path mean "this click selected a file".
+func TestModelPickerStalePathDoesNotClosePopupOnDirClick(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "first.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "inner.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+
+	// Round 1: select first.yaml. Dirs sort first, so row 0 = sub and
+	// row 1 = first.yaml.
+	m.handleKey(pressKey("enter"))
+	x1, y1 := pickerRowClickPoint(m, 1)
+	m.Update(tea.MouseClickMsg{X: x1, Y: y1})
+	if m.pickerOpen {
+		t.Fatal("round 1: popup did not close after selecting first.yaml")
+	}
+	if m.filePicker.ChosenPath() == "" {
+		t.Fatal("round 1: no file selected")
+	}
+
+	// Round 2: reopen and click the directory row (sub). Before the fix the
+	// stale first.yaml path closed the popup here.
+	m.handleKey(pressKey("enter"))
+	x0, y0 := pickerRowClickPoint(m, 0)
+	got, cmd := m.Update(tea.MouseClickMsg{X: x0, Y: y0})
+	m = got.(*Model)
+	if !m.pickerOpen {
+		t.Fatalf("clicking a directory closed the popup (stale ChosenPath=%q)", m.filePicker.ChosenPath())
+	}
+	if m.filePicker.ChosenPath() != "" {
+		t.Errorf("ChosenPath after directory click = %q, want empty", m.filePicker.ChosenPath())
+	}
+	if cmd != nil {
+		if mmsg := cmd(); mmsg != nil {
+			m.Update(mmsg)
+		}
+	}
+	if got := m.filePicker.CurrentDirectory(); got != sub {
+		t.Errorf("current directory = %q, want %q", got, sub)
+	}
+}
+
+// Same root cause on the keyboard path: with a stale Path, Enter on a
+// directory closed the popup instead of navigating into it.
+func TestModelPickerStalePathDoesNotClosePopupOnEnterDir(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "inner.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+
+	// Simulate a prior selection that left a stale path behind.
+	m.filePicker.fp.Path = filepath.Join(dir, "previously-selected.yaml")
+
+	m.handleKey(pressKey("enter")) // open the popup; cursor at row 0 = sub
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+	got, cmd := m.Update(pressKey("enter")) // Enter on the sub directory
+	m = got.(*Model)
+	if !m.pickerOpen {
+		t.Fatalf("Enter on a directory closed the popup (stale ChosenPath=%q)", m.filePicker.ChosenPath())
+	}
+	if m.filePicker.ChosenPath() != "" {
+		t.Errorf("ChosenPath after Enter on directory = %q, want empty", m.filePicker.ChosenPath())
+	}
+	if cmd != nil {
+		if mmsg := cmd(); mmsg != nil {
+			m.Update(mmsg)
+		}
+	}
+	if got := m.filePicker.CurrentDirectory(); got != sub {
+		t.Errorf("current directory = %q, want %q", got, sub)
+	}
+}
+
+// The left/right arrows navigate directories while the popup is open
+// (left = back to the parent, right = open the highlighted directory).
+func TestModelPickerArrowKeysNavigate(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "inner.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter")) // open popup at dir; cursor at row 0 = sub
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+
+	// Right arrow: open the highlighted directory (sub).
+	got, cmd := m.Update(tea.KeyPressMsg{Code: tea.KeyRight})
+	m = got.(*Model)
+	if cmd != nil {
+		if mmsg := cmd(); mmsg != nil {
+			m.Update(mmsg)
+		}
+	}
+	if !m.pickerOpen {
+		t.Fatal("right arrow closed the popup")
+	}
+	if got := m.filePicker.CurrentDirectory(); got != sub {
+		t.Errorf("after right arrow: current directory = %q, want %q", got, sub)
+	}
+
+	// Left arrow: back to the parent directory (dir).
+	got, cmd = m.Update(tea.KeyPressMsg{Code: tea.KeyLeft})
+	m = got.(*Model)
+	if cmd != nil {
+		if mmsg := cmd(); mmsg != nil {
+			m.Update(mmsg)
+		}
+	}
+	if !m.pickerOpen {
+		t.Fatal("left arrow closed the popup")
+	}
+	if got := m.filePicker.CurrentDirectory(); got != dir {
+		t.Errorf("after left arrow: current directory = %q, want %q", got, dir)
+	}
+}
+
 // Regression (2026-10-11, user report): a double-click on a directory row
 // used to close the popup. The first click navigates into the directory and
 // the listing reloads, so the second press of the double-click lands on the
