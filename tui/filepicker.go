@@ -172,7 +172,7 @@ func (m *FilePickerModel) HandleMouseClick(contentY int) (bool, tea.Cmd) {
 		n = -n
 	}
 	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
-		log.Printf("[HandleMouseClick] moving from %d to %d step=%s n=%d", selected, target, step, n)
+		log.Printf("[HandleMouseClick] moving from %d to %d step=%d n=%d", selected, target, step, n)
 	}
 	for i := 0; i < n; i++ {
 		var c tea.Cmd
