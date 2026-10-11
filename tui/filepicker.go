@@ -12,6 +12,7 @@ import (
 	// across Update calls to emit ConfigSelectedMsg.
 	"charm.land/bubbles/v2/filepicker"
 	tea "charm.land/bubbletea/v2"
+	"log"
 )
 
 // ConfigSelectedMsg is sent when the user selects a config file in the picker.
@@ -38,7 +39,17 @@ func NewFilePickerModel() *FilePickerModel {
 	// WindowSizeMsg, pushing the bottom panels off screen. The main model
 	// calls SetHeight with the panel's inner height instead (see View).
 	fp.AutoHeight = false
-
+	
+	// Set up logging for mouse click debugging if enabled
+	if logFile := os.Getenv("YTSS_FILEPICKER_LOG"); logFile != "" {
+		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644); err == nil {
+			log.SetOutput(f)
+		} else {
+			log.SetOutput(os.Stderr)
+		}
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
+	}
+	
 	// Set initial directory: prefer YTSS_CONFIG_DIR, then common ytss config dir, then home
 	startDir := os.Getenv("YTSS_CONFIG_DIR")
 	if startDir == "" {
@@ -58,7 +69,7 @@ func NewFilePickerModel() *FilePickerModel {
 	if startDir != "" {
 		fp.CurrentDirectory = startDir
 	}
-
+	
 	return &FilePickerModel{fp: fp}
 }
 
@@ -117,6 +128,9 @@ func (m *FilePickerModel) CurrentDirectory() string {
 // effect (loading the config, closing the popup) is applied by the caller,
 // mirroring the keyboard path in handleKey.
 func (m *FilePickerModel) HandleMouseClick(contentY int) (bool, tea.Cmd) {
+	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+		log.Printf("[HandleMouseClick] input contentY=%d", contentY)
+	}
 	// The picker renders one file per line: rows 0..maxIdx-minIdx map to
 	// files[minIdx+row]. Its window/cursor fields are unexported; read the
 	// three ints via reflection (names match bubbles v2.2.1). Unexported
@@ -126,16 +140,28 @@ func (m *FilePickerModel) HandleMouseClick(contentY int) (bool, tea.Cmd) {
 	minF := fp.FieldByName("minIdx")
 	maxF := fp.FieldByName("maxIdx")
 	if !selF.IsValid() || !minF.IsValid() || !maxF.IsValid() {
+		if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+			log.Printf("[HandleMouseClick] missing field: selF=%v minF=%v maxF=%v", selF.IsValid(), minF.IsValid(), maxF.IsValid())
+		}
 		return false, nil
 	}
 	selected, minIdx, maxIdx := int(selF.Int()), int(minF.Int()), int(maxF.Int())
+	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+		log.Printf("[HandleMouseClick] selected=%d minIdx=%d maxIdx=%d contentY=%d", selected, minIdx, maxIdx, contentY)
+	}
 	if contentY < 0 || contentY > maxIdx-minIdx {
 		// Above the file list (title/hint/separator rows) or below the
 		// visible files (padding rows).
+		if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+			log.Printf("[HandleMouseClick] out of range: contentY=%d maxIdx-minIdx=%d", contentY, maxIdx-minIdx)
+		}
 		return false, nil
 	}
 	target := minIdx + contentY
-
+	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+		log.Printf("[HandleMouseClick] target=%d", target)
+	}
+	
 	var cmds []tea.Cmd
 	// Move the cursor to the clicked row with the same keys the picker
 	// handles for keyboard navigation.
@@ -144,6 +170,9 @@ func (m *FilePickerModel) HandleMouseClick(contentY int) (bool, tea.Cmd) {
 	if n < 0 {
 		step = tea.KeyUp
 		n = -n
+	}
+	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+		log.Printf("[HandleMouseClick] moving from %d to %d step=%s n=%d", selected, target, step, n)
 	}
 	for i := 0; i < n; i++ {
 		var c tea.Cmd
@@ -157,6 +186,9 @@ func (m *FilePickerModel) HandleMouseClick(contentY int) (bool, tea.Cmd) {
 	m.fp, c = m.fp.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if c != nil {
 		cmds = append(cmds, c)
+	}
+	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+		log.Printf("[HandleMouseClick] done, cmds=%v", cmds)
 	}
 	return true, tea.Batch(cmds...)
 }

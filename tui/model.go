@@ -675,17 +675,36 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 // separator and clicks outside the overlay do nothing. Returns any command
 // the click produced.
 func (m *Model) handlePickerPopupClick(mouse tea.Mouse) tea.Cmd {
+	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+		fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] mouse=%v\n", mouse)
+	}
 	rect := m.pickerPopupRect()
+	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+		fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] rect=%v\n", rect)
+	}
 	if key, ok := m.popupHintHitTest(mouse, rect, pickerPopupHint); ok {
+		if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+			fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] hit hint key=%s\n", key)
+		}
 		return m.dispatchHintKey(key)
 	}
 	if !popupHitTest(mouse, rect) {
+		if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+			fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] outside popup\n")
+		}
 		return nil
 	}
 	// Content area: title row, hint rows (same layout the renderer uses),
 	// then a separator row; the file list starts below them.
-	contentStartY := rect.Min.Y + 1 + popupHintLineCount(pickerPopupHint, rect.Dx(), rect.Dy()) + 1
+	hintLines := popupHintLineCount(pickerPopupHint, rect.Dx(), rect.Dy())
+	contentStartY := rect.Min.Y + 1 + hintLines + 1
+	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+		fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] hintLines=%d contentStartY=%d mouse.Y=%d contentY=%d\n", hintLines, contentStartY, mouse.Y, mouse.Y-contentStartY)
+	}
 	handled, pickerCmd := m.filePicker.HandleMouseClick(mouse.Y - contentStartY)
+	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
+		fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] handled=%v pickerCmd=%v\n", handled, pickerCmd)
+	}
 	if !handled {
 		return nil
 	}
