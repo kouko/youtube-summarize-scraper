@@ -107,13 +107,20 @@ func RenderPanelWithTitle(title string, content string, w, h int, active bool, h
 	// Hint rows: optional hint row + separator row
 	hintRows := 0
 	if hint != "" {
+		// Truncate hint to fit within the available text area (innerW - 2 padding)
+		maxHintWidth := innerW - 2
+		if maxHintWidth < 0 {
+			maxHintWidth = 0
+		}
+		truncatedHint := truncateANSI(hint, maxHintWidth)
+
 		// Hint row: left-aligned text
 		hintStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#AAAAAA")).
 			Width(innerW).
 			Align(lipgloss.Left).
 			Padding(0, 1)
-		hintArea := hintStyle.Render(hint)
+		hintArea := hintStyle.Render(truncatedHint)
 		lines = append(lines, vBar+hintArea+vBar)
 		hintRows = 1
 

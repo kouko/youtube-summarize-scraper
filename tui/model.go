@@ -963,7 +963,7 @@ func (m *Model) renderConfigCard(w, h int) string {
 		}
 	}
 	// Hint for the hint row; keep content area for path/size only
-	hint := "Enter 選擇設定檔"
+	hint := strings.ReplaceAll("[Enter] 選擇設定檔", "\n", " ")
 	return RenderPanelWithTitle(title, b.String(), w, h, m.focus == PanelFilePicker, hint)
 }
 
@@ -1024,7 +1024,7 @@ func (m *Model) renderConfig(w, h int) string {
 	// The viewport owns scrolling (keyboard + wheel); size it to the panel's
 	// inner rows on every render (cheap; offset is preserved).
 	m.configVP.SetWidth(w - 2)
-	m.configVP.SetHeight(h - 3)
+	m.configVP.SetHeight(h - 4)
 	// Set content to table rendered at natural width (allows horizontal scrolling)
 	m.configVP.SetContent(content)
 	body := m.configVP.View()
@@ -1050,7 +1050,7 @@ func (m *Model) renderConfig(w, h int) string {
 		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
 	}
 	// Hint row for config panel
-	hint := "↑↓ 導航  Enter 編輯  c 切換視圖"
+	hint := strings.ReplaceAll("[↑↓] 導航  [Enter] 編輯  [c] 切換視圖", "\n", " ")
 	return RenderPanelWithTitle(title, body, w, h, m.focus == PanelConfig, hint)
 }
 
@@ -1075,7 +1075,7 @@ func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 		b.WriteString("Status: Stopped\n")
 	}
 
-	return RenderPanelWithTitle(title, clipLines(b.String(), w-2, h-4), w, h, m.focus == PanelStatus, "r 執行/停止")
+	return RenderPanelWithTitle(title, clipLines(b.String(), w-2, h-4), w, h, m.focus == PanelStatus, strings.ReplaceAll("[r] 執行/停止", "\n", " "))
 }
 
 func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
@@ -1098,13 +1098,13 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 	// the bottom: keep the view pinned there unless the user scrolled up.
 	atBottom := m.eventsVP.AtBottom()
 	m.eventsVP.SetWidth(w - 2)
-	m.eventsVP.SetHeight(h - 3)
+	m.eventsVP.SetHeight(h - 4)
 	m.eventsVP.SetContent(b.String())
 	if atBottom {
 		m.eventsVP.GotoBottom()
 	}
 
-	return RenderPanelWithTitle(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents, "↑↓ 滾動")
+	return RenderPanelWithTitle(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents, strings.ReplaceAll("[↑↓] 滾動", "\n", " "))
 }
 
 // clipLines keeps at most n lines of content and truncates each to a display
