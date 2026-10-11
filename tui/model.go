@@ -364,7 +364,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pickerOpen {
 			break
 		}
-		m.handleMouseClick(msg.Mouse())
+		cmd = m.handleMouseClick(msg.Mouse())
 
 	case tea.MouseMotionMsg:
 		if m.pickerOpen {
@@ -539,17 +539,18 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// handleMouseClick handles mouse click events.
-func (m *Model) handleMouseClick(mouse tea.Mouse) {
+// handleMouseClick handles mouse click events. Returns any command the click
+// produced (a hint-segment click can emit a run command).
+func (m *Model) handleMouseClick(mouse tea.Mouse) tea.Cmd {
 	// Handle clicking the vertical sash to start dragging
 	if m.isOnVerticalSash(mouse.X, mouse.Y) {
 		m.dragSashStart = mouse.X
 		m.dragSashStartOffset = mouse.X - m.leftWidth
-		return
+		return nil
 	}
 
 	// Handle click on panels
-	m.handleClickPanel(mouse)
+	return m.handleClickPanel(mouse)
 }
 
 // handleMouseMotion handles mouse drag events.
@@ -579,7 +580,11 @@ func (m *Model) handleMouseRelease(mouse tea.Mouse) {
 }
 
 // handleClickPanel handles left-click interactions on panels
-func (m *Model) handleClickPanel(mouse tea.Mouse) {
+// handleClickPanel maps a click position to a panel, focuses it, and runs the
+// panel's click behaviour. A click on a hint segment triggers the segment's
+// key action (same as pressing the key); returns any command the action
+// produced.
+func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 	rects := m.panelRects()
 	hitPanel := FocusedPanel(-1)
 	for p, r := range rects {
@@ -592,10 +597,20 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) {
 		// Clicked empty space - close any open popups/editors
 		m.editing = false
 		m.itemEditPopupIdx = -1
-		return
+		return nil
 	}
 
 	m.focus = hitPanel
+
+	// Click on a hint segment triggers its key action (like pressing the
+	// key). The inline editor owns input while open, so hint clicks wait.
+	if !m.editing {
+		if key, ok := m.hintHitTest(mouse, hitPanel, rects[hitPanel]); ok {
+			// Clicking elsewhere closes the item edit popup.
+			m.itemEditPopupIdx = -1
+			return m.dispatchHintKey(key)
+		}
+	}
 
 	switch hitPanel {
 	case PanelFilePicker:
@@ -628,6 +643,67 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) {
 		// Events panel - just focus
 		break
 	}
+	return nil
+}
+
+// hintHitTest maps a click inside a panel to a hint segment. Hint rows sit
+// directly below the title bar (panel row 0): line i is at Min.Y+1+i, and
+// the text area starts at Min.X+2 (border + left padding). Returns the
+// segment's Key when the click lands on an actionable segment.
+func (m *Model) hintHitTest(mouse tea.Mouse, p FocusedPanel, rect image.Rectangle) (string, bool) {
+	segs := m.hintSegmentsFor(p)
+	if len(segs) == 0 {
+		return "", false
+	}
+	textAreaW := rect.Dx() - 4
+	if textAreaW < 1 {
+		return "", false
+	}
+	lines := layoutHintSegments(segs, textAreaW, rect.Dy()-5)
+	row := mouse.Y - (rect.Min.Y + 1)
+	if row < 0 || row >= len(lines) {
+		return "", false
+	}
+	col := mouse.X - (rect.Min.X + 2)
+	for _, pw := range lines[row] {
+		if segs[pw.seg].Key != "" && col >= pw.startCol && col < pw.endCol {
+			return segs[pw.seg].Key, true
+		}
+	}
+	return "", false
+}
+
+// hintSegmentsFor returns the hint row segments of a panel. Key is the
+// keyboard key a click on the segment triggers ("" = informational only).
+func (m *Model) hintSegmentsFor(p FocusedPanel) []HintSegment {
+	switch p {
+	case PanelFilePicker:
+		return []HintSegment{{Text: "[Enter] Select Config", Key: "enter"}}
+	case PanelConfig:
+		return []HintSegment{
+			{Text: "[↑↓] Navigate"},
+			{Text: "[Enter] Edit", Key: "enter"},
+			{Text: "[c] Switch View", Key: "c"},
+		}
+	case PanelStatus:
+		return []HintSegment{{Text: "[r] Run/Stop", Key: "r"}}
+	case PanelEvents:
+		return []HintSegment{{Text: "[↑↓] Scroll"}}
+	}
+	return nil
+}
+
+// dispatchHintKey runs the same handler as pressing the hinted key, so a
+// hint click behaves exactly like the keyboard shortcut.
+func (m *Model) dispatchHintKey(key string) tea.Cmd {
+	var km tea.KeyPressMsg
+	if key == "enter" {
+		km = tea.KeyPressMsg{Code: tea.KeyEnter}
+	} else {
+		km = tea.KeyPressMsg{Text: key}
+	}
+	_, cmd := m.handleKey(km)
+	return cmd
 }
 
 // showItemEditPopup shows the full key-value edit popup for a channel/playlist item
@@ -963,8 +1039,7 @@ func (m *Model) renderConfigCard(w, h int) string {
 		}
 	}
 	// Hint for the hint row; keep content area for path/size only
-	hint := strings.ReplaceAll("[Enter] Select Config", "\n", " ")
-	return RenderPanelWithTitle(title, b.String(), w, h, m.focus == PanelFilePicker, hint)
+	return RenderPanelWithSegments(title, b.String(), w, h, m.focus == PanelFilePicker, m.hintSegmentsFor(PanelFilePicker))
 }
 
 // renderPickerPopup renders the file-picker overlay frame (centered, sized to
@@ -1050,8 +1125,7 @@ func (m *Model) renderConfig(w, h int) string {
 		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
 	}
 	// Hint row for config panel
-	hint := strings.ReplaceAll("[↑↓] Navigate  [Enter] Edit  [c] Switch View", "\n", " ")
-	return RenderPanelWithTitle(title, body, w, h, m.focus == PanelConfig, hint)
+	return RenderPanelWithSegments(title, body, w, h, m.focus == PanelConfig, m.hintSegmentsFor(PanelConfig))
 }
 
 func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
@@ -1075,7 +1149,7 @@ func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
 		b.WriteString("Status: Stopped\n")
 	}
 
-	return RenderPanelWithTitle(title, clipLines(b.String(), w-2, h-4), w, h, m.focus == PanelStatus, strings.ReplaceAll("[r] Run/Stop", "\n", " "))
+	return RenderPanelWithSegments(title, clipLines(b.String(), w-2, h-4), w, h, m.focus == PanelStatus, m.hintSegmentsFor(PanelStatus))
 }
 
 func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
@@ -1104,7 +1178,7 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 		m.eventsVP.GotoBottom()
 	}
 
-	return RenderPanelWithTitle(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents, strings.ReplaceAll("[↑↓] Scroll", "\n", " "))
+	return RenderPanelWithSegments(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents, m.hintSegmentsFor(PanelEvents))
 }
 
 // clipLines keeps at most n lines of content and truncates each to a display

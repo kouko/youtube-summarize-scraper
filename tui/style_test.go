@@ -108,3 +108,63 @@ func TestRenderPanelHintWrapsCJK(t *testing.T) {
 		}
 	}
 }
+
+// layoutHintSegments places every word within the text area, wraps long
+// segment runs to multiple lines, and leaves two-column gaps between
+// segments.
+func TestLayoutHintSegmentsWrapAndRanges(t *testing.T) {
+	segs := []HintSegment{
+		{Text: "[↑↓] Navigate"},
+		{Text: "[Enter] Edit", Key: "enter"},
+		{Text: "[c] Switch View", Key: "c"},
+	}
+	const area = 38
+	lines := layoutHintSegments(segs, area, 5)
+	if len(lines) == 0 {
+		t.Fatal("no hint lines laid out")
+	}
+	segStart := map[int]int{}
+	for _, line := range lines {
+		prevSeg, prevEnd := -1, -1
+		for _, pw := range line {
+			if pw.startCol < 0 || pw.endCol > area || pw.startCol >= pw.endCol {
+				t.Errorf("invalid word range %d..%d for %q", pw.startCol, pw.endCol, pw.text)
+			}
+			if prevSeg == pw.seg && pw.startCol != prevEnd+1 {
+				t.Errorf("words of one segment must be adjacent: %q starts %d, prev end %d", pw.text, pw.startCol, prevEnd)
+			}
+			if prevSeg != -1 && prevSeg != pw.seg && pw.startCol-prevEnd != 2 {
+				t.Errorf("segments must be separated by 2 columns, got gap %d", pw.startCol-prevEnd)
+			}
+			if s, seen := segStart[pw.seg]; !seen || s > pw.startCol {
+				segStart[pw.seg] = pw.startCol
+			}
+			prevSeg, prevEnd = pw.seg, pw.endCol
+		}
+	}
+}
+
+// Clickable hint segments render in the brighter clickable color; plain
+// RenderPanelWithTitle (informational hint) stays in the dim color. Every
+// row keeps the panel width either way.
+func TestRenderPanelWithSegmentsRowsAndColors(t *testing.T) {
+	const w = 44
+	segs := []HintSegment{
+		{Text: "[↑↓] Navigate"},
+		{Text: "[Enter] Edit", Key: "enter"},
+	}
+	out := RenderPanelWithSegments("Config", "content", w, 9, false, segs)
+	for i, line := range strings.Split(out, "\n") {
+		if got := lipgloss.Width(line); got != w {
+			t.Errorf("row %d width = %d, want %d: %q", i, got, w, line)
+		}
+	}
+	bright := lipgloss.NewStyle().Foreground(lipgloss.Color("#E0E0E0")).Render("Edit")
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA")).Render("Navigate")
+	if !strings.Contains(out, bright) {
+		t.Error("clickable segment not rendered in the bright color")
+	}
+	if !strings.Contains(out, dim) {
+		t.Error("informational segment not rendered in the dim color")
+	}
+}

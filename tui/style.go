@@ -54,16 +54,131 @@ func PopupTitleStyle() lipgloss.Style {
 		Padding(0, 1)
 }
 
-// RenderPanelWithTitle renders a panel with a seamless title bar using half-block elements.
-// The title bar uses ▐ (left) and ▌ (right) half-blocks that connect smoothly with
-// the vertical │ borders below.
+// HintSegment is one piece of a panel hint row: the text shown and the
+// keyboard key a mouse click on it triggers ("" = informational, not
+// clickable).
+type HintSegment struct {
+	Text string
+	Key  string
+}
+
+// placedHintWord is one word of a hint segment placed on a wrapped hint line.
+// Columns are 0-based relative to the hint text area (after the border and
+// left padding).
+type placedHintWord struct {
+	seg      int
+	text     string
+	startCol int
+	endCol   int
+}
+
+// layoutHintSegments word-wraps hint segments into lines of at most
+// textAreaW columns (display-width aware) and caps the result at maxLines
+// (at least one). Words are separated by one column, segments by two. The
+// placed-word geometry is shared by rendering and by mouse hit tests, so a
+// click position maps back to the exact segment under the cursor.
+func layoutHintSegments(segs []HintSegment, textAreaW, maxLines int) [][]placedHintWord {
+	if maxLines < 1 {
+		maxLines = 1
+	}
+	if textAreaW < 1 {
+		textAreaW = 1
+	}
+	var lines [][]placedHintWord
+	var cur []placedHintWord
+	curCol := 0
+	flush := func() {
+		if len(cur) > 0 {
+			lines = append(lines, cur)
+		}
+		cur = nil
+		curCol = 0
+	}
+	for si, seg := range segs {
+		for wi, word := range strings.Fields(seg.Text) {
+			// One column between words of a segment, two between segments;
+			// no gap when a word starts a fresh line.
+			gap := 1
+			if wi == 0 && si > 0 && curCol > 0 {
+				gap = 2
+			}
+			if lipgloss.Width(word) > textAreaW {
+				word = truncateANSI(word, textAreaW)
+			}
+			w := lipgloss.Width(word)
+			need := w
+			if curCol > 0 {
+				need += gap
+			}
+			if len(cur) > 0 && curCol+need > textAreaW {
+				flush()
+			}
+			start := 0
+			if curCol > 0 {
+				start = curCol + gap
+			}
+			cur = append(cur, placedHintWord{seg: si, text: word, startCol: start, endCol: start + w})
+			curCol = start + w
+		}
+	}
+	flush()
+	if len(lines) > maxLines {
+		lines = lines[:maxLines]
+	}
+	return lines
+}
+
+// renderPlacedHintLine builds one styled hint row from placed words: words of
+// clickable segments are bright, informational ones dim, and the row is
+// padded to exactly innerW columns so the right border never drifts.
+func renderPlacedHintLine(words []placedHintWord, segs []HintSegment, innerW int) string {
+	dim := lipgloss.NewStyle().Foreground(lipgloss.Color("#AAAAAA"))
+	bright := lipgloss.NewStyle().Foreground(lipgloss.Color("#E0E0E0"))
+	var b strings.Builder
+	col := 0
+	for _, pw := range words {
+		if pw.startCol > col {
+			b.WriteString(strings.Repeat(" ", pw.startCol-col))
+		}
+		st := dim
+		if segs[pw.seg].Key != "" {
+			st = bright
+		}
+		b.WriteString(st.Render(pw.text))
+		col = pw.endCol
+	}
+	line := b.String()
+	if pad := innerW - lipgloss.Width(line); pad > 0 {
+		line += strings.Repeat(" ", pad)
+	}
+	return line
+}
+
+// RenderPanelWithTitle renders a panel with a single informational hint
+// string (not clickable). See RenderPanelWithSegments.
+func RenderPanelWithTitle(title string, content string, w, h int, active bool, hint string) string {
+	var segs []HintSegment
+	if hint != "" {
+		segs = []HintSegment{{Text: hint}}
+	}
+	return RenderPanelWithSegments(title, content, w, h, active, segs)
+}
+
+// RenderPanelWithSegments renders a panel with a seamless title bar using
+// half-block elements. The title bar uses ▐ (left) and ▌ (right) half-blocks
+// that connect smoothly with the vertical │ borders below.
 //
 //	title   : title string (without the focus marker)
 //	content : inner content string (may contain newlines)
 //	w, h    : total width and height **including** the outer border
 //	active  : true if the panel is focused
-//	hint    : optional hint string to display below title bar
-func RenderPanelWithTitle(title string, content string, w, h int, active bool, hint string) string {
+//	segs    : hint segments shown below the title bar; segments with a Key
+//	          render bright and are clickable (see layoutHintSegments)
+//
+// Long hints word-wrap to extra lines, every hint row is padded to exactly
+// the inner width so borders line up, and the content area shrinks by the
+// wrapped line count. The title bar stays truncated.
+func RenderPanelWithSegments(title string, content string, w, h int, active bool, segs []HintSegment) string {
 	innerW := w - 2 // inner width (excluding left/right borders)
 	innerH := h - 2 // inner height (excluding top/bottom borders)
 
@@ -108,30 +223,12 @@ func RenderPanelWithTitle(title string, content string, w, h int, active bool, h
 	// every hint row still spans exactly innerW so the right border stays in
 	// one column, and the content area shrinks by the wrapped line count.
 	hintRows := 0
-	if hint != "" {
-		// Width(innerW) + Padding(0,1) word-wraps long hint text at the
-		// text-area width (innerW-2) and pads every line to exactly innerW.
-		hintStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("#AAAAAA")).
-			Width(innerW).
-			Align(lipgloss.Left).
-			Padding(0, 1)
-		hintArea := hintStyle.Render(hint)
-		hintLines := strings.Split(hintArea, "\n")
-
-		// Keep at least one content row below the separator: cap hint lines
-		// at innerH-3 (title + separator + one content row).
-		maxHintLines := innerH - 3
-		if maxHintLines < 1 {
-			maxHintLines = 1
+	if len(segs) > 0 {
+		hintWords := layoutHintSegments(segs, innerW-2, innerH-3)
+		for _, words := range hintWords {
+			lines = append(lines, vBar+renderPlacedHintLine(words, segs, innerW)+vBar)
+			hintRows++
 		}
-		if len(hintLines) > maxHintLines {
-			hintLines = hintLines[:maxHintLines]
-		}
-		for _, line := range hintLines {
-			lines = append(lines, vBar+line+vBar)
-		}
-		hintRows = len(hintLines)
 
 		// Separator row: a thin line of upper half blocks (▔) with very subtle color
 		sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#2A2A2A")) // even more subtle than border

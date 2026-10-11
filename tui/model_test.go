@@ -1117,3 +1117,100 @@ func TestModelClickConfigFileOpensPicker(t *testing.T) {
 		t.Fatalf("View() does not contain the picker popup title;\nGot:\n%s", m.View().Content)
 	}
 }
+
+// hintClickPoint returns the screen coordinates at the centre of the hint
+// segment with the given key on panel p (key "" matches an informational,
+// non-clickable segment), or false when no such segment exists.
+func hintClickPoint(m *Model, p FocusedPanel, key string) (int, int, bool) {
+	rect, ok := m.panelRects()[p]
+	if !ok {
+		return 0, 0, false
+	}
+	segs := m.hintSegmentsFor(p)
+	lines := layoutHintSegments(segs, rect.Dx()-4, rect.Dy()-5)
+	for li, line := range lines {
+		for _, pw := range line {
+			if segs[pw.seg].Key == key {
+				x := rect.Min.X + 2 + (pw.startCol+pw.endCol)/2 // +2: border + padding
+				y := rect.Min.Y + 1 + li                        // hint rows sit below the title bar
+				return x, y, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// Clicking the [c] Switch View hint segment toggles the config view, exactly
+// like pressing the c key.
+func TestHintClickTogglesConfigView(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.configView = NewConfigView("llm:\n  provider: x\n")
+	before := m.configView.Mode()
+	x, y, ok := hintClickPoint(m, PanelConfig, "c")
+	if !ok {
+		t.Fatal("[c] segment not found in config hint")
+	}
+	m.Update(tea.MouseClickMsg{X: x, Y: y})
+	if m.configView.Mode() == before {
+		t.Error("config view mode did not toggle after clicking the [c] hint segment")
+	}
+	if m.focus != PanelConfig {
+		t.Errorf("focus = %v, want PanelConfig", m.focus)
+	}
+}
+
+// Clicking the [Enter] Select Config hint segment on the file card opens the
+// file-picker popup, exactly like pressing Enter on the focused card.
+func TestHintClickOpensFilePicker(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	x, y, ok := hintClickPoint(m, PanelFilePicker, "enter")
+	if !ok {
+		t.Fatal("[Enter] segment not found on the config card hint")
+	}
+	m.Update(tea.MouseClickMsg{X: x, Y: y})
+	if !m.pickerOpen {
+		t.Error("picker popup did not open after clicking the [Enter] Select Config segment")
+	}
+}
+
+// Clicking the [r] Run/Stop hint segment emits StartRunMsg (with a config
+// selected), exactly like pressing r.
+func TestHintClickRunEmitsStartRun(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.state.ConfigPath = "/tmp/fake-config.yaml"
+	x, y, ok := hintClickPoint(m, PanelStatus, "r")
+	if !ok {
+		t.Fatal("[r] segment not found on the status panel hint")
+	}
+	_, cmd := m.Update(tea.MouseClickMsg{X: x, Y: y})
+	if cmd == nil {
+		t.Fatal("clicking [r] Run/Stop hint did not emit a command")
+	}
+	if _, isStart := cmd().(StartRunMsg); !isStart {
+		t.Errorf("command message = %T, want StartRunMsg", cmd())
+	}
+}
+
+// Clicking an informational hint segment ([↑↓] Scroll, Key "") focuses the
+// panel but triggers no action.
+func TestHintClickInfoSegmentDoesNothing(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	x, y, ok := hintClickPoint(m, PanelEvents, "")
+	if !ok {
+		t.Fatal("informational segment not found on the events hint")
+	}
+	m.Update(tea.MouseClickMsg{X: x, Y: y})
+	if m.pickerOpen {
+		t.Error("picker opened from an informational segment click")
+	}
+	if m.isRunning {
+		t.Error("run started from an informational segment click")
+	}
+	if m.focus != PanelEvents {
+		t.Errorf("focus = %v, want PanelEvents (click should still focus)", m.focus)
+	}
+}
