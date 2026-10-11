@@ -104,31 +104,40 @@ func RenderPanelWithTitle(title string, content string, w, h int, active bool, h
 	// seamlessly with the vertical │ borders below.
 	lines = append(lines, leftCap+titleArea+rightCap)
 
-	// Hint rows: optional hint row + separator row
+	// Hint rows: a hint longer than the text area wraps to additional lines;
+	// every hint row still spans exactly innerW so the right border stays in
+	// one column, and the content area shrinks by the wrapped line count.
 	hintRows := 0
 	if hint != "" {
-		// Truncate hint to fit within the available text area (innerW - 2 padding)
-		maxHintWidth := innerW - 2
-		if maxHintWidth < 0 {
-			maxHintWidth = 0
-		}
-		truncatedHint := truncateANSI(hint, maxHintWidth)
-
-		// Hint row: left-aligned text
+		// Width(innerW) + Padding(0,1) word-wraps long hint text at the
+		// text-area width (innerW-2) and pads every line to exactly innerW.
 		hintStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("#AAAAAA")).
 			Width(innerW).
 			Align(lipgloss.Left).
 			Padding(0, 1)
-		hintArea := hintStyle.Render(truncatedHint)
-		lines = append(lines, vBar+hintArea+vBar)
-		hintRows = 1
+		hintArea := hintStyle.Render(hint)
+		hintLines := strings.Split(hintArea, "\n")
+
+		// Keep at least one content row below the separator: cap hint lines
+		// at innerH-3 (title + separator + one content row).
+		maxHintLines := innerH - 3
+		if maxHintLines < 1 {
+			maxHintLines = 1
+		}
+		if len(hintLines) > maxHintLines {
+			hintLines = hintLines[:maxHintLines]
+		}
+		for _, line := range hintLines {
+			lines = append(lines, vBar+line+vBar)
+		}
+		hintRows = len(hintLines)
 
 		// Separator row: a thin line of upper half blocks (▔) with very subtle color
 		sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#2A2A2A")) // even more subtle than border
 		sepLine := sepStyle.Render(strings.Repeat("▔", innerW))
 		lines = append(lines, vBar+sepLine+vBar)
-		hintRows = 2
+		hintRows++
 	}
 
 	/* ---------- Content area (starts after title and hint rows) ---------- */
