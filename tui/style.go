@@ -104,19 +104,30 @@ func RenderPanelWithTitle(title string, content string, w, h int, active bool, h
 	// seamlessly with the vertical │ borders below.
 	lines = append(lines, leftCap+titleArea+rightCap)
 
-	// Row 1: hint row (if hint provided)
-	hintRow := 1
+	// Hint rows: optional hint row + separator row
+	hintRows := 0
 	if hint != "" {
-		// Center the hint in the available width
-		hintArea := lipgloss.NewStyle().Width(innerW).Align(lipgloss.Center).Render(hint)
+		// Hint row: left-aligned text
+		hintStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("#AAAAAA")).
+			Width(innerW).
+			Align(lipgloss.Left).
+			Padding(0, 1)
+		hintArea := hintStyle.Render(hint)
 		lines = append(lines, vBar+hintArea+vBar)
-		hintRow++
+		hintRows = 1
+
+		// Separator row: a thin line of upper half blocks (▔) with very subtle color
+		sepStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#2A2A2A")) // even more subtle than border
+		sepLine := sepStyle.Render(strings.Repeat("▔", innerW))
+		lines = append(lines, vBar+sepLine+vBar)
+		hintRows = 2
 	}
 
 	/* ---------- Content area (starts after title and hint rows) ---------- */
 	contentLines := strings.Split(content, "\n")
-	// We have used hintRow rows for title and hint; remaining rows = innerH - hintRow
-	rows := innerH - hintRow
+	// We have used 1 (title) + hintRows rows; remaining rows = innerH - (1 + hintRows)
+	rows := innerH - 1 - hintRows
 	for i := 0; i < rows; i++ {
 		var line string
 		if i < len(contentLines) {
