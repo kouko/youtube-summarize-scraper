@@ -58,7 +58,7 @@ func viewContent(t *testing.T, m *Model) string {
 func TestModelRendersFourPanels(t *testing.T) {
 	m := sizedModel()
 	content := viewContent(t, m)
-	for _, title := range []string{"Config File", "Config", "Execution Status", "Recent Events"} {
+	for _, title := range []string{"■ Config File", "■ Config", "■ Execution Status", "■ Recent Events"} {
 		if !strings.Contains(content, title) {
 			t.Errorf("View missing panel title %q", title)
 		}
@@ -69,7 +69,7 @@ func TestModelRendersFourPanels(t *testing.T) {
 func TestModelFocusMarkerOnActivePanel(t *testing.T) {
 	m := sizedModel()
 	content := viewContent(t, m)
-	if !strings.Contains(content, "> Config File") {
+	if !strings.Contains(content, "> ■ Config File") {
 		t.Error("initial focus marker missing on Config File panel")
 	}
 	// Other panel titles must not carry the marker; use a trailing newline
@@ -257,7 +257,7 @@ func TestModelArrowKeysKeepMainModel(t *testing.T) {
 	after := got.(*Model)
 	after.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	content := viewContent(t, after)
-	if !strings.Contains(content, "Execution Status") {
+	if !strings.Contains(content, "■ Execution Status") {
 		t.Error("four-panel layout lost after arrow keys")
 	}
 	_, cmd := after.handleKey(pressKey("q"))
@@ -315,7 +315,7 @@ func TestModelFitsTerminalHeight(t *testing.T) {
 		t.Errorf("View renders %d lines for a 30-row terminal; bottom panels are pushed off screen", lines)
 	}
 	content := viewContent(t, m)
-	for _, title := range []string{"Config File", "Execution Status", "Recent Events"} {
+	for _, title := range []string{"■ Config File", "■ Execution Status", "■ Recent Events"} {
 		if !strings.Contains(content, title) {
 			t.Errorf("panel %q missing from view", title)
 		}

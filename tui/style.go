@@ -20,12 +20,13 @@ func TitleStyle(active bool) lipgloss.Style {
 		Padding(0, 1) // Left/right padding
 }
 
-// TitleWithMarker adds the focus marker prefix ("> ") when active.
+// TitleWithMarker adds the focus marker prefix ("> ") and a black square (■) before the title.
+// Format: [active? "> " : ""] + "■ " + title
 func TitleWithMarker(active bool, title string) string {
 	if active {
-		return "> " + title
+		return "> ■ " + title
 	}
-	return title
+	return "■ " + title
 }
 
 func PanelBorderStyle(active bool) lipgloss.Style {
