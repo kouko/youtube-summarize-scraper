@@ -455,10 +455,19 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 
 	// While the picker popup is open it owns navigation; Esc closes it and
-	// q is not a global quit. (Other keys are forwarded by Update.)
+	// Enter selects the current file (even if same as already chosen). Other keys
+	// are forwarded by Update.
 	if m.pickerOpen {
 		if key == "esc" {
 			m.pickerOpen = false
+			return m, nil
+		}
+		if key == "enter" {
+			if path := m.filePicker.ChosenPath(); path != "" {
+				m.pickerOpen = false
+				m.handleConfigSelected(path)
+			}
+			return m, nil
 		}
 		return m, nil
 	}
