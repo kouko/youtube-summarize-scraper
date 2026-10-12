@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Adversarial check: re-run the three regression tests to ensure fixes hold.
+# concern: adversarial check for TUI display fixes - ensures fixed correctness issues don't regress
+# This program re-runs the two regression tests covering the fixed correctness issues:
+#   TestModelPickerEnterHintClickSelectsHighlightedFile
+#   TestModelConfigRowClickStartsEditAndSaveHintCommits
 set -e
 cd "$(dirname "$0")/../../.."
 if go test ./tui/ -run TestModelPickerEnterHintClickSelectsHighlightedFile -count=1 >/dev/null 2>&1 \
