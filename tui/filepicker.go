@@ -1,15 +1,16 @@
 package tui
 
 import (
-	"os"
-	"path/filepath"
-
 	// bubbles v2.2.1 filepicker: Enter on a directory always navigates into
 	// it (Open branch); DirAllowed only gates selecting a directory as Path,
 	// so DirAllowed=false + FileAllowed=true means "browse freely, select
 	// only files"; Path is set on Select (Enter on a file), which we diff
 	// across Update calls to emit ConfigSelectedMsg.
 	"charm.land/bubbles/v2/filepicker"
+	"os"
+	"path/filepath"
+	"reflect"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -20,6 +21,7 @@ type ConfigSelectedMsg struct {
 
 // FilePickerModel wraps bubbletea's filepicker with ytss-specific behavior:
 // it filters .yaml/.yml and emits ConfigSelectedMsg when a file is picked.
+// It also adds mouse click support for selecting files and navigating directories.
 type FilePickerModel struct {
 	fp     filepicker.Model
 	chosen string // last selected path, to detect new selections
@@ -32,6 +34,7 @@ func NewFilePickerModel() *FilePickerModel {
 	fp.ShowHidden = false
 	fp.DirAllowed = false
 	fp.FileAllowed = true
+
 	// AutoHeight sizes the picker to the full terminal height on every
 	// WindowSizeMsg, pushing the bottom panels off screen. The main model
 	// calls SetHeight with the panel's inner height instead (see View).
@@ -93,8 +96,95 @@ func (m *FilePickerModel) ChosenPath() string {
 	return m.fp.Path
 }
 
+// ClearChosenPath resets the picker's selected path. The bubbles picker keeps
+// Path set after a selection and never clears it on directory navigation, so a
+// later "is a path chosen?" check would report a stale file even when the user
+// just opened a directory. Callers clear it right before an Enter that may
+// select, so a non-empty Path afterwards means this Enter selected a file.
+func (m *FilePickerModel) ClearChosenPath() {
+	m.fp.Path = ""
+}
+
+// PressEnter sends Enter to the underlying picker at its current cursor: a
+// directory opens, a file sets Path. The wrapper's Update is bypassed (like
+// HandleMouseClick) so no ConfigSelectedMsg is emitted; callers read
+// ChosenPath afterwards and apply the selection themselves, mirroring the
+// keyboard path in handleKey. Any stale selection is cleared first, so a
+// non-empty ChosenPath after this call means this Enter selected a file
+// (never a previously chosen one).
+func (m *FilePickerModel) PressEnter() tea.Cmd {
+	m.fp.Path = ""
+	var cmd tea.Cmd
+	m.fp, cmd = m.fp.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	return cmd
+}
+
 // SetHeight fixes the number of visible rows in the picker (wrapper around
 // the bubbles API; the main model sizes the picker to its panel).
 func (m *FilePickerModel) SetHeight(h int) {
 	m.fp.SetHeight(h)
+}
+
+// CurrentDirectory returns the current directory of the file picker.
+func (m *FilePickerModel) CurrentDirectory() string {
+	return m.fp.CurrentDirectory
+}
+
+// HandleMouseClick maps a click on the popup's file list to the picker: the
+// cursor moves to the clicked row and Enter is sent, so a click behaves like
+// keyboard navigation (Enter on a directory opens it, on a file selects it).
+// contentY is a 0-based row inside the popup's content area, where row 0 is
+// the first visible file (files[minIdx]).
+//
+// Returns whether the click was handled and any command the picker produced
+// (the directory reload cmd, which the caller must run). The selection side
+// effect (loading the config, closing the popup) is applied by the caller,
+// mirroring the keyboard path in handleKey.
+func (m *FilePickerModel) HandleMouseClick(contentY int) (bool, tea.Cmd) {
+	// The picker renders one file per line: rows 0..maxIdx-minIdx map to
+	// files[minIdx+row]. Its window/cursor fields are unexported; read the
+	// three ints via reflection (names match bubbles v2.2.1). Unexported
+	// fields cannot be read with Interface(), but Int() works.
+	fp := reflect.ValueOf(&m.fp).Elem()
+	selF := fp.FieldByName("selected")
+	minF := fp.FieldByName("minIdx")
+	maxF := fp.FieldByName("maxIdx")
+	if !selF.IsValid() || !minF.IsValid() || !maxF.IsValid() {
+		return false, nil
+	}
+	selected, minIdx, maxIdx := int(selF.Int()), int(minF.Int()), int(maxF.Int())
+	if contentY < 0 || contentY > maxIdx-minIdx {
+		// Above the file list (title/hint/separator rows) or below the
+		// visible files (padding rows).
+		return false, nil
+	}
+	target := minIdx + contentY
+
+	var cmds []tea.Cmd
+	// Clear any previously chosen path first: the picker never clears Path on
+	// navigation, so without this a click on a directory would leave a stale
+	// file path that the caller reads as "a file was selected".
+	m.fp.Path = ""
+	// Move the cursor to the clicked row with the same keys the picker
+	// handles for keyboard navigation.
+	step := tea.KeyDown
+	n := target - selected
+	if n < 0 {
+		step = tea.KeyUp
+		n = -n
+	}
+	for i := 0; i < n; i++ {
+		var c tea.Cmd
+		m.fp, c = m.fp.Update(tea.KeyPressMsg{Code: step})
+		if c != nil {
+			cmds = append(cmds, c)
+		}
+	}
+	// Enter: navigate into a directory or select the highlighted file.
+	var c tea.Cmd
+	m.fp, c = m.fp.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+	if c != nil {
+		cmds = append(cmds, c)
+	}
+	return true, tea.Batch(cmds...)
 }

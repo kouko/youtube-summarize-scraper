@@ -38,8 +38,9 @@ func TestEndToEndSmoke(t *testing.T) {
 	// 3. Four panels + short config card visible; the file listing is NOT on
 	// the main frame anymore (it lives in the popup).
 	content := m.View().Content
+	plainContent := stripANSI(content)
 	for _, title := range []string{"Config File", "Execution Status", "Config", "Recent Events"} {
-		if !strings.Contains(content, title) {
+		if !strings.Contains(plainContent, title) {
 			t.Errorf("panel %q missing", title)
 		}
 	}

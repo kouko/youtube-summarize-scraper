@@ -12,6 +12,8 @@ import (
 	// which both renders the table and is the write-back target for edits
 	// (key order and comments survive).
 	"gopkg.in/yaml.v3"
+	// runewidth: display-width of runes (CJK = 2, ASCII = 1).
+	"github.com/mattn/go-runewidth"
 )
 
 // ConfigDisplayMode toggles between structured and raw views.
@@ -452,7 +454,7 @@ func padToWidth(s string, width int) string {
 
 // visibleWidth counts the display columns of s, ignoring ANSI escapes.
 func visibleWidth(s string) int {
-	n := 0
+	var b strings.Builder
 	inEsc := false
 	for _, r := range s {
 		if r == '\x1b' {
@@ -465,9 +467,9 @@ func visibleWidth(s string) int {
 			}
 			continue
 		}
-		n++
+		b.WriteRune(r)
 	}
-	return n
+	return runewidth.StringWidth(b.String())
 }
 
 // ContentTableIndex maps a content row (keyCols index) to its table row.
@@ -628,4 +630,39 @@ func (cv *ConfigView) Render() string {
 		return cv.Raw()
 	}
 	return ""
+}
+
+// NaturalTableWidth returns the minimum width needed to display the table
+// without truncating any content (key or value columns).
+func (cv *ConfigView) NaturalTableWidth() int {
+	if len(cv.keyCols) == 0 {
+		return 0
+	}
+
+	// Calculate minimum key column width needed
+	keyW := 0
+	for i := range cv.keyCols {
+		if cv.lineIsValue[i] || cv.lineIsSummary[i] {
+			if w := runewidth.StringWidth(cv.keyCols[i]); w > keyW {
+				keyW = w
+			}
+		}
+	}
+	if keyW < len("Key") {
+		keyW = len("Key")
+	}
+
+	// Calculate minimum value column width needed
+	valW := 0
+	for i := range cv.values {
+		if w := runewidth.StringWidth(cv.values[i]); w > valW {
+			valW = w
+		}
+	}
+	if valW < len("Value") {
+		valW = len("Value")
+	}
+
+	// Total width: left border + key padding + key + separator + value padding + value + right border
+	return 2 + 1 + keyW + 2 + 1 + valW + 2 // │ Key │ Value │
 }

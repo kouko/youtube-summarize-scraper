@@ -1,0 +1,59 @@
+verdict: NEEDS_REVISION
+lens: code
+reviewed_sha: 5edaf78b94ea66f013fb62d4c04aca7c1c2dc5de
+dimension_scores:
+  security: PASS
+  architecture: PASS
+  correctness: NEEDS_REVISION
+  naming: PASS_WITH_NOTES
+  tests: NEEDS_REVISION
+  refactoring: PASS_WITH_NOTES
+  cross_task_coherence: NEEDS_REVISION
+  external_surface_grounding: PASS
+  principles_conformance: PASS
+  architecture_conformance: "N/A — no ARCHITECTURE.md"
+  deliberate_simplification: PASS_WITH_NOTES
+  deletion_first: NEEDS_REVISION
+findings:
+  - severity: fatal
+    dimension: correctness
+    anchor: tui/model.go:683
+    text: "issue: click-to-edit mapping ignores panel origin and viewport offset, so clicking a config row selects nothing or the wrong row; also item edit popup state is never rendered, so clicking an item yields no visible feedback and swallows the next config click."
+    fix: "Replace ItemAtPos/PosToRow with geometry-aware mapping using panel content origin, hint rows, and viewport YOffset; render the item edit popup or delete its state and callers."
+  - severity: fatal
+    dimension: correctness
+    anchor: tui/model.go:719
+    text: "issue: picker popup [Enter] Select hint click does not select the highlighted file; it uses stale ChosenPath and bypasses the clear+forward logic, so it either does nothing or loads a previously selected file."
+    fix: "In handlePickerPopupClick, for key == 'enter', replicate the key path: clear the picker's Path, forward KeyEnter to the picker, then apply the selection via handleConfigSelected."
+  - severity: important
+    dimension: correctness
+    anchor: tui/model.go:845
+    text: "issue: edit popup hint ([Enter] Save / [Esc] Cancel) click does nothing due to geometry mismatch between editPopupRect and the rendered popup (off by title+hint+separator rows + centering)."
+    fix: "Compute editPopupRect using the same Place/render arithmetic as renderConfig (or reuse pickerPopupRect-style measurement) so hint hit-testing matches the rendered popup."
+  - severity: important
+    dimension: cross_task_coherence
+    anchor: docs/loom/2026-10-10-tui-display-fixes/plan.md:14
+    text: "issue: the change implements mouse config editing, item popup, resizable sash, and clickable hints, far beyond the plan's three tasks (W1-01/W1-02/W2-01) and the intent's out-of-scope '編輯設定值' (config editing)."
+    fix: "Revert the changes to match the confirmed intent and plan, or update the intent and plan to reflect the expanded scope if user-approved."
+  - severity: important
+    dimension: deletion_first
+    anchor: tui/config.go:715
+    text: "issue: dead methods ConfigView.startEditAtRow, RectForItem, IsLineEditable added with zero callers; write-only state itemEditContent/itemEditPath set but never read; showItemEditPopupInfo called but never used for rendering."
+    fix: "Delete the dead methods and either delete the write-only state or give it a renderer (per the correctness finding)."
+  - severity: nit
+    dimension: refactoring
+    anchor: tui/model.go:271
+    text: "note: topHeight computation duplicated in panelRects, topBandBottom, applyPanelHeights, and View — four sites doing the same thing."
+    fix: "Extract a helper function topBandHeight() and use it in all four locations."
+  - severity: nit
+    dimension: deliberate_simplification
+    anchor: tui/filepicker.go:147
+    text: "note: reflection into bubbles filepicker unexported fields lacks a ceiling/upgrade-path annotation; if bubbles changes field names, clicks silently fail."
+    fix: "Add a comment noting the reflection works only on bubbles v2.2.1 and should be replaced with an upstream API if available, or pin the dependency version."
+  - severity: nit
+    dimension: deletion_first
+    anchor: tui/filepicker.go:44
+    text: "note: env-gated debug scaffolding (YTSS_MOUSE_DEBUG, YTSS_FILEPICKER_LOG) still present; YTSS_FILEPICKER_LOG redirects the global log output and never closes the file."
+    fix: "Remove the debug blocks now that the picker bugs (275e46b, a9dfa08) are fixed, or document the knob as intentional."
+notes:
+  - "The acceptance-test-report.md claims '此變更僅修復 TUI 顯示層的兩個缺陷' and tested at eb6ddb2 (the intent commit), which overstates the scope and misdates the evidence; this supports the cross-task-coherence finding."
