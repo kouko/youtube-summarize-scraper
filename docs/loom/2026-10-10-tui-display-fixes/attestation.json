@@ -1,0 +1,41 @@
+{
+  "schema": "loom-attestation/v2",
+  "change_id": "2026-10-10-tui-display-fixes",
+  "content_digest": "4533605758e72cf756ab65f756853567739390c4",
+  "executions": [
+    {
+      "kind": "package-tests",
+      "command": "go test ./...",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "1bb497e3e13a1105cf24e3359fa3ef75de08b66ff8a2839cd7f9ea97824d9eb3"
+    },
+    {
+      "kind": "adversarial",
+      "command": "bash docs/loom/2026-10-10-tui-display-fixes/evidence/probes/adversary.sh",
+      "artifact": "docs/loom/2026-10-10-tui-display-fixes/evidence/probes/adversary.sh",
+      "result": "pass",
+      "command_digest": "59216b3d903e889f5d21824c85f64cc25fc2392729ebd2870f05c317fc9b57c6"
+    }
+  ],
+  "verdicts": [
+    {
+      "reviewer": "reviewer-1",
+      "vendor": "",
+      "model": "",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": []
+    },
+    {
+      "reviewer": "reviewer-2",
+      "vendor": "",
+      "model": "",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": []
+    }
+  ],
+  "findings": [],
+  "selection": null
+}
