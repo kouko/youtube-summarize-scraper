@@ -959,7 +959,7 @@ func (m *Model) hintSegmentsFor(p FocusedPanel) []HintSegment {
 			{Text: "[c] Switch View", Key: "c"},
 		}
 	case PanelStatus:
-		return []HintSegment{{Text: "[r] Run/Stop", Key: "r"}}
+		return []HintSegment{{Text: "[r] Run", Key: "r"}}
 	case PanelEvents:
 		return []HintSegment{{Text: "[↑↓] Scroll"}}
 	}

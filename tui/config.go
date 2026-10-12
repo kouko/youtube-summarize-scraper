@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"image"
 	"strconv"
 	"strings"
 
@@ -704,28 +703,16 @@ func (cv *ConfigView) PosToRow(screenY int) (int, bool) {
 }
 
 // IsLineEditable checks if a line (by content index) is editable
-func (cv *ConfigView) IsLineEditable(line int) bool {
-	if line < 0 || line >= len(cv.lineIsValue) {
-		return false
-	}
-	return cv.lineIsValue[line] && !cv.lineIsSummary[line]
-}
 
 // startEditAtRow begins editing at the specified content row
-func (cv *ConfigView) startEditAtRow(row int) error {
-	if !cv.IsLineEditable(row) {
-		return fmt.Errorf("line %d is not editable", row)
-	}
-
-	path, value, ok := cv.EditTargetForLine(row)
-	if !ok {
-		return fmt.Errorf("could not get edit target for line %d", row)
-	}
-
-	return cv.SetValue(path, value) // This will set the value to itself to start editing
-}
 
 // showItemEditPopupInfo returns information needed to show the item edit popup
+
+// RectForItem returns the screen rectangle for the given item index
+
+
+
+// showItemEditPopupInfo returns the key path for the given item index.
 func (cv *ConfigView) showItemEditPopupInfo(itemIdx int) (string, error) {
 	if itemIdx < 0 || itemIdx >= len(cv.lineIsValue) {
 		return "", fmt.Errorf("invalid item index: %d", itemIdx)
@@ -735,7 +722,6 @@ func (cv *ConfigView) showItemEditPopupInfo(itemIdx int) (string, error) {
 		return "", fmt.Errorf("item %d is not a value line", itemIdx)
 	}
 
-	// Get the key path for this item
 	path, _, ok := cv.EditTargetForLine(itemIdx)
 	if !ok {
 		return "", fmt.Errorf("could not get path for item %d", itemIdx)
@@ -744,15 +730,7 @@ func (cv *ConfigView) showItemEditPopupInfo(itemIdx int) (string, error) {
 	return path, nil
 }
 
-// RectForItem returns the screen rectangle for the given item index
-func (cv *ConfigView) RectForItem(itemIdx int, offsetX int, offsetY int, cellWidth int, cellHeight int) image.Rectangle {
-	if itemIdx < 0 || itemIdx >= len(cv.lineIsValue) {
-		return image.Rectangle{}
-	}
 
-	y := offsetY + (itemIdx * cellHeight)
-	return image.Rect(offsetX, y, offsetX+cellWidth, y+cellHeight)
-}
 
 // NaturalTableWidth returns the minimum width needed to display the table
 // without truncating any content (key or value columns).
