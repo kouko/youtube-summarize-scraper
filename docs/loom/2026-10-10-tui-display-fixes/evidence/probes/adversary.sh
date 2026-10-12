@@ -4,7 +4,9 @@
 #   TestModelPickerEnterHintClickSelectsHighlightedFile
 #   TestModelConfigRowClickStartsEditAndSaveHintCommits
 set -e
-cd "$(dirname "$0")/../../.."
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$SCRIPT_DIR/../../../../.."
+cd "$REPO_ROOT"
 if go test ./tui/ -run TestModelPickerEnterHintClickSelectsHighlightedFile -count=1 >/dev/null 2>&1 \
    && go test ./tui/ -run TestModelConfigRowClickStartsEditAndSaveHintCommits -count=1 >/dev/null 2>&1; then
     exit 0
