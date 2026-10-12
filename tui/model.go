@@ -132,11 +132,6 @@ type Model struct {
 	editText textinput.Model
 	editPath string // dotted key path being edited
 
-	// For item editing popup
-	itemEditPopupIdx int    // -1 indicates no item edit popup, otherwise stores the item index
-	itemEditContent  string // Content being edited in popup
-	itemEditPath     string // dotted key path being edited in popup
-
 	// Styles
 	styles Styles
 
@@ -207,7 +202,6 @@ func NewModelWithBridge(state *AppState, bridge *EventBridge) *Model {
 		editText:            textinput.New(),
 		dragSashStart:       -1,
 		dragSashStartOffset: 0,
-		itemEditPopupIdx:    -1,
 	}
 
 	// Initialize config view with empty content
@@ -251,7 +245,6 @@ func (m *Model) Init() tea.Cmd {
 		m.rightWidth = 40
 	}
 	m.dragSashStart = -1
-	m.itemEditPopupIdx = -1
 	m.applyPanelHeights()
 	return tea.Batch(
 		m.filePicker.Init(),
@@ -652,7 +645,6 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 	if hitPanel == -1 || hitPanel > PanelCount {
 		// Clicked empty space - close any open popups/editors
 		m.editing = false
-		m.itemEditPopupIdx = -1
 		return nil
 	}
 
@@ -662,8 +654,6 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 	// key). The inline editor owns input while open, so hint clicks wait.
 	if !m.editing {
 		if key, ok := m.hintHitTest(mouse, hitPanel, rects[hitPanel]); ok {
-			// Clicking elsewhere closes the item edit popup.
-			m.itemEditPopupIdx = -1
 			return m.dispatchHintKey(key)
 		}
 	}
@@ -675,17 +665,14 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 			m.pickerOpen = true
 		}
 	case PanelConfig:
-		if m.itemEditPopupIdx >= 0 {
-			// Click in config panel while item edit popup is open - close it
-			m.itemEditPopupIdx = -1
-		} else if m.configView != nil && m.configView.Mode() == ConfigViewStructured {
-			// Check if clicked on a channel/playlist item
-			if itemIdx := m.configView.ItemAtPos(mouse.X, mouse.Y); itemIdx >= 0 {
-				m.showItemEditPopup(itemIdx)
-			} else {
-				// Click on regular config row - start editing if editable
-				if row, ok := m.configView.PosToRow(mouse.Y); ok {
-					m.startEditAtRow(row)
+		if m.configView != nil && m.configView.Mode() == ConfigViewStructured {
+			// Click on a table row starts editing it. The table lives in a
+			// viewport that starts below the title bar and hint rows and is
+			// scrolled by YOffset, so the screen Y must be mapped through
+			// both before asking the view which content row is there.
+			if tableRow := m.configTableRowAt(mouse.Y, rects[PanelConfig]); tableRow >= 0 {
+				if content := m.configView.TableContentIndex(tableRow); content >= 0 {
+					m.startEditAtRow(content)
 				}
 			}
 		} else if m.configView != nil && m.configView.Mode() == ConfigViewRaw {
@@ -709,23 +696,27 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 // separator and clicks outside the overlay do nothing. Returns any command
 // the click produced.
 func (m *Model) handlePickerPopupClick(mouse tea.Mouse) tea.Cmd {
-	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
-		fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] mouse=%v\n", mouse)
-	}
 	rect := m.pickerPopupRect()
-	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
-		fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] rect=%v\n", rect)
-	}
 	if key, ok := m.popupHintHitTest(mouse, rect, pickerPopupHint); ok {
-		if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
-			fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] hit hint key=%s\n", key)
+		if key == "enter" {
+			// Mirror the keyboard Enter path (handleKey): let the picker
+			// apply Enter to its highlighted row — a file sets Path, a
+			// directory reloads — then apply the selection here, exactly
+			// like the file-list click path below. PressEnter clears the
+			// stale selection first, so Path after the call means this Enter
+			// selected a file (never a previously chosen one).
+			pickerCmd := m.filePicker.PressEnter()
+			if path := m.filePicker.ChosenPath(); path != "" {
+				m.pickerOpen = false
+				m.lastPickerNavClick = pickerNavClick{}
+				m.handleConfigSelected(path)
+				return nil
+			}
+			return pickerCmd
 		}
 		return m.dispatchHintKey(key)
 	}
 	if !popupHitTest(mouse, rect) {
-		if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
-			fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] outside popup\n")
-		}
 		return nil
 	}
 	// Ignore the second click of a double-click on a directory row. The first
@@ -735,22 +726,13 @@ func (m *Model) handlePickerPopupClick(mouse tea.Mouse) tea.Cmd {
 	if g := m.lastPickerNavClick; !g.at.IsZero() &&
 		g.x == mouse.X && g.y == mouse.Y &&
 		time.Since(g.at) < pickerNavClickGuard {
-		if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
-			fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] double-click on directory row ignored (guard %v left)\n", pickerNavClickGuard-time.Since(g.at))
-		}
 		return nil
 	}
 	// Content area: title row, hint rows (same layout the renderer uses),
 	// then a separator row; the file list starts below them.
 	hintLines := popupHintLineCount(pickerPopupHint, rect.Dx(), rect.Dy())
 	contentStartY := rect.Min.Y + 1 + hintLines + 1
-	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
-		fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] hintLines=%d contentStartY=%d mouse.Y=%d contentY=%d\n", hintLines, contentStartY, mouse.Y, mouse.Y-contentStartY)
-	}
 	handled, pickerCmd := m.filePicker.HandleMouseClick(mouse.Y - contentStartY)
-	if debug := os.Getenv("YTSS_MOUSE_DEBUG"); debug != "" {
-		fmt.Fprintf(os.Stderr, "[handlePickerPopupClick] handled=%v pickerCmd=%v\n", handled, pickerCmd)
-	}
 	if !handled {
 		return nil
 	}
@@ -840,36 +822,48 @@ func (m *Model) pickerPopupRect() image.Rectangle {
 	return image.Rect(left, top, left+ovW, top+ovH)
 }
 
-// editPopupRect computes the screen rectangle of the inline edit popup.
-// It is centered within the config panel.
+// editPopupRect computes the screen rectangle of the inline edit popup,
+// mirroring the exact placement arithmetic in renderConfig: the popup is
+// centered inside a (w-2) x (h-3) box whose origin is the panel's content
+// area (below the title bar and hint rows).
 func (m *Model) editPopupRect() image.Rectangle {
 	if !m.editing || m.configView == nil {
 		return image.Rect(0, 0, 0, 0)
 	}
-	rects := m.panelRects()
-	configRect := rects[PanelConfig]
-	// Panel inner area (excluding borders)
-	panelInnerW := configRect.Dx() - 2
-	panelInnerH := configRect.Dy() - 2
-	// Edit popup size
-	ew := panelInnerW * 2 / 3
+	configRect := m.panelRects()[PanelConfig]
+	w, h := configRect.Dx(), configRect.Dy()
+	// Popup size: same arithmetic as renderConfig.
+	ew := w * 2 / 3
 	if ew < 30 {
 		ew = 30
 	}
-	if ew > panelInnerW-2 {
-		ew = panelInnerW - 2
+	if ew > w-2 {
+		ew = w - 2
 	}
 	eh := 9
-	// Centered within panel inner area
-	left := configRect.Min.X + 1 + (panelInnerW-ew)/2
-	top := configRect.Min.Y + 1 + (panelInnerH-eh)/2
-	if left < configRect.Min.X+1 {
-		left = configRect.Min.X + 1
-	}
-	if top < configRect.Min.Y+1 {
-		top = configRect.Min.Y + 1
-	}
+	// The Place box (w-2 x h-3) starts at the panel's content origin: the
+	// title bar is row 0 and the hint rows (hint lines + separator) follow,
+	// exactly the rows RenderPanelWithSegments skips before drawing the body.
+	hintRows := m.panelHintRows(PanelConfig, configRect)
+	left := configRect.Min.X + 1 + (w-2-ew)/2
+	top := configRect.Min.Y + 1 + hintRows + (h-3-eh)/2
 	return image.Rect(left, top, left+ew, top+eh)
+}
+
+// panelHintRows returns how many rows the panel's hint area occupies below
+// the title bar: the wrapped hint lines plus the separator row, using the
+// same layout arithmetic as RenderPanelWithSegments (0 when the panel has no
+// hint segments).
+func (m *Model) panelHintRows(p FocusedPanel, rect image.Rectangle) int {
+	segs := m.hintSegmentsFor(p)
+	if len(segs) == 0 {
+		return 0
+	}
+	innerW, innerH := rect.Dx()-2, rect.Dy()-2
+	if innerW <= 0 || innerH <= 0 {
+		return 0
+	}
+	return len(layoutHintSegments(segs, innerW-2, innerH-3)) + 1
 }
 
 // popupHitTest checks if a mouse click is within the given popup rectangle.
@@ -979,28 +973,23 @@ func (m *Model) dispatchHintKey(key string) tea.Cmd {
 	return cmd
 }
 
-// showItemEditPopup shows the full key-value edit popup for a channel/playlist item
-func (m *Model) showItemEditPopup(itemIdx int) {
-	if m.configView == nil {
-		return
+// configTableRowAt maps a screen Y to the config table row currently
+// displayed at that position, or -1 when the click is above the table, in
+// the panel chrome, or past the rendered rows. It mirrors renderConfig's
+// layout: the table viewport starts below the title bar and hint rows
+// (hint lines + separator) and is scrolled by the viewport's YOffset.
+func (m *Model) configTableRowAt(screenY int, configRect image.Rectangle) int {
+	hintRows := m.panelHintRows(PanelConfig, configRect)
+	contentY := screenY - (configRect.Min.Y + 1 + hintRows)
+	if contentY < 0 {
+		return -1
 	}
-
-	path, err := m.configView.showItemEditPopupInfo(itemIdx)
-	if err != nil {
-		m.state.AddRecentEvent("ERROR: " + err.Error())
-		return
+	// Rendered content rows: inner height minus the hint area.
+	rows := configRect.Dy() - 2 - hintRows
+	if contentY >= rows {
+		return -1
 	}
-
-	// Get the full serialized YAML for this item
-	serialized, err := m.configView.Serialized()
-	if err != nil {
-		m.state.AddRecentEvent("ERROR: " + err.Error())
-		return
-	}
-
-	m.itemEditPopupIdx = itemIdx
-	m.itemEditContent = serialized
-	m.itemEditPath = path
+	return contentY + m.configVP.YOffset()
 }
 
 // startEditAtRow starts editing at the specified content row (for mouse clicks)

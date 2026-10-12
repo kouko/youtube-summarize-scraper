@@ -1714,3 +1714,135 @@ func TestPanelRectsMatchRenderedGrid(t *testing.T) {
 		t.Error("click at the rendered [c] position did not toggle the config view")
 	}
 }
+
+// popupHintClickPoint returns the screen coordinates at the centre of the
+// hint segment with the given key inside a rendered popup rectangle (the
+// same layout popupHintHitTest uses), or false when no such segment exists.
+func popupHintClickPoint(m *Model, rect image.Rectangle, hint, key string) (int, int, bool) {
+	segs := parsePopupHint(hint)
+	if len(segs) == 0 {
+		return 0, 0, false
+	}
+	innerW := rect.Dx() - 2
+	if innerW < 1 {
+		return 0, 0, false
+	}
+	lines := layoutHintSegments(segs, innerW-2, rect.Dy()-3)
+	for li, line := range lines {
+		for _, pw := range line {
+			if segs[pw.seg].Key == key {
+				x := rect.Min.X + 1 + (pw.startCol+pw.endCol)/2
+				y := rect.Min.Y + 1 + li
+				return x, y, true
+			}
+		}
+	}
+	return 0, 0, false
+}
+
+// Regression (reviewer, 2026-10-12): clicking the [Enter] Select hint of the
+// file-picker popup used the picker's stale ChosenPath, loading a previously
+// selected file instead of the highlighted one (and doing nothing when no
+// file had ever been selected). The hint click must clear the stale path,
+// let Enter act on the highlighted row, and then apply that selection.
+func TestModelPickerEnterHintClickSelectsHighlightedFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "alpha.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "beta.yaml"), []byte("llm:\n  provider: ollama\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("YTSS_CONFIG_DIR", dir)
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	if c := m.filePicker.Init(); c != nil {
+		if msg := c(); msg != nil {
+			m.Update(msg)
+		}
+	}
+	m.focus = PanelFilePicker
+	m.handleKey(pressKey("enter")) // open the popup; cursor at row 0 = alpha.yaml
+	if !m.pickerOpen {
+		t.Fatal("popup did not open")
+	}
+
+	// Simulate a prior selection that left a stale path behind.
+	m.filePicker.fp.Path = filepath.Join(dir, "stale.yaml")
+
+	x, y, ok := popupHintClickPoint(m, m.pickerPopupRect(), pickerPopupHint, "enter")
+	if !ok {
+		t.Fatal("[Enter] segment not found in the picker popup hint")
+	}
+	m.Update(tea.MouseClickMsg{X: x, Y: y})
+
+	if m.pickerOpen {
+		t.Error("popup still open after clicking the [Enter] Select hint")
+	}
+	if got := m.state.Snapshot().ConfigPath; !strings.HasSuffix(got, "alpha.yaml") {
+		t.Errorf("config path = %q, want .../alpha.yaml (the highlighted file, not the stale path)", got)
+	}
+}
+
+// Regression (reviewer, 2026-10-12): clicking a config table row did nothing
+// because ItemAtPos/PosToRow ignored the panel origin, the hint rows and the
+// viewport offset. The click must map through those and start editing the
+// row's value, and the [Enter] Save hint of the edit popup must commit it
+// (editPopupRect previously disagreed with renderConfig's placement).
+func TestModelConfigRowClickStartsEditAndSaveHintCommits(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "cfg.yaml")
+	if err := os.WriteFile(cfgPath, []byte("llm:\n  provider: x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
+	m.state.ConfigPath = cfgPath
+	m.configView = NewConfigView("llm:\n  provider: x\n")
+	m.View() // RenderTable builds the table-row mapping the click resolves through
+
+	// Click the first value row (provider: x). The table viewport starts
+	// below the title bar and hint rows; the table's first rows are the
+	// border/header and the first content row is the "llm" heading, so walk
+	// to the first editable (value) row.
+	configRect := m.panelRects()[PanelConfig]
+	hintRows := m.panelHintRows(PanelConfig, configRect)
+	contentY := -1
+	for i := 0; i < 30; i++ {
+		if c := m.configView.TableContentIndex(i); c >= 0 {
+			if _, _, ok := m.configView.EditTargetForLine(c); ok {
+				contentY = i
+				break
+			}
+		}
+	}
+	if contentY < 0 {
+		t.Fatal("no content row found in the rendered table")
+	}
+	y := configRect.Min.Y + 1 + hintRows + contentY
+	m.Update(tea.MouseClickMsg{X: configRect.Min.X + 2, Y: y})
+	if !m.editing {
+		t.Fatal("clicking a config table row did not start editing")
+	}
+	if m.editPath != "llm.provider" {
+		t.Errorf("editPath = %q, want \"llm.provider\"", m.editPath)
+	}
+
+	// Type a new value, then click the [Enter] Save hint of the edit popup.
+	m.editText.SetValue("y")
+	hx, hy, ok := popupHintClickPoint(m, m.editPopupRect(), editPopupHint, "enter")
+	if !ok {
+		t.Fatalf("no [Enter] hint found in editPopupRect=%v", m.editPopupRect())
+	}
+	m.Update(tea.MouseClickMsg{X: hx, Y: hy})
+	if m.editing {
+		t.Fatal("still editing after clicking the [Enter] Save hint")
+	}
+	content, err := os.ReadFile(cfgPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "provider: y") {
+		t.Errorf("config file not updated by the Save hint click:\n%s", content)
+	}
+}
