@@ -1846,3 +1846,46 @@ func TestModelConfigRowClickStartsEditAndSaveHintCommits(t *testing.T) {
 		t.Errorf("config file not updated by the Save hint click:\n%s", content)
 	}
 }
+
+// W1-02 A3 positive: with the events viewport pinned at the bottom, new
+// events keep the newest line visible (the viewport follows the bottom).
+func TestEventsNewEventsStayPinned(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	for i := 0; i < 50; i++ {
+		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
+	}
+	m.focus = PanelEvents
+	// Render once so the events viewport is sized and pinned at the bottom
+	// (real flow: the frame is drawn before the next event arrives).
+	m.View()
+	m.state.AddRecentEvent("new-event")
+	after := m.View()
+
+	if !strings.Contains(after.Content, "new-event") {
+		t.Error("newest event not visible after adding new event while pinned at bottom")
+	}
+}
+
+// W1-02 A3 negative: when the user has scrolled up, new events must NOT jump
+// the viewport back to the bottom — the offset is preserved.
+func TestEventsScrolledUpDoesNotJump(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	for i := 0; i < 50; i++ {
+		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
+	}
+	m.focus = PanelEvents
+
+	for i := 0; i < 5; i++ {
+		m.handleKey(pressKey("up"))
+	}
+	offsetBefore := m.eventsVP.YOffset()
+
+	m.state.AddRecentEvent("new-event")
+
+	offsetAfter := m.eventsVP.YOffset()
+	if offsetBefore != offsetAfter {
+		t.Errorf("viewport offset changed from %d to %d after adding new event while scrolled up", offsetBefore, offsetAfter)
+	}
+}
