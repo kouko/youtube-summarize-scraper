@@ -31,8 +31,8 @@ func TestAdversaryEventsPanelScrollsBeyondOld100Limit(t *testing.T) {
 
 	// Helper to reset to bottom (newest pinned) for consistent starting point
 	resetToBottom := func(m *tui.Model) {
-		// Send enough down presses to clamp YOffset to max
-		for i := 0; i < 200; i++ {
+		// Send enough down presses to clamp YOffset to max (max YOffset with 1100 lines = 1084)
+		for i := 0; i < 2000; i++ {
 			m.Update(pressKey("down"))
 		}
 	}
@@ -80,8 +80,8 @@ func TestAdventEventsPanelScrollsOverNew1000Cap(t *testing.T) {
 
 	// Helper to reset to bottom (newest pinned) for consistent starting point
 	resetToBottom := func(m *tui.Model) {
-		// Send enough down presses to clamp YOffset to max
-		for i := 0; i < 200; i++ {
+		// Send enough down presses to clamp YOffset to max (max YOffset with 1100 lines = 1084)
+		for i := 0; i < 2000; i++ {
 			m.Update(pressKey("down"))
 		}
 	}
@@ -106,8 +106,8 @@ func TestAdventEventsPanelScrollsOverNew1000Cap(t *testing.T) {
 	// Now verify we can see the oldest retained line (event-0100) by scrolling down
 	// from top to bring it into view.
 	resetToBottom(m) // ensure we start at bottom for known baseline
-	// Go to top: many ups
-	for i := 0; i < 200; i++ {
+	// Go to top: enough ups to reach YOffset=0 from any position (max YOffset with 1100 lines = 1084)
+	for i := 0; i < 2000; i++ {
 		m.Update(pressKey("up"))
 	}
 	// Now at top (YOffset=0). Scroll down until we see event-0100 or we've tried too many times.
