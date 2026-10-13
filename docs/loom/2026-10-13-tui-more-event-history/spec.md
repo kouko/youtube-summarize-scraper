@@ -1,6 +1,6 @@
 # TUI event history retention — spec
 intent: 2026-10-13-tui-more-event-history@920b10f
-confirmed-behavior: 2026-10-13 (scroll back beyond 100 lines; fixed ~1000-line cap; bottom pinning preserved)
+confirmed-behavior: 2026-10-13 @bfb0d89
 pre-build-review: not-required — a bounded constant raise in an in-memory display buffer; no security, privacy, data, contract, or cross-system surface, and the requirements are unambiguous.
 
 ## Requirements
