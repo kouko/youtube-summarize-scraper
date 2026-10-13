@@ -12,7 +12,7 @@ Wave 1 — event history cap (buffer constant, bridge queue wiring, regression g
 
 **W1-01 Raise event history cap to 1000**  after: none  acceptance: 1, 2
 - Files: tui/state.go, cmd/tui.go, tui/state_test.go, tui/bridge_test.go
-- Test: A1 positive: 150 lines all retained beyond the old 100 limit. A2 boundary: 1100 lines cap at 1000, oldest dropped.
+- Test: A1 positive: 150 lines all retained; negative: no drop before cap. A2 positive: 1000 lines kept; boundary: 1101 lines drop oldest.
 - Risk: cap as one exported constant in tui so the queue call site passes the same value; queue raised to match so bursts do not drop before the buffer — agent-decided, single source of truth (spec REQ-2).
 
 **W1-02 Bottom-pinning regression guard**  after: W1-01  acceptance: 3
@@ -21,6 +21,7 @@ Wave 1 — event history cap (buffer constant, bridge queue wiring, regression g
 - Risk: pinning logic untouched (spec REQ-3 is preserved behaviour); test only guards against future regressions — agent-decided.
 
 ## Simplicity check
+- none found
 <!-- one line each: `- <simpler shape> — taken` | `- <simpler shape> — declined: <reason>`; or only `- none found` -->
 
 ## Questions asked
