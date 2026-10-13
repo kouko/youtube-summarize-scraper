@@ -22,7 +22,9 @@ var tuiCmd = &cobra.Command{
 		// Route slog output through the event bridge into the TUI's Recent
 		// Events panel and live status. Nothing is written to stderr while the
 		// alternate screen is active, so pipeline logs never garble the UI.
-		bridge := tui.NewEventBridge(io.Discard, state, 100)
+		// The queue matches the state's history cap so bursts never drop at
+		// the bridge before the buffer would.
+		bridge := tui.NewEventBridge(io.Discard, state, tui.MaxRecentEvents)
 		slog.SetDefault(slog.New(slog.NewTextHandler(bridge, nil)))
 
 		// The TUI owns the whole terminal while the alternate screen is active:

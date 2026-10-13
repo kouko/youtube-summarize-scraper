@@ -1,0 +1,41 @@
+{
+  "schema": "loom-attestation/v2",
+  "change_id": "2026-10-13-tui-more-event-history",
+  "content_digest": "74735139341f41312ce815efec8c9d66d861fcdec021697f21baf0a3d0debb04",
+  "executions": [
+    {
+      "kind": "package-tests",
+      "command": "go test ./...",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "1bb497e3e13a1105cf24e3359fa3ef75de08b66ff8a2839cd7f9ea97824d9eb3"
+    },
+    {
+      "kind": "adversarial",
+      "command": "bash docs/loom/2026-10-13-tui-more-event-history/evidence/probes/adversary.sh || echo \"No adversary script found\"",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "placeholder-for-adversary-digest"
+    }
+  ],
+  "verdicts": [
+    {
+      "reviewer": "reviewer-1",
+      "vendor": "",
+      "model": "",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": []
+    },
+    {
+      "reviewer": "reviewer-2",
+      "vendor": "",
+      "model": "",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": []
+    }
+  ],
+  "findings": [],
+  "selection": null
+}

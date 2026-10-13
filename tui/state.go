@@ -6,6 +6,11 @@ import (
 	"github.com/kouko/youtube-summarize-scraper/pipeline"
 )
 
+// MaxRecentEvents caps the Recent Events history retained in AppState and
+// sizes the EventBridge queue (cmd/tui.go), so the transport never becomes
+// the tighter bottleneck (spec REQ-2, single source of truth).
+const MaxRecentEvents = 1000
+
 // AppState holds the shared state updated by the event bridge and read by the TUI.
 type AppState struct {
 	mu sync.RWMutex
@@ -32,7 +37,7 @@ type AppState struct {
 // NewAppState returns a zero-initialized AppState.
 func NewAppState() *AppState {
 	return &AppState{
-		RecentEvents: make([]string, 0, 100),
+		RecentEvents: make([]string, 0, MaxRecentEvents),
 	}
 }
 
@@ -168,11 +173,12 @@ func (s *AppState) IncrementPartial() {
 	s.Stats.Partial++
 }
 
-// AddRecentEvent appends a log line to the recent events, keeping only the last N.
+// AddRecentEvent appends a log line to the recent events, keeping only the
+// last MaxRecentEvents.
 func (s *AppState) AddRecentEvent(line string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if len(s.RecentEvents) >= 100 {
+	if len(s.RecentEvents) >= MaxRecentEvents {
 		// Drop the oldest
 		s.RecentEvents = s.RecentEvents[1:]
 	}

@@ -3,6 +3,7 @@ package tui
 import (
 	"io"
 	"log/slog"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -143,5 +144,30 @@ func TestBridgeNotifiesAfterApply(t *testing.T) {
 	waitFor(t, func() bool { return state.Snapshot().Stats.Success == 1 })
 	if n.Load() == 0 {
 		t.Error("SetNotify callback not invoked after an applied event")
+	}
+}
+
+// W1-01 (REQ-2): with the queue raised to MaxRecentEvents, a burst larger
+// than both the queue and the state cap still fills the panel to its cap —
+// the queue is no longer the tighter bottleneck. Dropping at the queue is
+// allowed under load, so Dropped is not asserted; the queue capacity
+// (MaxRecentEvents) guarantees at least MaxRecentEvents lines reach the
+// state, enough to fill the panel to its cap.
+func TestBridgeMaxRecentEventsCapacity(t *testing.T) {
+	state := NewAppState()
+	bridge := NewEventBridge(io.Discard, state, MaxRecentEvents)
+	defer bridge.Close()
+
+	total := MaxRecentEvents + 101
+	for i := range total {
+		line := "e-" + strconv.Itoa(i) + "\n"
+		if _, err := bridge.Write([]byte(line)); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+
+	waitFor(t, func() bool { return bridge.Applied()+bridge.Dropped() == uint64(total) })
+	if got := len(state.Snapshot().RecentEvents); got != MaxRecentEvents {
+		t.Errorf("RecentEvents = %d, want %d (state cap fed through the bridge)", got, MaxRecentEvents)
 	}
 }
