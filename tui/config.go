@@ -2,8 +2,10 @@ package tui
 
 import (
 	"fmt"
+	"math/rand"
 	"strconv"
 	"strings"
+	"time"
 
 	// lipgloss v2: display-width measurement for the aligned two-column
 	// config table (key column width, value truncation).
@@ -23,6 +25,11 @@ const (
 	ConfigViewStructured ConfigDisplayMode = iota
 	ConfigViewRaw
 )
+
+// init seeds the random generator for shuffling top-level YAML keys.
+func init() {
+	rand.Seed(time.Now().UnixNano())
+}
 
 // ConfigView holds the parsed configuration and provides rendering.
 type ConfigView struct {
@@ -52,12 +59,64 @@ type ConfigView struct {
 	// itemExpanded records which list items (by path, e.g. "playlists.0")
 	// are expanded into child rows for editing (user feedback option B).
 	itemExpanded map[string]bool
+	// randomOrder if true, shuffles top-level YAML keys for display.
+	randomOrder bool
 	// table index mapping (built by RenderTable)
 	tableRowToContent []int
 	contentToTableRow []int
 	sepFlags          []bool
 	// error holds any parsing error
 	error error
+}
+
+// shuffleMapping randomizes the order of top-level key-value pairs in a mapping node.
+// This restores the old "random" order behavior (Go map iteration order) while
+// keeping the yaml.Node structure for rendering and editing.
+func shuffleMapping(node *yaml.Node) {
+	if node.Kind != yaml.MappingNode || len(node.Content) < 2 {
+		return
+	}
+	pairCount := len(node.Content) / 2
+	indices := make([]int, pairCount)
+	for i := 0; i < pairCount; i++ {
+		indices[i] = i * 2
+	}
+	rand.Shuffle(pairCount, func(i, j int) {
+		idxI := indices[i]
+		idxJ := indices[j]
+		// swap key
+		node.Content[idxI], node.Content[idxJ] = node.Content[idxJ], node.Content[idxI]
+		// swap value
+		node.Content[idxI+1], node.Content[idxJ+1] = node.Content[idxJ+1], node.Content[idxI+1]
+	})
+}
+
+// extractRandomOrderFlag looks for a top-level key "random_order" with a truthy value.
+// If found, removes it from the mapping and returns true.
+func (cv *ConfigView) extractRandomOrderFlag(node *yaml.Node) bool {
+	if node.Kind != yaml.MappingNode {
+		return false
+	}
+	var newContent []*yaml.Node
+	found := false
+	for i := 0; i+1 < len(node.Content); i += 2 {
+		keyNode := node.Content[i]
+		valNode := node.Content[i+1]
+		if keyNode.Kind == yaml.ScalarNode && keyNode.Value == "random_order" {
+			// Consider any non-empty value as true
+			if valNode.Kind == yaml.ScalarNode && valNode.Value != "" {
+				found = true
+				// skip adding this pair to newContent (i.e., remove it)
+				continue
+			}
+		}
+		// keep the pair
+		newContent = append(newContent, keyNode, valNode)
+	}
+	if found {
+		node.Content = newContent
+	}
+	return found
 }
 
 // NewConfigView creates a ConfigView from raw YAML content.
@@ -80,6 +139,7 @@ func (cv *ConfigView) parse(content string) error {
 		return err
 	}
 	cv.doc = &doc
+	// initialize slices
 	cv.keyCols = nil
 	cv.values = nil
 	cv.linePaths = nil
@@ -96,6 +156,12 @@ func (cv *ConfigView) parse(content string) error {
 	if root.Kind != yaml.MappingNode {
 		cv.addHeading(scalarString(root))
 		return nil
+	}
+	// Check for random_order flag
+	if cv.extractRandomOrderFlag(root) {
+		cv.randomOrder = true
+		// Shuffle top-level keys
+		shuffleMapping(root)
 	}
 	cv.walkMapping(root, "", 0)
 	return nil
