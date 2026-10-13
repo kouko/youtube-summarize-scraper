@@ -44,9 +44,9 @@ func TestAppStateConcurrentAccess(t *testing.T) {
 		snap.Stats.Failed != 200 || snap.Stats.Partial != 200 {
 		t.Errorf("Stats = %+v, want 200 each (2 increment goroutines)", snap.Stats)
 	}
-	// RecentEvents is a ring bounded at 100; 200 events leave the last 100.
-	if got := len(snap.RecentEvents); got != 100 {
-		t.Errorf("RecentEvents = %d, want 100 (ring bound)", got)
+	// 200 events are below the cap: every event is retained.
+	if got := len(snap.RecentEvents); got != 200 {
+		t.Errorf("RecentEvents = %d, want 200 (no events lost below the cap)", got)
 	}
 	if snap.CurrentVideo != "vid" || snap.CurrentStage != "stage2" {
 		t.Errorf("video = %q stage = %q, want vid/stage2", snap.CurrentVideo, snap.CurrentStage)
@@ -84,17 +84,6 @@ func TestSnapshotIsCopy(t *testing.T) {
 	}
 	if fresh.Stats.Success != 0 {
 		t.Errorf("Stats.Success = %d after mutating snapshot, want 0", fresh.Stats.Success)
-	}
-}
-
-// RecentEvents ring bound: capacity stays at 100.
-func TestRecentEventsRingBound(t *testing.T) {
-	s := NewAppState()
-	for range 250 {
-		s.AddRecentEvent("e")
-	}
-	if got := len(s.Snapshot().RecentEvents); got != 100 {
-		t.Errorf("RecentEvents = %d, want 100 (ring bound)", got)
 	}
 }
 
