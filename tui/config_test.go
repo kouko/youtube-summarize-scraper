@@ -408,3 +408,55 @@ func TestConfigTableKeyColumnCapped(t *testing.T) {
 		}
 	}
 }
+
+// W1-01 A1 boundary (spec REQ-1): a top-level random_order key is not a
+// display switch anymore — it renders as a normal row in file order and the
+// remaining sections keep the file's order (no shuffle).
+// concern: regression re-introducing the display shuffle — top-level sections
+// reordered across parses, or the random_order key swallowed instead of
+// rendered as ordinary data
+func TestConfigTreeRandomOrderKeyRendersInFileOrder(t *testing.T) {
+	yaml := "random_order: true\noutput_dir: /tmp/out\nwhisper:\n  max_duration: 1800\nbatch:\n  watch: true\n"
+	cv := NewConfigView(yaml)
+	if cv.Error() != nil {
+		t.Fatalf("parse error: %v", cv.Error())
+	}
+	lines := cv.Lines()
+	joined := strings.Join(lines, "\n")
+	// The key renders as a normal row, not swallowed by the view.
+	if !strings.Contains(joined, "random_order") {
+		t.Fatalf("top-level random_order key vanished from the view; lines=%q", lines)
+	}
+	// File order: random_order row first, then output_dir, whisper, batch.
+	if !strings.HasPrefix(lines[0], "random_order") {
+		t.Errorf("first line %q, want the random_order row first (file order)", lines[0])
+	}
+	idx := func(s string) int { return strings.Index(joined, s) }
+	if !(idx("random_order") < idx("output_dir") && idx("output_dir") < idx("whisper") && idx("whisper") < idx("batch")) {
+		t.Errorf("sections not in file order; lines=%q", lines)
+	}
+}
+
+// W1-01 A2 boundary (spec REQ-2): an edit + write-back must not swallow the
+// top-level random_order key — it is ordinary config data, not a display
+// switch, and the top-level order (and comments) survive.
+func TestConfigTreeRandomOrderKeySurvivesWriteBack(t *testing.T) {
+	yaml := "# top comment\nrandom_order: true\noutput_dir: /tmp/out\nllm:\n  provider: claude-api # inline\n"
+	cv := NewConfigView(yaml)
+	if err := cv.SetValue("llm.provider", "ollama"); err != nil {
+		t.Fatalf("SetValue: %v", err)
+	}
+	out, err := cv.Serialized()
+	if err != nil {
+		t.Fatalf("serialize: %v", err)
+	}
+	if !strings.Contains(out, "random_order: true") {
+		t.Errorf("random_order key lost on write-back; out=%q", out)
+	}
+	if iRO, iOut, iLLM := strings.Index(out, "random_order"), strings.Index(out, "output_dir"), strings.Index(out, "llm:"); !(iRO < iOut && iOut < iLLM) {
+		t.Errorf("top-level order not preserved; out=%q", out)
+	}
+	if !strings.Contains(out, "# top comment") {
+		t.Errorf("comment lost on write-back; out=%q", out)
+	}
+}
