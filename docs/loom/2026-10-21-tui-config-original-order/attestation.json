@@ -1,0 +1,98 @@
+{
+  "schema": "loom-attestation/v2",
+  "change_id": "2026-10-21-tui-config-original-order",
+  "content_digest": "d011718956954f758ce0ac42473927b71fefeea8",
+  "executions": [
+    {
+      "kind": "package-tests",
+      "command": "go test ./...",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "1bb497e3e13a1105cf24e3359fa3ef75de08b66ff8a2839cd7f9ea97824d9eb3"
+    },
+    {
+      "kind": "adversarial",
+      "command": "go test -json -v docs/loom/2026-10-21-tui-config-original-order/evidence/probes/config_order_probe_test.go",
+      "artifact": "docs/loom/2026-10-21-tui-config-original-order/evidence/probes/config_order_probe_test.go",
+      "result": "pass",
+      "command_digest": "92d5bd38b32d50c7577c3526882ea7feda3bd0123fafc456f7ad31fae0e001d5",
+      "evidence": "parsed",
+      "passed": 2
+    }
+  ],
+  "verdicts": [
+    {
+      "reviewer": "reviewer-A",
+      "vendor": "litellm",
+      "model": "hyper-coding-group",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": [],
+      "reviewed_sha": "bd111a4",
+      "review_target_sha": "0223942",
+      "notes": [
+        "Round-1 finding (adversarial program not runnable under finalize's accepted go form): fixed — the new probe compiles and executes alone; both tests passed at 0223942.",
+        "Non-vacuity verified by reintroduction in a temp copy: a pair-reversing display shuffle mutating cv.doc and a legacy-key-dropping write-back corruption both turned the probe RED.",
+        "Write-back still normalizes indentation and comment spacing; disclosed in the acceptance report as identical at base bd111a4, pre-existing and out of scope."
+      ],
+      "dimension_scores": {
+        "security": "PASS",
+        "architecture": "PASS",
+        "correctness": "PASS",
+        "naming": "PASS",
+        "tests": "PASS",
+        "refactoring": "PASS",
+        "cross-task-coherence": "PASS",
+        "external-surface-grounding": "PASS",
+        "principles-conformance": "PASS",
+        "architecture-conformance": "N/A — no ARCHITECTURE.md exists in the repo",
+        "deliberate-simplification": "PASS",
+        "deletion-first": "PASS"
+      }
+    },
+    {
+      "reviewer": "reviewer-B",
+      "vendor": "litellm",
+      "model": "hyper-coding-group",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": [],
+      "reviewed_sha": "bd111a4",
+      "review_target_sha": "0223942",
+      "notes": [
+        "Probe is non-vacuous, verified empirically against a git-archive copy of the pre-fix base bd111a4: both probe tests RED there, both PASS at HEAD.",
+        "Self-contained: only stdlib + testing + tui; runs alone via the exact recorded command.",
+        "Round-1 nit on tui/config_test.go:444 (inline-comment assertion gap) stands as a recorded nit, non-blocking."
+      ],
+      "dimension_scores": {
+        "security": "PASS",
+        "architecture": "PASS",
+        "correctness": "PASS",
+        "naming": "PASS",
+        "tests": "PASS",
+        "refactoring": "PASS",
+        "cross_task_coherence": "PASS",
+        "external_surface_grounding": "PASS",
+        "principles_conformance": "PASS",
+        "architecture_conformance": "N/A — no ARCHITECTURE.md in the repo",
+        "deliberate_simplification": "PASS",
+        "deletion_first": "PASS"
+      }
+    }
+  ],
+  "findings": [
+    {
+      "severity": "nit",
+      "anchor": "tui/config.go Serialized() -> yaml.Marshal (pre-existing, not introduced here)",
+      "text": "round-trip reflow: an edit+save reformats the whole file — indentation 2->4 spaces, blank separator lines dropped, inline-comment spacing normalized. Order and all comment text survive; only layout changes. Same at base bd111a4.",
+      "fix": "no product fix required for this change; disclosed in the acceptance report"
+    },
+    {
+      "severity": "nit",
+      "anchor": "tui/config_test.go:444",
+      "text": "TestConfigTreeRandomOrderKeySurvivesWriteBack plants an inline comment '# inline' in its fixture but only asserts the head comment; a regression dropping inline comments would pass this test. Coverage gap, not a product defect.",
+      "fix": "add one inline-comment assertion to the existing test, or remove the unused inline comment from the fixture"
+    }
+  ],
+  "selection": null
+}
