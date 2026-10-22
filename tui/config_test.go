@@ -412,6 +412,9 @@ func TestConfigTableKeyColumnCapped(t *testing.T) {
 // W1-01 A1 boundary (spec REQ-1): a top-level random_order key is not a
 // display switch anymore — it renders as a normal row in file order and the
 // remaining sections keep the file's order (no shuffle).
+// concern: regression re-introducing the display shuffle — top-level sections
+// reordered across parses, or the random_order key swallowed instead of
+// rendered as ordinary data
 func TestConfigTreeRandomOrderKeyRendersInFileOrder(t *testing.T) {
 	yaml := "random_order: true\noutput_dir: /tmp/out\nwhisper:\n  max_duration: 1800\nbatch:\n  watch: true\n"
 	cv := NewConfigView(yaml)
