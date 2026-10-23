@@ -223,6 +223,130 @@ func TestModelConfirmQuitCancelsAndQuits(t *testing.T) {
 	}
 }
 
+// W1-01 A1 positive: while the pipeline is running, pressing s emits a
+// command producing StopRunMsg.
+func TestModelSKeyWhileRunningEmitsStopRun(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	m.isRunning = true
+	m.state.SetRunning(true)
+	m.cancel = func() {} // real handler calls cancel(); keep the test hermetic
+
+	_, cmd := m.handleKey(pressKey("s"))
+	if cmd == nil {
+		t.Fatal("s while running returned nil cmd, want StopRunMsg")
+	}
+	if msg := cmd(); msg != (StopRunMsg{}) {
+		t.Errorf("s while running cmd() = %#v, want StopRunMsg{}", msg)
+	}
+}
+
+// W1-01 A1 boundary: while NOT running, pressing s does nothing — no command,
+// no state change.
+func TestModelSKeyNotRunningDoesNothing(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+
+	_, cmd := m.handleKey(pressKey("s"))
+	if cmd != nil {
+		t.Errorf("s while idle returned cmd %#v, want nil", cmd)
+	}
+	if m.isRunning {
+		t.Error("s while idle started the run")
+	}
+}
+
+// W1-01 A2 positive: after StopRunMsg is handled, isRunning is false and the
+// status view shows "Status: Stopped".
+func TestModelStopRunMsgShowsStopped(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	m.isRunning = true
+	m.state.SetRunning(true)
+	m.cancel = func() {}
+
+	got, _ := m.Update(StopRunMsg{})
+	after := got.(*Model)
+	if after.isRunning {
+		t.Error("isRunning still true after StopRunMsg")
+	}
+	if content := viewContent(t, after); !strings.Contains(content, "Status: Stopped") {
+		t.Errorf("status view does not show Stopped after StopRunMsg; content=%q", stripANSI(content[:120]))
+	}
+}
+
+// W1-01 A3 positive: after a stop, pressing r with a non-empty ConfigPath
+// emits a command producing StartRunMsg (restart works).
+func TestModelRestartAfterStop(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	m.isRunning = true
+	m.state.SetRunning(true)
+	m.cancel = func() {}
+
+	m.Update(StopRunMsg{}) // stop the run
+	_, cmd := m.handleKey(pressKey("r"))
+	if cmd == nil {
+		t.Fatal("r after stop returned nil cmd, want StartRunMsg")
+	}
+	if msg := cmd(); msg != (StartRunMsg{}) {
+		t.Errorf("r after stop cmd() = %#v, want StartRunMsg{}", msg)
+	}
+}
+
+// W1-01 A3 boundary: with an empty ConfigPath, r does nothing — also after a
+// stop.
+func TestModelRestartAfterStopNeedsConfigPath(t *testing.T) {
+	m := sizedModel()
+	m.isRunning = true
+	m.state.SetRunning(true)
+	m.cancel = func() {}
+
+	m.Update(StopRunMsg{}) // stop the run
+	_, cmd := m.handleKey(pressKey("r"))
+	if cmd != nil {
+		t.Errorf("r with empty ConfigPath returned cmd %#v, want nil", cmd)
+	}
+	if m.isRunning {
+		t.Error("r with empty ConfigPath started the run")
+	}
+}
+
+// W1-01 A4 positive: hintSegmentsFor(PanelStatus) returns a "[s] Stop"
+// segment while the pipeline is running.
+func TestModelStatusHintsShowStopWhileRunning(t *testing.T) {
+	m := sizedModel()
+	m.isRunning = true
+
+	var stop, run bool
+	for _, seg := range m.hintSegmentsFor(PanelStatus) {
+		switch seg.Text {
+		case "[s] Stop":
+			stop = true
+		case "[r] Run":
+			run = true
+		}
+	}
+	if !stop {
+		t.Error("running status hints lack a [s] Stop segment")
+	}
+	if !run {
+		t.Error("running status hints lack a [r] Run segment")
+	}
+}
+
+// W1-01 A4 boundary: while stopped, the status hints must not contain a
+// "[s] Stop" segment.
+func TestModelStatusHintsHideStopWhenStopped(t *testing.T) {
+	m := sizedModel()
+
+	for _, seg := range m.hintSegmentsFor(PanelStatus) {
+		if seg.Text == "[s] Stop" {
+			t.Errorf("stopped status hints contain a %q segment, want none", seg.Text)
+		}
+	}
+}
+
 // W3-01 A4 boundary: a second StartRunMsg while running is ignored.
 func TestModelSecondStartIgnored(t *testing.T) {
 	m := sizedModel()

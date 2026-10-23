@@ -559,6 +559,12 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "s":
+		if m.isRunning {
+			return m, func() tea.Msg { return StopRunMsg{} }
+		}
+		return m, nil
+
 	case "c":
 		if m.configView != nil {
 			m.configView.Toggle()
@@ -953,6 +959,12 @@ func (m *Model) hintSegmentsFor(p FocusedPanel) []HintSegment {
 			{Text: "[c] Switch View", Key: "c"},
 		}
 	case PanelStatus:
+		if m.isRunning {
+			return []HintSegment{
+				{Text: "[s] Stop", Key: "s"},
+				{Text: "[r] Run", Key: "r"},
+			}
+		}
 		return []HintSegment{{Text: "[r] Run", Key: "r"}}
 	case PanelEvents:
 		return []HintSegment{{Text: "[↑↓] Scroll"}}
