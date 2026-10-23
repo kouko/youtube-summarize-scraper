@@ -1,6 +1,6 @@
 # TUI 加入停止鍵 — plan
 intent: 2026-10-23-tui-stop-key@858f5e9
-spec: docs/loom/2026-10-23-tui-stop-key/spec.md@f57a283
+spec: docs/loom/2026-10-23-tui-stop-key/spec.md@2b4f6bb
 charter: 1.1
 
 ## Task DAG
@@ -12,7 +12,7 @@ Wave 1 — 新增停止鍵與狀態提示
 
 **W1-01 新增 `s` 鍵綁定與狀態提示**  after: none  acceptance: 1, 2, 3, 4
 - Files: tui/model.go
-- Test: A1 positive: 運行中按 s 停止，狀態變 Stopped; boundary: 未運行時按 s 無反應。A2 positive: 狀態面板顯示 Stopped; boundary: 停止後仍留在介面。A3 positive: 停止後按 r 重啟; boundary: r 仍需 ConfigPath 非空。A4 positive: 執行中提示列顯示 [s] Stop; boundary: 未執行時不顯示 [s] Stop。
+- Test: A1 positive: 運行中按 s 停止，狀態變 Stopped; boundary: 未運行時按 s 無反應; A2 positive: 狀態面板顯示 Stopped; boundary: 停止後仍留在介面; A3 positive: 停止後按 r 重啟; boundary: r 仍需 ConfigPath 非空; A4 positive: 執行中提示列顯示 [s] Stop; boundary: 未執行時不顯示 [s] Stop.
 - Risk: 新增 key binding（hint、case "s"、dispatch StopRunMsg），不動現有 q/ctrl+c 行為、不動 batch.random_order。StopRunMsg 處理器已存在，純接線（spec REQ-1/REQ-2）。
 
 ## Simplicity check
