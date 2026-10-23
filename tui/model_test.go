@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"os"
@@ -344,6 +345,29 @@ func TestModelStatusHintsHideStopWhenStopped(t *testing.T) {
 		if seg.Text == "[s] Stop" {
 			t.Errorf("stopped status hints contain a %q segment, want none", seg.Text)
 		}
+	}
+}
+
+// W1-01 A3 boundary: a RunFinishedMsg from an earlier run must not clear the
+// running flag of the current run; only the current run's own completion does.
+// The ctx carried by the message is the run token.
+func TestModelRunFinishedMsgTokenMatch(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	staleCtx, staleCancel := context.WithCancel(context.Background())
+	defer staleCancel()
+	currentCtx, currentCancel := context.WithCancel(context.Background())
+	defer currentCancel()
+	m.isRunning = true
+	m.ctx, m.cancel = currentCtx, currentCancel
+
+	got, _ := m.Update(RunFinishedMsg{ctx: staleCtx})
+	if !got.(*Model).isRunning {
+		t.Error("stale RunFinishedMsg cleared isRunning of the current run")
+	}
+	got, _ = m.Update(RunFinishedMsg{ctx: currentCtx})
+	if got.(*Model).isRunning {
+		t.Error("current run's RunFinishedMsg did not clear isRunning")
 	}
 }
 
