@@ -1,0 +1,85 @@
+{
+  "schema": "loom-attestation/v2",
+  "change_id": "2026-10-23-tui-stop-key",
+  "content_digest": "c901dfa432c8c157e01a5d5fc42a1f4f8c6b553e",
+  "executions": [
+    {
+      "kind": "package-tests",
+      "command": "go test ./...",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "1bb497e3e13a1105cf24e3359fa3ef75de08b66ff8a2839cd7f9ea97824d9eb3"
+    },
+    {
+      "kind": "adversarial",
+      "command": "go test -json -v docs/loom/2026-10-23-tui-stop-key/evidence/probes/stop_key_stale_after_end_test.go",
+      "artifact": "docs/loom/2026-10-23-tui-stop-key/evidence/probes/stop_key_stale_after_end_test.go",
+      "result": "pass",
+      "command_digest": "68ce4271cb7324bba4743a2cd8b0582c2cf44e6300ba49485f1093fca49e919f",
+      "evidence": "parsed",
+      "passed": 1
+    }
+  ],
+  "verdicts": [
+    {
+      "reviewer": "reviewer-A",
+      "vendor": "litellm",
+      "model": "hyper-coding-group",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": [],
+      "reviewed_sha": "32142e3",
+      "review_target_sha": "da9ac8d",
+      "notes": [
+        "Round 3 terminal verification: the generation-guard skip branch blocker is closed by the pure-move finishRun(gen) extraction plus TestModelFinishRunSkipsStaleGeneration pinning both branches; RED was the undefined: finishRun build failure at 458a8be.",
+        "Round-1 nits (StopRunMsg tokenization, q/ctrl+c runAlive guard) fixed and pinned; ConfigPath snapshot fixed; probe boundary intact.",
+        "QuitConfirmMsg remains untokened (pre-existing, out of delta): an in-flight quit confirm after stop→restart could in principle cancel the newer run — microsecond window, noted only."
+      ],
+      "dimension_scores": {
+        "security": "PASS",
+        "architecture": "PASS",
+        "correctness": "PASS",
+        "naming": "PASS",
+        "tests": "PASS",
+        "refactoring": "PASS",
+        "cross-task-coherence": "PASS",
+        "external-surface-grounding": "PASS",
+        "principles-conformance": "PASS",
+        "architecture-conformance": "N/A — no ARCHITECTURE.md in the repo",
+        "deliberate-simplification": "PASS",
+        "deletion-first": "PASS"
+      }
+    },
+    {
+      "reviewer": "reviewer-B",
+      "vendor": "litellm",
+      "model": "hyper-coding-group",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": [],
+      "reviewed_sha": "32142e3",
+      "review_target_sha": "da9ac8d",
+      "notes": [
+        "Round 3 terminal verification: both important findings fixed — the run goroutine's end-of-run app-state write is generation-guarded via finishRun(gen) (verified across all mutex orderings; no deadlock, runMu→state.mu is the only nesting), and TestModelFinishRunSkipsStaleGeneration pins both the stale-skip and current-apply branches deterministically.",
+        "Probe boundary intact (gen matches in its single-run scenario; write ordering unchanged); 16 targeted tests PASS, go vet clean.",
+        "Two nits intentionally left: key tests drive handleKey directly (module-wide pre-existing convention; the probe drives the entry), and the probe function name (adversary-owned artifact)."
+      ],
+      "dimension_scores": {
+        "security": "PASS",
+        "architecture": "PASS",
+        "correctness": "PASS",
+        "naming": "PASS",
+        "tests": "PASS",
+        "refactoring": "PASS",
+        "cross-task-coherence": "PASS",
+        "external-surface-grounding": "PASS",
+        "principles-conformance": "PASS",
+        "architecture-conformance": "N/A — no ARCHITECTURE.md exists",
+        "deliberate-simplification": "PASS",
+        "deletion-first": "PASS"
+      }
+    }
+  ],
+  "findings": [],
+  "selection": null
+}
