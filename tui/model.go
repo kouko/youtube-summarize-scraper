@@ -476,15 +476,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				// Mark this run dead before the app state reports it stopped,
 				// so the liveness guards never disagree with the status view.
 				cancel()
-				// Clear the app state only while this run is still the current
-				// one: after stop→restart the old pipeline may still be
-				// unwinding (shutdown is graceful), and its late write must not
-				// clobber the newer run's SetRunning(true).
-				m.runMu.Lock()
-				if m.runGen == gen {
-					m.state.SetRunning(false)
-				}
-				m.runMu.Unlock()
+				m.finishRun(gen)
 			}()
 			// Notify the UI thread when the run ends by itself. The ctx is the
 			// run token: Update clears the flags only when it matches the
@@ -542,6 +534,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // instead of the guards advertising a run that is over.
 func (m *Model) runAlive() bool {
 	return m.isRunning && (m.ctx == nil || m.ctx.Err() == nil)
+}
+
+// finishRun writes the end-of-run app state only while gen is still the
+// current run generation, so an old run unwinding after stop→restart cannot
+// clobber a newer run's running state.
+func (m *Model) finishRun(gen uint64) {
+	m.runMu.Lock()
+	if m.runGen == gen {
+		m.state.SetRunning(false)
+	}
+	m.runMu.Unlock()
 }
 
 // handleKey handles keyboard input.

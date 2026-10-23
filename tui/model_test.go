@@ -2116,3 +2116,22 @@ func TestEventsScrolledUpDoesNotJump(t *testing.T) {
 		t.Errorf("viewport offset changed from %d to %d after adding new event while scrolled up", offsetBefore, offsetAfter)
 	}
 }
+
+// W1-01 round 2: finishRun must skip the end-of-run SetRunning(false) while
+// the generation is stale (an old run unwinding after stop→restart), and must
+// apply it once the generation is current.
+func TestModelFinishRunSkipsStaleGeneration(t *testing.T) {
+	m := sizedModel()
+	m.state.SetRunning(true)
+	m.runGen = 2
+
+	m.finishRun(1) // stale: must not clobber the newer run's running state.
+	if snap := m.state.Snapshot(); !snap.IsRunning {
+		t.Fatal("stale generation clobbered the newer run's running state")
+	}
+
+	m.finishRun(2) // current: the end-of-run clear must apply.
+	if snap := m.state.Snapshot(); snap.IsRunning {
+		t.Fatal("current generation finishRun did not clear the running state")
+	}
+}
