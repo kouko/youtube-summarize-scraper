@@ -10,12 +10,21 @@ import (
 // EventBridge tees each log line to an optional underlying writer and feeds
 // it into a bounded, non-blocking queue consumed by a background goroutine
 // that parses each line and applies it to AppState. A slow TUI can therefore
-// never block the pipeline: when the queue is full, lines are dropped and
-// counted (spec: event-bridge layer, bounded channel, non-blocking send).
+// never block the pipeline: when the queue is full, the OLDEST queued line is
+// evicted and counted, so the most recent activity is what survives (spec:
+// event-bridge layer, drop-oldest retention, non-blocking writes).
 type EventBridge struct {
-	out  io.Writer
-	ch   chan string
-	done chan struct{}
+	out io.Writer
+
+	// mu guards queue and closed, and serializes the detect-full/evict/append
+	// decision so overflow always evicts exactly the queue front. cond wakes
+	// the consumer when a line arrives or the bridge closes.
+	mu       sync.Mutex
+	cond     *sync.Cond
+	queue    []string
+	capacity int
+	closed   bool
+
 	once sync.Once
 	wg   sync.WaitGroup
 
@@ -39,29 +48,38 @@ func NewEventBridge(out io.Writer, state *AppState, capacity int) *EventBridge {
 		capacity = 100
 	}
 	b := &EventBridge{
-		out:   out,
-		ch:    make(chan string, capacity),
-		done:  make(chan struct{}),
-		state: state,
+		out:      out,
+		queue:    make([]string, 0, capacity),
+		capacity: capacity,
+		state:    state,
 	}
+	b.cond = sync.NewCond(&b.mu)
 	b.wg.Add(1)
 	go b.consume()
 	return b
 }
 
-// consume parses queued lines and applies them to AppState until Close.
+// consume parses queued lines and applies them to AppState until Close. Lines
+// still queued when Close runs are abandoned.
 func (b *EventBridge) consume() {
 	defer b.wg.Done()
 	for {
-		select {
-		case <-b.done:
+		b.mu.Lock()
+		for len(b.queue) == 0 && !b.closed {
+			b.cond.Wait()
+		}
+		if b.closed {
+			b.mu.Unlock()
 			return
-		case line := <-b.ch:
-			applyEvent(b.state, ParseLogLine(line))
-			b.applied.Add(1)
-			if b.notify != nil {
-				b.notify()
-			}
+		}
+		line := b.queue[0]
+		b.queue = b.queue[1:]
+		b.mu.Unlock()
+
+		applyEvent(b.state, ParseLogLine(line))
+		b.applied.Add(1)
+		if b.notify != nil {
+			b.notify()
 		}
 	}
 }
@@ -69,7 +87,8 @@ func (b *EventBridge) consume() {
 // Write implements io.Writer. It writes p to the underlying writer and
 // forwards complete lines to the queue; an incomplete trailing fragment is
 // buffered until its newline arrives. It never blocks and never returns an
-// error for queue overflow — overflow is counted and dropped.
+// error for queue overflow — overflow evicts the oldest queued line and is
+// counted.
 func (b *EventBridge) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
@@ -96,10 +115,16 @@ func (b *EventBridge) Write(p []byte) (int, error) {
 
 // Close stops the consumer goroutine and waits for it to exit, so state
 // writes never race a later Write. Lines queued but not consumed are
-// abandoned; later Writes still succeed and are dropped (counted) once the
-// queue is full. Close is idempotent.
+// abandoned; later Writes still succeed, queuing (then evicting the oldest)
+// without being consumed, so Applied + Dropped no longer tracks them. Close
+// is idempotent.
 func (b *EventBridge) Close() {
-	b.once.Do(func() { close(b.done) })
+	b.once.Do(func() {
+		b.mu.Lock()
+		b.closed = true
+		b.mu.Unlock()
+		b.cond.Broadcast()
+	})
 	b.wg.Wait()
 }
 
@@ -119,13 +144,19 @@ func (b *EventBridge) Applied() uint64 {
 	return b.applied.Load()
 }
 
-// enqueue sends a line without blocking; a full queue drops the line.
+// enqueue appends a line without blocking; when the queue is full it evicts
+// the oldest queued line and keeps the new one, so the newest lines survive
+// overflow. The full check and the evict share the same lock hold, so the
+// consumer cannot interleave between them.
 func (b *EventBridge) enqueue(line string) {
-	select {
-	case b.ch <- line:
-	default:
+	b.mu.Lock()
+	b.queue = append(b.queue, line)
+	if len(b.queue) > b.capacity {
+		b.queue = b.queue[1:]
 		b.dropped.Add(1)
 	}
+	b.mu.Unlock()
+	b.cond.Signal()
 }
 
 // pending accumulates a partially written line between Write calls.

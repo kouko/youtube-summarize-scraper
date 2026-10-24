@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 	"strconv"
@@ -144,6 +145,47 @@ func TestBridgeNotifiesAfterApply(t *testing.T) {
 	waitFor(t, func() bool { return state.Snapshot().Stats.Success == 1 })
 	if n.Load() == 0 {
 		t.Error("SetNotify callback not invoked after an applied event")
+	}
+}
+
+// W1-01 (Acceptance 1, 2): when the queue overflows, the OLDEST queued line
+// is evicted and the newest line is retained, so the panel ends with the
+// contiguous newest suffix of the burst in write order — at any consumer
+// speed — and every written line is applied or dropped exactly once.
+func TestBridgeRetainsNewestWhenQueueFull(t *testing.T) {
+	state := NewAppState()
+	bridge := NewEventBridge(io.Discard, state, 100)
+	defer bridge.Close()
+
+	total := 110
+	for i := range total {
+		line := fmt.Sprintf("e-%03d\n", i)
+		if _, err := bridge.Write([]byte(line)); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+
+	waitFor(t, func() bool { return bridge.Applied()+bridge.Dropped() == uint64(total) })
+	if got := bridge.Applied() + bridge.Dropped(); got != uint64(total) {
+		t.Errorf("Applied+Dropped = %d, want %d (every line applied or dropped exactly once)", got, total)
+	}
+
+	// Overflow beyond the 100-line queue can drop at most the 10 oldest
+	// lines, so the panel holds 100..110 lines: the contiguous suffix of
+	// the burst ending at the final written line.
+	snap := state.Snapshot()
+	n := len(snap.RecentEvents)
+	if n < 100 || n > total {
+		t.Fatalf("RecentEvents = %d, want 100..%d (newest lines survive overflow)", n, total)
+	}
+	if first, last := snap.RecentEvents[0], snap.RecentEvents[n-1]; first != fmt.Sprintf("e-%03d", total-n) || last != "e-109" {
+		t.Errorf("retained window = %q..%q, want %q..%q (contiguous newest suffix)", first, last, fmt.Sprintf("e-%03d", total-n), "e-109")
+	}
+	for i, line := range snap.RecentEvents {
+		want := fmt.Sprintf("e-%03d", total-n+i)
+		if line != want {
+			t.Errorf("position %d = %q, want %q (order lost or window shifted)", i, line, want)
+		}
 	}
 }
 
