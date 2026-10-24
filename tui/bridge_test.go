@@ -189,6 +189,72 @@ func TestBridgeRetainsNewestWhenQueueFull(t *testing.T) {
 	}
 }
 
+// W1-02 (Acceptance 1-4, deterministic guard): stall the consumer after it
+// applies the first line so the burst is written while the consumer cannot
+// drain — removing the timing dependence of TestBridgeRetainsNewestWhenQueueFull.
+// Under the pre-W1-01 drop-new code this retained e-000..e-100 (the newest
+// lines dropped on the full queue); the fixed drop-oldest bridge must retain
+// exactly e-000 then e-010..e-109.
+func TestBridgeStalledConsumerRetainsExactNewestWindow(t *testing.T) {
+	state := NewAppState()
+	bridge := NewEventBridge(io.Discard, state, 100)
+	defer bridge.Close()
+
+	// entered signals the consumer has applied e-000 and is now blocked
+	// inside notify; gate holds it there until the burst is written.
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	var once sync.Once
+	bridge.SetNotify(func() {
+		once.Do(func() { close(entered) })
+		<-gate
+	})
+
+	if _, err := bridge.Write([]byte("e-000\n")); err != nil {
+		t.Fatalf("write e-000: %v", err)
+	}
+	waitFor(t, func() bool {
+		select {
+		case <-entered:
+			return true
+		default:
+			return false
+		}
+	})
+
+	// Consumer is blocked; these writes must return immediately even as the
+	// 100-slot queue overflows (that is the invariant under test).
+	for i := 1; i <= 109; i++ {
+		line := fmt.Sprintf("e-%03d\n", i)
+		if _, err := bridge.Write([]byte(line)); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+	close(gate)
+
+	waitFor(t, func() bool { return bridge.Applied()+bridge.Dropped() == 110 })
+	if got := bridge.Dropped(); got != 9 {
+		t.Errorf("Dropped = %d, want 9 (e-001..e-009 evicted)", got)
+	}
+	if got := bridge.Applied(); got != 101 {
+		t.Errorf("Applied = %d, want 101", got)
+	}
+
+	events := state.Snapshot().RecentEvents
+	if len(events) != 101 {
+		t.Fatalf("RecentEvents = %d, want 101", len(events))
+	}
+	for i, line := range events {
+		want := "e-000"
+		if i > 0 {
+			want = fmt.Sprintf("e-%03d", i+9)
+		}
+		if line != want {
+			t.Errorf("position %d = %q, want %q (retained window is not the exact newest suffix)", i, line, want)
+		}
+	}
+}
+
 // W1-01 (REQ-2): with the queue raised to MaxRecentEvents, a burst larger
 // than both the queue and the state cap still fills the panel to its cap —
 // the queue is no longer the tighter bottleneck. Dropping at the queue is
