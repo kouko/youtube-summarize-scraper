@@ -95,6 +95,14 @@ type Model struct {
 	cancel    context.CancelFunc
 	isRunning bool
 
+	// runGen/runMu serialize the end-of-run app-state write against a newer
+	// run's start: the goroutine from an ended run clears SetRunning(false)
+	// only while its generation is still current, so a late write during a
+	// graceful stop→restart unwind can never clobber the newer run's
+	// SetRunning(true). Generation 0 means no run has started yet.
+	runMu  sync.Mutex
+	runGen uint64
+
 	// confirmPending: a first q while running armed the quit confirmation.
 	// The next q confirms (QuitConfirmMsg); any other key disarms it.
 	confirmPending bool
@@ -438,24 +446,60 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.handleConfigSelected(msg.Path)
 
 	case StartRunMsg:
-		if !m.isRunning && m.state.ConfigPath != "" {
+		// Snapshot the shared config path on the UI thread: the run goroutine
+		// must not read AppState's fields without its lock.
+		snap := m.state.Snapshot()
+		if !m.runAlive() && snap.ConfigPath != "" {
 			m.isRunning = true
-			m.state.SetRunning(true)
 			m.err = nil
-			// Start pipeline in background
-			m.ctx, m.cancel = context.WithCancel(context.Background())
+			// Start pipeline in background. The context and its cancel are
+			// per-run: the goroutine closes over the local cancel, never the
+			// shared m.cancel field, so a stale goroutine from an earlier run
+			// cannot cancel a newer run's context.
+			ctx, cancel := context.WithCancel(context.Background())
+			m.ctx, m.cancel = ctx, cancel
+			// The generation token, paired with the start's SetRunning(true)
+			// under the same mutex, stops an unwinding old run from writing
+			// SetRunning(false) after a newer run set it true (stop→restart).
+			m.runMu.Lock()
+			m.runGen++
+			gen := m.runGen
+			m.state.SetRunning(true)
+			m.runMu.Unlock()
+			cfgPath := snap.ConfigPath
 			go func() {
-				defer func() { m.cancel() }()
-				// Run pipeline with selected config
-				if err := runPipelineWithConfig(m.state.ConfigPath, m.state, m.ctx); err != nil {
+				defer cancel()
+				// Run pipeline with selected config (path snapshotted above).
+				if err := runPipelineWithConfig(cfgPath, m.state, ctx); err != nil {
 					m.state.AddRecentEvent(fmt.Sprintf("ERROR: %v", err))
 				}
-				m.state.SetRunning(false)
+				// Mark this run dead before the app state reports it stopped,
+				// so the liveness guards never disagree with the status view.
+				cancel()
+				m.finishRun(gen)
 			}()
+			// Notify the UI thread when the run ends by itself. The ctx is the
+			// run token: Update clears the flags only when it matches the
+			// current run, so a stale completion cannot clear a newer run.
+			cmd = func() tea.Msg {
+				<-ctx.Done()
+				return RunFinishedMsg{ctx: ctx}
+			}
+		}
+
+	case RunFinishedMsg:
+		// A run ended by itself (batch completed, watch loop cancelled, or
+		// config failed to load). Clear both flags only for the current run;
+		// the write happens on the UI thread for the run it belongs to.
+		if msg.ctx == m.ctx {
+			m.isRunning = false
+			m.state.SetRunning(false)
 		}
 
 	case StopRunMsg:
-		if m.isRunning {
+		// Only the current run's stop token may cancel: a stop dispatched for
+		// the previous run and delivered after a restart is a no-op.
+		if msg.ctx == m.ctx {
 			m.cancel()
 			m.isRunning = false
 			m.state.SetRunning(false)
@@ -479,6 +523,28 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	}
 	return m, nil
+}
+
+// runAlive reports whether the model still considers a pipeline running.
+// Both inputs are UI-thread-owned — isRunning is only written in Update, and
+// ctx is only assigned in Update; the run goroutine never touches either
+// (no cross-goroutine race). A run that ends by itself cancels its own ctx
+// before the app state reports Stopped, so a stale isRunning (its
+// RunFinishedMsg has not been processed yet) is caught by the dead ctx
+// instead of the guards advertising a run that is over.
+func (m *Model) runAlive() bool {
+	return m.isRunning && (m.ctx == nil || m.ctx.Err() == nil)
+}
+
+// finishRun writes the end-of-run app state only while gen is still the
+// current run generation, so an old run unwinding after stop→restart cannot
+// clobber a newer run's running state.
+func (m *Model) finishRun(gen uint64) {
+	m.runMu.Lock()
+	if m.runGen == gen {
+		m.state.SetRunning(false)
+	}
+	m.runMu.Unlock()
 }
 
 // handleKey handles keyboard input.
@@ -538,7 +604,7 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "ctrl+c", "q":
-		if m.isRunning {
+		if m.runAlive() {
 			// First q arms the confirmation; the second q confirms it. Any
 			// other key (handled below) disarms. This is deliberately not a
 			// QuitConfirmMsg on the first press — Update treats that msg as
@@ -554,8 +620,15 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 
 	case "r":
-		if !m.isRunning && m.state.ConfigPath != "" {
+		if !m.runAlive() && m.state.ConfigPath != "" {
 			return m, func() tea.Msg { return StartRunMsg{} }
+		}
+		return m, nil
+
+	case "s":
+		if m.runAlive() {
+			ctx := m.ctx
+			return m, func() tea.Msg { return StopRunMsg{ctx: ctx} }
 		}
 		return m, nil
 
@@ -953,6 +1026,12 @@ func (m *Model) hintSegmentsFor(p FocusedPanel) []HintSegment {
 			{Text: "[c] Switch View", Key: "c"},
 		}
 	case PanelStatus:
+		if m.runAlive() {
+			return []HintSegment{
+				{Text: "[s] Stop", Key: "s"},
+				{Text: "[r] Run", Key: "r"},
+			}
+		}
 		return []HintSegment{{Text: "[r] Run", Key: "r"}}
 	case PanelEvents:
 		return []HintSegment{{Text: "[↑↓] Scroll"}}
@@ -1540,8 +1619,24 @@ type QuitConfirmMsg struct{}
 // StartRunMsg signals to start the pipeline.
 type StartRunMsg struct{}
 
-// StopRunMsg signals to stop the pipeline.
-type StopRunMsg struct{}
+// StopRunMsg signals to stop the pipeline. ctx is that run's context and
+// doubles as a token, exactly like RunFinishedMsg: Update cancels only when
+// it matches the current run, so a stop dispatched for a run that was already
+// restarted can never cancel the newer run.
+type StopRunMsg struct {
+	ctx context.Context
+}
+
+// RunFinishedMsg is emitted when a run goroutine started by StartRunMsg ends
+// by itself (batch completed, watch loop cancelled, or config failed to
+// load). ctx is that run's own context and doubles as a token: Update clears
+// isRunning only when it matches the current run's ctx, so a stale
+// completion message from an earlier run can never clear the flag of a
+// newer one. isRunning stays a UI-thread-only field (the message round-trip,
+// not a goroutine write, clears it).
+type RunFinishedMsg struct {
+	ctx context.Context
+}
 
 // TickMsg is sent periodically to trigger a re-render.
 type TickMsg struct{}

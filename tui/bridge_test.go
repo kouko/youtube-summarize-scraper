@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -147,6 +149,113 @@ func TestBridgeNotifiesAfterApply(t *testing.T) {
 	}
 }
 
+// W1-01 (Acceptance 1, 2): when the queue overflows, the OLDEST queued line
+// is evicted and the newest line is retained, so the panel ends with the
+// contiguous newest suffix of the burst in write order — at any consumer
+// speed — and every written line is applied or dropped exactly once.
+func TestBridgeRetainsNewestWhenQueueFull(t *testing.T) {
+	state := NewAppState()
+	bridge := NewEventBridge(io.Discard, state, 100)
+	defer bridge.Close()
+
+	total := 110
+	for i := range total {
+		line := fmt.Sprintf("e-%03d\n", i)
+		if _, err := bridge.Write([]byte(line)); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+
+	waitFor(t, func() bool { return bridge.Applied()+bridge.Dropped() == uint64(total) })
+	if got := bridge.Applied() + bridge.Dropped(); got != uint64(total) {
+		t.Errorf("Applied+Dropped = %d, want %d (every line applied or dropped exactly once)", got, total)
+	}
+
+	// Overflow beyond the 100-line queue can drop at most the 10 oldest
+	// lines, so the panel holds 100..110 lines: the contiguous suffix of
+	// the burst ending at the final written line.
+	snap := state.Snapshot()
+	n := len(snap.RecentEvents)
+	if n < 100 || n > total {
+		t.Fatalf("RecentEvents = %d, want 100..%d (newest lines survive overflow)", n, total)
+	}
+	if first, last := snap.RecentEvents[0], snap.RecentEvents[n-1]; first != fmt.Sprintf("e-%03d", total-n) || last != "e-109" {
+		t.Errorf("retained window = %q..%q, want %q..%q (contiguous newest suffix)", first, last, fmt.Sprintf("e-%03d", total-n), "e-109")
+	}
+	for i, line := range snap.RecentEvents {
+		want := fmt.Sprintf("e-%03d", total-n+i)
+		if line != want {
+			t.Errorf("position %d = %q, want %q (order lost or window shifted)", i, line, want)
+		}
+	}
+}
+
+// W1-02 (Acceptance 1-4, deterministic guard): stall the consumer after it
+// applies the first line so the burst is written while the consumer cannot
+// drain — removing the timing dependence of TestBridgeRetainsNewestWhenQueueFull.
+// Under the pre-W1-01 drop-new code this retained e-000..e-100 (the newest
+// lines dropped on the full queue); the fixed drop-oldest bridge must retain
+// exactly e-000 then e-010..e-109.
+func TestBridgeStalledConsumerRetainsExactNewestWindow(t *testing.T) {
+	state := NewAppState()
+	bridge := NewEventBridge(io.Discard, state, 100)
+	defer bridge.Close()
+
+	// entered signals the consumer has applied e-000 and is now blocked
+	// inside notify; gate holds it there until the burst is written.
+	entered := make(chan struct{})
+	gate := make(chan struct{})
+	var once sync.Once
+	bridge.SetNotify(func() {
+		once.Do(func() { close(entered) })
+		<-gate
+	})
+
+	if _, err := bridge.Write([]byte("e-000\n")); err != nil {
+		t.Fatalf("write e-000: %v", err)
+	}
+	waitFor(t, func() bool {
+		select {
+		case <-entered:
+			return true
+		default:
+			return false
+		}
+	})
+
+	// Consumer is blocked; these writes must return immediately even as the
+	// 100-slot queue overflows (that is the invariant under test).
+	for i := 1; i <= 109; i++ {
+		line := fmt.Sprintf("e-%03d\n", i)
+		if _, err := bridge.Write([]byte(line)); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+	close(gate)
+
+	waitFor(t, func() bool { return bridge.Applied()+bridge.Dropped() == 110 })
+	if got := bridge.Dropped(); got != 9 {
+		t.Errorf("Dropped = %d, want 9 (e-001..e-009 evicted)", got)
+	}
+	if got := bridge.Applied(); got != 101 {
+		t.Errorf("Applied = %d, want 101", got)
+	}
+
+	events := state.Snapshot().RecentEvents
+	if len(events) != 101 {
+		t.Fatalf("RecentEvents = %d, want 101", len(events))
+	}
+	for i, line := range events {
+		want := "e-000"
+		if i > 0 {
+			want = fmt.Sprintf("e-%03d", i+9)
+		}
+		if line != want {
+			t.Errorf("position %d = %q, want %q (retained window is not the exact newest suffix)", i, line, want)
+		}
+	}
+}
+
 // W1-01 (REQ-2): with the queue raised to MaxRecentEvents, a burst larger
 // than both the queue and the state cap still fills the panel to its cap —
 // the queue is no longer the tighter bottleneck. Dropping at the queue is
@@ -170,4 +279,106 @@ func TestBridgeMaxRecentEventsCapacity(t *testing.T) {
 	if got := len(state.Snapshot().RecentEvents); got != MaxRecentEvents {
 		t.Errorf("RecentEvents = %d, want %d (state cap fed through the bridge)", got, MaxRecentEvents)
 	}
+}
+
+// Build round 2, adversary finding 1: concurrent Writes race the shared
+// pending buffer (and the underlying writer) in the unsynchronized Write body.
+// Each goroutine sends its line fragments in SEPARATE Write calls — a partial,
+// then the completing newline — forcing every call through b.buffer between
+// calls, plus occasional multi-line writes. Under -race the shared buffer
+// trips a data race and lines are lost or corrupted; accounting must still be
+// exact (spec REQ-3: every written line applied or dropped exactly once).
+func TestBridgeConcurrentWritersPartialAndFullLines(t *testing.T) {
+	state := NewAppState()
+	bridge := NewEventBridge(io.Discard, state, 5000)
+	defer bridge.Close()
+
+	const goroutines = 8
+	const iterations = 200
+	const multiEvery = 25 // every 25th iteration adds a 2-line write
+	const multiPerG = (iterations + multiEvery - 1) / multiEvery
+	const total = goroutines * (iterations + 2*multiPerG)
+
+	var wg sync.WaitGroup
+	for g := range goroutines {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for j := range iterations {
+				// Partial line without a newline: must sit in b.buffer until
+				// the completing Write arrives.
+				if _, err := bridge.Write([]byte(fmt.Sprintf("msg=part g=%d j=%d", g, j))); err != nil {
+					t.Errorf("partial write g=%d j=%d: %v", g, j, err)
+					return
+				}
+				if _, err := bridge.Write([]byte(fmt.Sprintf(" tail=%d-%d\n", g, j))); err != nil {
+					t.Errorf("completing write g=%d j=%d: %v", g, j, err)
+					return
+				}
+				if j%multiEvery == 0 {
+					multi := fmt.Sprintf("m=%d-%d-a\nm=%d-%d-b\n", g, j, g, j)
+					if _, err := bridge.Write([]byte(multi)); err != nil {
+						t.Errorf("multi write g=%d j=%d: %v", g, j, err)
+						return
+					}
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	waitFor(t, func() bool { return bridge.Applied()+bridge.Dropped() == total })
+	if got := bridge.Applied() + bridge.Dropped(); got != total {
+		t.Errorf("Applied+Dropped = %d, want %d (lines lost or corrupted by concurrent writers)", got, total)
+	}
+	if got := bridge.Dropped(); got != 0 {
+		t.Errorf("Dropped = %d, want 0 (5000-slot queue must never overflow)", got)
+	}
+}
+
+// Build round 2, adversary finding 2: SetNotify races the consumer's read of
+// b.notify despite the doc claiming "Safe to call any time". One goroutine
+// flips the callback on and off while another writes a few hundred lines the
+// consumer applies — under -race the unsynchronized notify field trips a data
+// race. After the fix the flips and the applies must coexist without a race
+// and without lost accounting.
+func TestSetNotifyRacesConsumption(t *testing.T) {
+	state := NewAppState()
+	bridge := NewEventBridge(io.Discard, state, 64)
+	defer bridge.Close()
+
+	stop := make(chan struct{})
+	var registrarWG sync.WaitGroup
+	registrarWG.Add(1)
+	go func() {
+		defer registrarWG.Done()
+		fn := func() {}
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if i%2 == 0 {
+				bridge.SetNotify(fn)
+			} else {
+				bridge.SetNotify(nil)
+			}
+			runtime.Gosched()
+		}
+	}()
+
+	const total = 400
+	for i := range total {
+		if _, err := bridge.Write([]byte(fmt.Sprintf("n-%03d\n", i))); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+
+	waitFor(t, func() bool { return bridge.Applied()+bridge.Dropped() == total })
+	if got := bridge.Applied() + bridge.Dropped(); got != total {
+		t.Errorf("Applied+Dropped = %d, want %d", got, total)
+	}
+	close(stop)
+	registrarWG.Wait()
 }
