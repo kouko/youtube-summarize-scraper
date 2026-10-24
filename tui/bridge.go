@@ -16,6 +16,14 @@ import (
 type EventBridge struct {
 	out io.Writer
 
+	// writeMu serializes Write calls end-to-end: the underlying writer, the
+	// shared pending buffer, line extraction, and the enqueue calls all
+	// happen under it. Without it, concurrent writers race b.buffer (and
+	// b.out). Lock order is writeMu → mu; the consumer takes only mu and
+	// calls notify without holding mu, so a notify that reentrantly calls
+	// Write takes writeMu → mu too — same order, no cycle.
+	writeMu sync.Mutex
+
 	// mu guards queue and closed, and serializes the detect-full/evict/append
 	// decision so overflow always evicts exactly the queue front. cond wakes
 	// the consumer when a line arrives or the bridge closes.
@@ -37,8 +45,11 @@ type EventBridge struct {
 	// notify, when set, is called after each applied event so the TUI can
 	// redraw immediately instead of waiting for the next periodic tick
 	// (spec amend2 REQ-6). It must be non-blocking: it runs on the consumer
-	// goroutine.
-	notify func()
+	// goroutine and therefore must not call Close or anything else that
+	// waits on the bridge (Close waits for the consumer, so calling it from
+	// inside notify would self-deadlock). Stored in an atomic pointer so
+	// SetNotify is safe to call concurrently with consumption.
+	notify atomic.Pointer[func()]
 }
 
 // NewEventBridge creates an EventBridge with a queue of the given capacity.
@@ -78,8 +89,8 @@ func (b *EventBridge) consume() {
 
 		applyEvent(b.state, ParseLogLine(line))
 		b.applied.Add(1)
-		if b.notify != nil {
-			b.notify()
+		if cb := b.notify.Load(); cb != nil {
+			(*cb)()
 		}
 	}
 }
@@ -88,11 +99,15 @@ func (b *EventBridge) consume() {
 // forwards complete lines to the queue; an incomplete trailing fragment is
 // buffered until its newline arrives. It never blocks and never returns an
 // error for queue overflow — overflow evicts the oldest queued line and is
-// counted.
+// counted. Concurrent writers are serialized by writeMu, so the pending
+// buffer and the underlying writer are never touched by two goroutines at
+// once.
 func (b *EventBridge) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
+	b.writeMu.Lock()
+	defer b.writeMu.Unlock()
 	if b.out != nil {
 		if _, err := b.out.Write(p); err != nil {
 			return 0, err
@@ -134,9 +149,18 @@ func (b *EventBridge) Dropped() uint64 {
 }
 
 // SetNotify registers a callback invoked after each applied event (see the
-// notify field). Pass nil to disable. Safe to call any time.
+// notify field). Pass nil to disable. Safe to call any time, including
+// concurrently with Write and with the consumer applying events.
+//
+// The callback runs on the consumer goroutine: it must be non-blocking and
+// MUST NOT call Close or anything else that waits on the bridge — the
+// consumer would then be waiting on itself and deadlock.
 func (b *EventBridge) SetNotify(fn func()) {
-	b.notify = fn
+	if fn == nil {
+		b.notify.Store(nil)
+		return
+	}
+	b.notify.Store(&fn)
 }
 
 // Applied returns the number of lines consumed and applied to AppState.

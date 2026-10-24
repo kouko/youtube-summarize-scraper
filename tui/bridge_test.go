@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -278,4 +279,106 @@ func TestBridgeMaxRecentEventsCapacity(t *testing.T) {
 	if got := len(state.Snapshot().RecentEvents); got != MaxRecentEvents {
 		t.Errorf("RecentEvents = %d, want %d (state cap fed through the bridge)", got, MaxRecentEvents)
 	}
+}
+
+// Build round 2, adversary finding 1: concurrent Writes race the shared
+// pending buffer (and the underlying writer) in the unsynchronized Write body.
+// Each goroutine sends its line fragments in SEPARATE Write calls — a partial,
+// then the completing newline — forcing every call through b.buffer between
+// calls, plus occasional multi-line writes. Under -race the shared buffer
+// trips a data race and lines are lost or corrupted; accounting must still be
+// exact (spec REQ-3: every written line applied or dropped exactly once).
+func TestBridgeConcurrentWritersPartialAndFullLines(t *testing.T) {
+	state := NewAppState()
+	bridge := NewEventBridge(io.Discard, state, 5000)
+	defer bridge.Close()
+
+	const goroutines = 8
+	const iterations = 200
+	const multiEvery = 25 // every 25th iteration adds a 2-line write
+	const multiPerG = (iterations + multiEvery - 1) / multiEvery
+	const total = goroutines * (iterations + 2*multiPerG)
+
+	var wg sync.WaitGroup
+	for g := range goroutines {
+		wg.Add(1)
+		go func(g int) {
+			defer wg.Done()
+			for j := range iterations {
+				// Partial line without a newline: must sit in b.buffer until
+				// the completing Write arrives.
+				if _, err := bridge.Write([]byte(fmt.Sprintf("msg=part g=%d j=%d", g, j))); err != nil {
+					t.Errorf("partial write g=%d j=%d: %v", g, j, err)
+					return
+				}
+				if _, err := bridge.Write([]byte(fmt.Sprintf(" tail=%d-%d\n", g, j))); err != nil {
+					t.Errorf("completing write g=%d j=%d: %v", g, j, err)
+					return
+				}
+				if j%multiEvery == 0 {
+					multi := fmt.Sprintf("m=%d-%d-a\nm=%d-%d-b\n", g, j, g, j)
+					if _, err := bridge.Write([]byte(multi)); err != nil {
+						t.Errorf("multi write g=%d j=%d: %v", g, j, err)
+						return
+					}
+				}
+			}
+		}(g)
+	}
+	wg.Wait()
+
+	waitFor(t, func() bool { return bridge.Applied()+bridge.Dropped() == total })
+	if got := bridge.Applied() + bridge.Dropped(); got != total {
+		t.Errorf("Applied+Dropped = %d, want %d (lines lost or corrupted by concurrent writers)", got, total)
+	}
+	if got := bridge.Dropped(); got != 0 {
+		t.Errorf("Dropped = %d, want 0 (5000-slot queue must never overflow)", got)
+	}
+}
+
+// Build round 2, adversary finding 2: SetNotify races the consumer's read of
+// b.notify despite the doc claiming "Safe to call any time". One goroutine
+// flips the callback on and off while another writes a few hundred lines the
+// consumer applies — under -race the unsynchronized notify field trips a data
+// race. After the fix the flips and the applies must coexist without a race
+// and without lost accounting.
+func TestSetNotifyRacesConsumption(t *testing.T) {
+	state := NewAppState()
+	bridge := NewEventBridge(io.Discard, state, 64)
+	defer bridge.Close()
+
+	stop := make(chan struct{})
+	var registrarWG sync.WaitGroup
+	registrarWG.Add(1)
+	go func() {
+		defer registrarWG.Done()
+		fn := func() {}
+		for i := 0; ; i++ {
+			select {
+			case <-stop:
+				return
+			default:
+			}
+			if i%2 == 0 {
+				bridge.SetNotify(fn)
+			} else {
+				bridge.SetNotify(nil)
+			}
+			runtime.Gosched()
+		}
+	}()
+
+	const total = 400
+	for i := range total {
+		if _, err := bridge.Write([]byte(fmt.Sprintf("n-%03d\n", i))); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+
+	waitFor(t, func() bool { return bridge.Applied()+bridge.Dropped() == total })
+	if got := bridge.Applied() + bridge.Dropped(); got != total {
+		t.Errorf("Applied+Dropped = %d, want %d", got, total)
+	}
+	close(stop)
+	registrarWG.Wait()
 }
