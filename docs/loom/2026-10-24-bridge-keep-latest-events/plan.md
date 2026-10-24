@@ -10,10 +10,15 @@ charter: 1.1
 
 Wave 1 — queue transport rewrite (drop-new → drop-oldest, deterministic window)
 
-**W1-01 Mutex deque with drop-oldest eviction**  after: none  acceptance: 1, 2, 3, 4
+**W1-01 Mutex deque with drop-oldest eviction**  after: none  acceptance: 1, 2
 - Files: tui/bridge.go, tui/bridge_test.go
-- Test: A1 positive: 110 numbered lines at capacity 100 retain exactly lines 10–109 in order (red under drop-new, which retains 0–99); positive: the existing burst probe (1500 lines, capacity 1000, currently red in CI run 39882460214) passes; boundary: the retained suffix is contiguous and in write order regardless of consumer speed. A2 positive: Applied + Dropped equals the number of written lines under overflow; boundary: 1000 writes at capacity 1 complete without blocking. A3 positive: multi-line Write, fragment buffering, notify callback, and idempotent Close stay green (existing tests); boundary: writes after Close are counted as dropped, queue abandoned.
-- Risk: channel cannot remove its oldest element, so drop-oldest needs a mutex-serialized detect-full/evict/append (deque + sync.Cond); a channel-based evict can race the consumer's receive and shift the evicted index by one at the window edge — agent-decided, the deque is the simplest race-free shape (spec Design decision). Memory stays bounded (~2× capacity) by the same trim pattern AppState.AddRecentEvent uses.
+- Test: A1 positive: 110 writes at cap 100 retain lines 10–109 in order; boundary: any consumer speed keeps the contiguous newest suffix. A2 positive: Applied+Dropped equals written count; boundary: 1000 writes at cap 1 never block.
+- Risk: channel cannot evict its oldest element; a non-blocking receive races the consumer and can shift the evicted line by one at the window edge — mutex deque serializes detect-full/evict/append (agent-decided, simplest race-free shape).
+
+**W1-02 Regression guard**  after: W1-01  acceptance: 3, 4
+- Files: tui/bridge_test.go
+- Test: A3 positive: existing bridge tests (multi-line, fragment, notify, Close) stay green; boundary: writes after Close are counted as dropped. A4 positive: CI test job green; boundary: PR #72 rerun turns green.
+- Risk: guard only; queue rewrite isolated to W1-01 files — no product surface beyond the retention window.
 
 ## Simplicity check
 - keep the channel, evict on full with a second non-blocking receive — declined: detect-full and evict are not atomic, so the consumer's concurrent receive can shift the evicted line by one and drop a line from the newest-capacity window (spec Alternatives).
