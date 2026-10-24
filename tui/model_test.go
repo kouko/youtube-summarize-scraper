@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"image"
 	"os"
@@ -220,6 +221,232 @@ func TestModelConfirmQuitCancelsAndQuits(t *testing.T) {
 	after := got.(*Model)
 	if after.isRunning {
 		t.Error("isRunning still true after confirm quit")
+	}
+}
+
+// W1-01 A1 positive: while the pipeline is running, pressing s emits a
+// command producing StopRunMsg carrying the current run's token, so the
+// handler can tell this stop from one dispatched for an earlier run.
+func TestModelSKeyWhileRunningEmitsStopRun(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	m.isRunning = true
+	m.state.SetRunning(true)
+	runCtx, runCancel := context.WithCancel(context.Background())
+	defer runCancel()
+	m.ctx, m.cancel = runCtx, runCancel
+
+	_, cmd := m.handleKey(pressKey("s"))
+	if cmd == nil {
+		t.Fatal("s while running returned nil cmd, want StopRunMsg")
+	}
+	msg, ok := cmd().(StopRunMsg)
+	if !ok {
+		t.Fatalf("s while running cmd() = %T, want StopRunMsg", cmd())
+	}
+	if msg.ctx != m.ctx {
+		t.Errorf("StopRunMsg token = %v, want the current run's ctx (a stop dispatched for another run must not cancel this one)", msg.ctx)
+	}
+}
+
+// Round-2 W1-01 instance 2: StopRunMsg carries the run token like
+// RunFinishedMsg. A stop dispatched for an earlier run and delivered after a
+// restart (stale ctx) must cancel nothing and clear nothing; the current
+// run's own token stops it.
+func TestModelStopRunMsgTokenGuard(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	staleCtx, staleCancel := context.WithCancel(context.Background())
+	defer staleCancel()
+	currentCtx, currentCancel := context.WithCancel(context.Background())
+	defer currentCancel()
+	m.isRunning = true
+	m.state.SetRunning(true)
+	m.ctx, m.cancel = currentCtx, currentCancel
+
+	got, _ := m.Update(StopRunMsg{ctx: staleCtx})
+	after := got.(*Model)
+	if !after.isRunning || !after.state.Snapshot().IsRunning {
+		t.Error("stale StopRunMsg cleared the newer run's running flags")
+	}
+	select {
+	case <-currentCtx.Done():
+		t.Error("stale StopRunMsg cancelled the newer run's context")
+	default:
+	}
+
+	got, _ = m.Update(StopRunMsg{ctx: currentCtx})
+	after = got.(*Model)
+	if after.isRunning || after.state.Snapshot().IsRunning {
+		t.Error("current run's StopRunMsg did not clear the running flags")
+	}
+	select {
+	case <-currentCtx.Done():
+	default:
+		t.Error("current run's StopRunMsg did not cancel the run context")
+	}
+}
+
+// W1-01 A1 boundary: while NOT running, pressing s does nothing — no command,
+// no state change.
+func TestModelSKeyNotRunningDoesNothing(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+
+	_, cmd := m.handleKey(pressKey("s"))
+	if cmd != nil {
+		t.Errorf("s while idle returned cmd %#v, want nil", cmd)
+	}
+	if m.isRunning {
+		t.Error("s while idle started the run")
+	}
+}
+
+// W1-01 A2 positive: after StopRunMsg is handled, isRunning is false and the
+// status view shows "Status: Stopped".
+func TestModelStopRunMsgShowsStopped(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	m.isRunning = true
+	m.state.SetRunning(true)
+	m.cancel = func() {}
+
+	got, _ := m.Update(StopRunMsg{})
+	after := got.(*Model)
+	if after.isRunning {
+		t.Error("isRunning still true after StopRunMsg")
+	}
+	if content := viewContent(t, after); !strings.Contains(content, "Status: Stopped") {
+		t.Errorf("status view does not show Stopped after StopRunMsg; content=%q", stripANSI(content[:120]))
+	}
+}
+
+// W1-01 A3 positive: after a stop, pressing r with a non-empty ConfigPath
+// emits a command producing StartRunMsg (restart works).
+func TestModelRestartAfterStop(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	m.isRunning = true
+	m.state.SetRunning(true)
+	m.cancel = func() {}
+
+	m.Update(StopRunMsg{}) // stop the run
+	_, cmd := m.handleKey(pressKey("r"))
+	if cmd == nil {
+		t.Fatal("r after stop returned nil cmd, want StartRunMsg")
+	}
+	if msg := cmd(); msg != (StartRunMsg{}) {
+		t.Errorf("r after stop cmd() = %#v, want StartRunMsg{}", msg)
+	}
+}
+
+// W1-01 A3 boundary: with an empty ConfigPath, r does nothing — also after a
+// stop.
+func TestModelRestartAfterStopNeedsConfigPath(t *testing.T) {
+	m := sizedModel()
+	m.isRunning = true
+	m.state.SetRunning(true)
+	m.cancel = func() {}
+
+	m.Update(StopRunMsg{}) // stop the run
+	_, cmd := m.handleKey(pressKey("r"))
+	if cmd != nil {
+		t.Errorf("r with empty ConfigPath returned cmd %#v, want nil", cmd)
+	}
+	if m.isRunning {
+		t.Error("r with empty ConfigPath started the run")
+	}
+}
+
+// W1-01 A4 positive: hintSegmentsFor(PanelStatus) returns a "[s] Stop"
+// segment while the pipeline is running.
+func TestModelStatusHintsShowStopWhileRunning(t *testing.T) {
+	m := sizedModel()
+	m.isRunning = true
+
+	var stop, run bool
+	for _, seg := range m.hintSegmentsFor(PanelStatus) {
+		switch seg.Text {
+		case "[s] Stop":
+			stop = true
+		case "[r] Run":
+			run = true
+		}
+	}
+	if !stop {
+		t.Error("running status hints lack a [s] Stop segment")
+	}
+	if !run {
+		t.Error("running status hints lack a [r] Run segment")
+	}
+}
+
+// W1-01 A4 boundary: while stopped, the status hints must not contain a
+// "[s] Stop" segment.
+func TestModelStatusHintsHideStopWhenStopped(t *testing.T) {
+	m := sizedModel()
+
+	for _, seg := range m.hintSegmentsFor(PanelStatus) {
+		if seg.Text == "[s] Stop" {
+			t.Errorf("stopped status hints contain a %q segment, want none", seg.Text)
+		}
+	}
+}
+
+// W1-01 A3 boundary: a RunFinishedMsg from an earlier run must not clear the
+// running flag of the current run; only the current run's own completion does.
+// The ctx carried by the message is the run token.
+func TestModelRunFinishedMsgTokenMatch(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	staleCtx, staleCancel := context.WithCancel(context.Background())
+	defer staleCancel()
+	currentCtx, currentCancel := context.WithCancel(context.Background())
+	defer currentCancel()
+	m.isRunning = true
+	m.state.SetRunning(true)
+	m.ctx, m.cancel = currentCtx, currentCancel
+
+	got, _ := m.Update(RunFinishedMsg{ctx: staleCtx})
+	if !got.(*Model).isRunning {
+		t.Error("stale RunFinishedMsg cleared isRunning of the current run")
+	}
+	if !got.(*Model).state.Snapshot().IsRunning {
+		t.Error("stale RunFinishedMsg cleared the app state's IsRunning of the current run")
+	}
+	got, _ = m.Update(RunFinishedMsg{ctx: currentCtx})
+	if got.(*Model).isRunning {
+		t.Error("current run's RunFinishedMsg did not clear isRunning")
+	}
+	if got.(*Model).state.Snapshot().IsRunning {
+		t.Error("current run's RunFinishedMsg did not clear the app state's IsRunning")
+	}
+}
+
+// Round-2 W1-01 instance 3: the q/ctrl+c confirm guard must read liveness
+// (runAlive), not the raw isRunning flag. During the stale window after a run
+// ended by itself (isRunning still true, ctx already dead, RunFinishedMsg not
+// yet processed) a single q quits immediately — nothing is running. With a
+// live run the first q still only arms the confirmation
+// (TestModelQWhileRunningPromptsConfirm, whose nil m.ctx counts as alive).
+func TestModelQWithDeadCtxQuitsImmediately(t *testing.T) {
+	m := sizedModel()
+	m.state.UpdateConfig("/tmp/x.yaml", "x")
+	m.isRunning = true
+	m.state.SetRunning(true)
+	deadCtx, deadCancel := context.WithCancel(context.Background())
+	deadCancel() // the run self-ended: its ctx is dead before RunFinishedMsg lands
+	m.ctx, m.cancel = deadCtx, deadCancel
+
+	_, cmd := m.handleKey(pressKey("q"))
+	if cmd == nil {
+		t.Fatal("single q during the stale window returned nil cmd (armed the confirmation), want tea.Quit")
+	}
+	if msg := cmd(); msg != tea.Quit() {
+		t.Errorf("single q during the stale window cmd() = %#v, want tea.Quit()", msg)
+	}
+	if m.confirmPending {
+		t.Error("confirmation armed during the stale window though nothing is running")
 	}
 }
 
@@ -1887,5 +2114,24 @@ func TestEventsScrolledUpDoesNotJump(t *testing.T) {
 	offsetAfter := m.eventsVP.YOffset()
 	if offsetBefore != offsetAfter {
 		t.Errorf("viewport offset changed from %d to %d after adding new event while scrolled up", offsetBefore, offsetAfter)
+	}
+}
+
+// W1-01 round 2: finishRun must skip the end-of-run SetRunning(false) while
+// the generation is stale (an old run unwinding after stop→restart), and must
+// apply it once the generation is current.
+func TestModelFinishRunSkipsStaleGeneration(t *testing.T) {
+	m := sizedModel()
+	m.state.SetRunning(true)
+	m.runGen = 2
+
+	m.finishRun(1) // stale: must not clobber the newer run's running state.
+	if snap := m.state.Snapshot(); !snap.IsRunning {
+		t.Fatal("stale generation clobbered the newer run's running state")
+	}
+
+	m.finishRun(2) // current: the end-of-run clear must apply.
+	if snap := m.state.Snapshot(); snap.IsRunning {
+		t.Fatal("current generation finishRun did not clear the running state")
 	}
 }

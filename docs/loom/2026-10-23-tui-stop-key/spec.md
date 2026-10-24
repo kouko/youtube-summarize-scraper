@@ -1,6 +1,6 @@
 # TUI 加入停止鍵 — spec
 intent: 2026-10-23-tui-stop-key@858f5e9
-confirmed-behavior: 2026-10-23 @f57a283
+confirmed-behavior: 2026-10-23 @005300a
 pre-build-review: not-required — 操作僅在 TUI 層新增鍵位綁定，無法直接影響 pipeline 邏輯、不改寫檔案、不變更 batch.random_order；屬於純 UI 行為調整
 
 ## Requirements
