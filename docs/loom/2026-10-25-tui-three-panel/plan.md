@@ -22,8 +22,8 @@ Wave 1 — layout geometry single source (panel count 4→2, shared geometry)
 
 ## Simplicity check
 - keep the four-panel grid and only change visible content — declined: the duplicated-copy problem stays; every visual tweak still needs two syncs. No net reduction in code surface.
-- add a config switch to toggle between four-panel and two-panel — rejected: adds a new runtime flag and its associated code path; scope exceeds the confirmed intent.
-- only remove the duplicated mouse-hit copies without reducing panel count — rejected: still leaves four-panel grid with two geometry sources; the root cause (two copies) remains, and future bugs are likely.
+- add a config switch to toggle between four-panel and two-panel — declined: adds a new runtime flag and its associated code path; scope exceeds the confirmed intent.
+- only remove the duplicated mouse-hit copies without reducing panel count — declined: still leaves four-panel grid with two geometry sources; the root cause (two copies) remains, and future bugs are likely.
 
 ## Questions asked
 capture-intent ① — what — TUI 版面從四格改成兩排三區塊，上排焦點切換下排內容、只保留一份座標計算。對嗎？ (answer: 對)
