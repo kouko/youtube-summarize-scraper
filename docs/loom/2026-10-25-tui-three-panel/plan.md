@@ -27,11 +27,3 @@ Wave 1 — layout geometry single source (panel count 4→2, shared geometry)
 ## Questions asked
 capture-intent ① — what — TUI 版面從四格改成兩排三區塊，上排焦點切換下排內容、只保留一份座標計算。對嗎？ (answer: 對)
 write-spec ② — behaviour — 爆量時面板永遠顯示最新的活動（最新行一直出現、被丟的是最舊行）；沒有爆量時行為完全不變——對嗎？ (answer: 對，就是這個)
-
-## Risks
-1. The shared geometry structure is the only place layout edits go; a future edit that accidentally adds a second copy would re‑introduce the drift bug. The code‑review checklist explicitly notes this.
-2. The four `FocusedPanel` enum values survive unchanged; no test or production code references are removed, only the active focus set shrinks from 4 to 2.
-
-## Questions asked
-capture-intent ① — what — TUI 版面從四格改成兩排三區塊，上排焦點切換下排內容、只保留一份座標計算。對嗎？ (answer: 對)
-write-spec ② — behaviour — 爆量時面板永遠顯示最新的活動（最新行一直出現、被丟的是最舊行）；沒有爆量時行為完全不變——對嗎？ (answer: 對，就是這個)
