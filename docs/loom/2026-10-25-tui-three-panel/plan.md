@@ -11,14 +11,14 @@ charter: 1.1
 Wave 1 — one coherent layout refactor, then preservation and suite
 
 **W1-01 Two-row layout, focus-driven content, one geometry source**  after: none  acceptance: 1, 2, 3
-- Files: tui/model.go, tui/style.go, tui/model_test.go
+- Files: tui/model.go, tui/style.go, tui/model_test.go, tui/tui_smoke_test.go
 - Test: A1 positive: two upper panels, full-width lower at default size; boundary: resize in bounds. A2 positive: focus cycle swaps lower content, restores scroll; boundary: one focus target. A3 positive: render and hit-test share one geometry; boundary: no duplicate rect math.
 - Risk: future edits may add a second geometry copy; review checklist calls out single source; scroll restoration reuses existing viewports.
 
 **W1-02 Keys, mouse and full suite preserved**  after: W1-01  acceptance: 4, 5
-- Files: tui/model.go, tui/model_test.go
+- Files: tui/model.go, tui/model_test.go, tui/bridge_test.go
 - Test: A4 positive: existing key and mouse tests pass unchanged; boundary: picker and edit popups still clickable. A5 positive: go test ./... -race green; boundary: inspection finds no second coordinate copy.
-- Risk: hit-test coordinates may shift with new rects; guarded by existing popup tests.
+- Risk: hit-test coordinates may shift with new rects; guarded by existing popup tests; flaky bridge test oracle fixed so A5 suite is deterministic.
 
 ## Simplicity check
 - keep the four-panel grid and only change visible content — declined: the duplicated-copy problem stays; every visual tweak still needs two syncs. No net reduction in code surface.
