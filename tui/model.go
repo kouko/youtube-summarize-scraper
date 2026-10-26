@@ -789,6 +789,10 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 		return nil
 	}
 
+	// If the config card was already the focused upper panel, a click on it
+	// should open the file-picker popup; otherwise just focus the panel.
+	wasConfigFocused := m.focus == PanelFilePicker
+
 	m.focus = focusTarget
 
 	// Click on a hint segment triggers its key action (like pressing the
@@ -799,10 +803,13 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 			case kind == PanelConfig:
 				return m.dispatchConfigContentKey(key)
 			case kind == PanelFilePicker && key == "enter":
-				// The card's hint is labeled "Select Config": it always
-				// opens the picker popup, whatever the config cursor sits on.
-				if !m.pickerOpen {
-					m.pickerOpen = true
+				// The card's hint is labeled "Select Config": open the picker
+				// only when the panel was already focused; a first click merely
+				// focuses the panel without opening the picker.
+				if wasConfigFocused {
+					if !m.pickerOpen {
+						m.pickerOpen = true
+					}
 				}
 				return nil
 			default:
@@ -813,8 +820,9 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 
 	switch kind {
 	case PanelFilePicker:
-		// Click on config file card - open file picker popup
-		if !m.pickerOpen {
+		// Click on config file card - open file picker popup, but only when
+		// the panel was already focused (see the wasConfigFocused guard above).
+		if wasConfigFocused && !m.pickerOpen {
 			m.pickerOpen = true
 		}
 	case PanelConfig:
