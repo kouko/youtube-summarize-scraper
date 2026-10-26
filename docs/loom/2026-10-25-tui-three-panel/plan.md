@@ -8,27 +8,17 @@ charter: 1.1
      tasks it touches are replaced and the reason is named in the commit
      message. Landed tasks stay as they are. -->
 
-Wave 1 — shared geometry, then focus-driven content
+Wave 1 — one coherent layout refactor, then preservation and suite
 
-**W1-01 Two-row layout from one geometry source**  after: none  acceptance: 1, 3
-- Files: tui/model.go, tui/style.go
-- Test: A1 positive: default size shows two upper panels and full-width lower; boundary: resize keeps rects in bounds. A3 positive: render and hit-test share one geometry; boundary: no duplicate rect math found.
-- Risk: future edits may add a second geometry copy; review checklist calls out single source.
+**W1-01 Two-row layout, focus-driven content, one geometry source**  after: none  acceptance: 1, 2, 3
+- Files: tui/model.go, tui/style.go, tui/model_test.go
+- Test: A1 positive: two upper panels, full-width lower at default size; boundary: resize in bounds. A2 positive: focus cycle swaps lower content, restores scroll; boundary: one focus target. A3 positive: render and hit-test share one geometry; boundary: no duplicate rect math.
+- Risk: future edits may add a second geometry copy; review checklist calls out single source; scroll restoration reuses existing viewports.
 
-**W1-02 Focus set drops to two, lower content follows**  after: W1-01  acceptance: 2
-- Files: tui/model.go
-- Test: A2 positive: focus cycle switches lower content and restores scroll offsets; boundary: exactly one focus target at a time.
-- Risk: scroll restoration may drift if viewports are recreated per switch; reuse existing viewports.
-
-**W1-03 Keys and mouse behaviour preserved**  after: W1-02  acceptance: 4
+**W1-02 Keys, mouse and full suite preserved**  after: W1-01  acceptance: 4, 5
 - Files: tui/model.go, tui/model_test.go
-- Test: A4 positive: existing key and mouse tests pass unchanged; boundary: picker and edit popups still open, close, clickable.
+- Test: A4 positive: existing key and mouse tests pass unchanged; boundary: picker and edit popups still clickable. A5 positive: go test ./... -race green; boundary: inspection finds no second coordinate copy.
 - Risk: hit-test coordinates may shift with new rects; guarded by existing popup tests.
-
-**W1-04 Full suite green, no mirrored coordinates**  after: W1-03  acceptance: 5
-- Files: tui/
-- Test: A5 positive: go test ./... -race green; boundary: inspection finds no second coordinate copy.
-- Risk: none beyond W1-01.
 
 ## Simplicity check
 - keep the four-panel grid and only change visible content — declined: the duplicated-copy problem stays; every visual tweak still needs two syncs. No net reduction in code surface.
