@@ -1,6 +1,6 @@
 # TUI 三區塊版面與單一版面來源 — spec
 intent: 2026-10-25-tui-three-panel@6773c4a
-confirmed-behavior: 2026-10-26 @2d07715
+confirmed-behavior: 2026-10-27 @bba1f14
 pre-build-review: not-required — only internal layout restructuring; no new UI interaction, no product surface change beyond layout direction, no security, privacy, data, or cross-system surface.
 
 ## Requirements
@@ -12,6 +12,7 @@ REQ-3 — Single source of layout geometry
   THE layout geometry (panel rectangles, viewport dimensions, hint row counts) shall be computed from one source of truth; both rendering and mouse‑hit testing shall read from it → Acceptance #3
 REQ-4 — Existing key bindings preserved
   KEY bindings (s/q/ctrl+c, focus cycle, Enter on hints, file picker, config editor) and mouse interaction (panel hints, file‑picker overlay, config editor popup) shall retain their current behaviour → Acceptance #4
+  Exception: a click on the config card opens the picker popup only when the card's panel already holds focus; a first click on an unfocused card only focuses it (user-decided 2026-10-27).
 
 ## Design decision
 - Replace the current four‑panel grid (upper‑left config card, upper‑right status, lower‑left file picker area, lower‑right events panel) with a two‑row layout: upper row has two panels, lower row has one full‑width panel. The focus target set drops from 4 to 2. The layout geometry lives in a single shared structure read by both the viewport renderer and the mouse‑hit test helper. The lower‑row content area simply switches its rendered view based on which upper‑row panel has focus, without any duplicated coordinate calculations. agent-decided — this eliminates the duplicated‑copy problem that caused the 2026‑10‑11 double‑click regression and future visual‑drift bugs. No DESIGN.md or ui-flows document already covers this surface, so `needs-design: yes` is set per spec template. agent-decided — the change is purely structural (panel count and geometry); all existing behaviours (key bindings, mouse hit testing, scroll position retention) are preserved unchanged.
@@ -35,6 +36,8 @@ Surface: TUI main view (upper row: two panels; lower row: full‑width content a
 |---|---|---|
 | Fresh start / terminal resize | watches the layout | two upper panels side by side, lower area fills the rest; layout resizes without gaps or overflow |
 | Shift focus from Settings to Execution (or vice‑versa) | presses focus‑cycle key or clicks the other upper panel | the lower area immediately shows the new content (settings card or execution log); each panel’s scroll position stays where it was |
+| Click the config card while the status panel is focused | clicks the config card once | the config card's panel takes focus only; the file‑picker popup does not open |
+| Click the config card again while it is focused | clicks the card (or its [Enter] hint) | the file‑picker popup opens |
 | Terminal width changes (wider / narrower) | resizes the terminal | both rows stretch/fit; lower area remains full‑width; no panels disappear or squash |
 | Normal use (no layout change) | uses the TUI as today | identical behaviour to today, except the lower area’s content now follows focus instead of being fixed |
 
