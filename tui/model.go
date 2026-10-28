@@ -42,8 +42,73 @@ const (
 	PanelEvents
 )
 
-// PanelCount is the number of panels.
+// PanelCount is the number of panels (the four enum values survive; only the
+// active focus set shrinks from 4 to 2).
 const PanelCount = 4
+
+// focusTargets is the active focus set (spec REQ-2): the two upper-row
+// panels. PanelConfig and PanelEvents survive as the content kinds the
+// lower full-width panel can display, but they are no longer focus targets.
+func focusTargets() []FocusedPanel {
+	return []FocusedPanel{PanelFilePicker, PanelStatus}
+}
+
+// nextFocusTarget returns the target dir steps from current within targets,
+// wrapping at the ends. A current outside the set snaps into it (forward:
+// the first target, backward: the last). A single-target set cycles to
+// itself.
+func nextFocusTarget(targets []FocusedPanel, current FocusedPanel, dir int) FocusedPanel {
+	for i, p := range targets {
+		if p == current {
+			n := len(targets)
+			return targets[((i+dir)%n+n)%n]
+		}
+	}
+	if dir < 0 {
+		return targets[len(targets)-1]
+	}
+	return targets[0]
+}
+
+// cycleFocus moves focus dir steps within the active focus set.
+func (m *Model) cycleFocus(dir int) {
+	m.focus = nextFocusTarget(focusTargets(), m.focus, dir)
+}
+
+// layoutGeom is the single source of layout geometry (spec REQ-3): the
+// renderer and every mouse hit-test helper read these rectangles. Any new
+// panel or resize rule is added here — never recomputed at the call site.
+type layoutGeom struct {
+	configRect image.Rectangle // upper-left config card
+	statusRect image.Rectangle // upper-right execution status
+	lowerRect  image.Rectangle // full-width lower content area
+}
+
+// geometry computes the panel rectangles for the current terminal size:
+// an upper row with the config card and the status panel side by side and
+// a lower row with one full-width content area, ending above the hint line.
+func (m *Model) geometry() layoutGeom {
+	total := m.height - 1 // the hint line takes the last row
+	topHeight := 9
+	if topHeight > total/2 {
+		topHeight = total / 2
+	}
+	return layoutGeom{
+		configRect: image.Rect(0, 0, m.leftWidth, topHeight),
+		statusRect: image.Rect(m.leftWidth, 0, m.width, topHeight),
+		lowerRect:  image.Rect(0, topHeight, m.width, m.height-1),
+	}
+}
+
+// lowerContentKind returns the kind of content the lower full-width panel
+// displays: the execution log while the status panel has focus, the config
+// content otherwise (spec REQ-2).
+func (m *Model) lowerContentKind() FocusedPanel {
+	if m.focus == PanelStatus {
+		return PanelEvents
+	}
+	return PanelConfig
+}
 
 // Popup hint texts (kept as constants so the renderer and the click hit
 // tests always agree on the exact segment layout).
@@ -267,35 +332,28 @@ func tickCmd() tea.Cmd {
 	})
 }
 
-// panelRects returns the screen rectangles for each panel
+// panelRects returns the screen rectangles for each panel, derived from the
+// single geometry source. PanelConfig and PanelEvents share the lower
+// content rectangle: they are the kinds of content it displays.
 func (m *Model) panelRects() map[FocusedPanel]image.Rectangle {
-	topHeight := 9
-	total := m.height - 1
-	if topHeight > total/2 {
-		topHeight = total / 2
+	g := m.geometry()
+	return map[FocusedPanel]image.Rectangle{
+		PanelFilePicker: g.configRect,
+		PanelStatus:     g.statusRect,
+		PanelConfig:     g.lowerRect,
+		PanelEvents:     g.lowerRect,
 	}
-
-	rects := make(map[FocusedPanel]image.Rectangle)
-	// PanelFilePicker (top-left)
-	rects[PanelFilePicker] = image.Rect(0, 0, m.leftWidth, topHeight)
-	// PanelStatus (top-right)
-	rects[PanelStatus] = image.Rect(m.leftWidth, 0, m.width, topHeight)
-	// PanelConfig (bottom-left)
-	rects[PanelConfig] = image.Rect(0, topHeight, m.leftWidth, m.height-1) // -1 for hint line
-	// PanelEvents (bottom-right)
-	rects[PanelEvents] = image.Rect(m.leftWidth, topHeight, m.width, m.height-1)
-	return rects
 }
 
 // isOnVerticalSash checks if the given coordinates are on the vertical sash
+// between the two upper-row panels (the sash exists only in the upper row;
+// the lower content area is full width).
 func (m *Model) isOnVerticalSash(x, y int) bool {
-	sashX := m.leftWidth
-	// Sash spans the full height minus hint line
-	if y < 0 || y >= m.height-1 {
+	g := m.geometry()
+	if y < 0 || y >= g.configRect.Max.Y {
 		return false
 	}
-	// Allow a 1-column wide sash area
-	return x == sashX || x == sashX-1
+	return x == m.leftWidth || x == m.leftWidth-1
 }
 
 // Update handles messages.
@@ -333,8 +391,11 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			shouldForwardToPicker = true
 		}
 	} else {
-		// Key messages: forward when picker is open or picker panel focused (except excluded keys)
-		shouldForwardToPicker = m.pickerOpen || (m.focus == PanelFilePicker && keyStr != "enter" && keyStr != "tab" && keyStr != "shift+tab" && keyStr != "c" && keyStr != "r")
+		// Key messages: the picker only receives keys while its popup is
+		// open (it owns navigation). With the popup closed the picker card
+		// keeps Enter (opens the popup), Tab and the run/quit keys; arrows
+		// drive the lower content area.
+		shouldForwardToPicker = m.pickerOpen
 	}
 	// Enter may select a file. The picker never clears Path on directory
 	// navigation, so a stale path from an earlier selection would make the
@@ -388,12 +449,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.pickerOpen {
 			break
 		}
-		// The wheel scrolls the panel under the pointer (bubbles viewport:
-		// native wheel support, spec amend2 REQ-7). Top panels have nothing
-		// to scroll; the bottom band splits config (left) / events (right).
-		// viewport.Update is value-receiver: assign its result back.
-		if msg.Y >= m.topBandBottom() && m.width > 0 {
-			if msg.X < m.leftWidth {
+		// The wheel scrolls the lower content area under the pointer
+		// (bubbles viewport: native wheel support, spec amend2 REQ-7).
+		// Upper panels have nothing to scroll.
+		g := m.geometry()
+		if msg.Y >= g.lowerRect.Min.Y && m.width > 0 {
+			if m.lowerContentKind() == PanelConfig {
 				m.configVP, _ = m.configVP.Update(msg)
 			} else {
 				m.eventsVP, _ = m.eventsVP.Update(msg)
@@ -591,15 +652,16 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 	}
 	switch key {
 	case "enter":
-		switch m.focus {
-		case PanelFilePicker:
-			// Enter on the focused config card opens the file-picker popup.
-			m.pickerOpen = true
-		case PanelConfig:
-			if m.toggleCollapsedItem() {
+		if m.focus == PanelFilePicker {
+			if m.configCursorActionable() {
+				if m.toggleCollapsedItem() {
+					return m, nil
+				}
+				m.startEdit()
 				return m, nil
 			}
-			m.startEdit()
+			// Enter on the focused config card opens the file-picker popup.
+			m.pickerOpen = true
 		}
 		return m, nil
 
@@ -640,11 +702,11 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case "tab":
-		m.focus = (m.focus + 1) % PanelCount
+		m.cycleFocus(1)
 		return m, nil
 
 	case "shift+tab":
-		m.focus = (m.focus - 1 + PanelCount) % PanelCount
+		m.cycleFocus(-1)
 		return m, nil
 
 	case "up", "k":
@@ -707,34 +769,60 @@ func (m *Model) handleMouseRelease(mouse tea.Mouse) {
 // with the picker popup open, Update routes clicks to handlePickerPopupClick,
 // with the editor open, to the editor.
 func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
-	rects := m.panelRects()
-	hitPanel := FocusedPanel(-1)
-	for p, r := range rects {
-		if image.Pt(mouse.X, mouse.Y).In(r) {
-			hitPanel = p
-			break
-		}
-	}
-	if hitPanel == -1 || hitPanel > PanelCount {
-		// Clicked empty space - close any open popups/editors
+	g := m.geometry()
+	pt := image.Pt(mouse.X, mouse.Y)
+
+	var focusTarget FocusedPanel // the upper panel the click focuses
+	var kind FocusedPanel        // content kind whose hints/rows the click maps to
+	var rect image.Rectangle
+	switch {
+	case pt.In(g.configRect):
+		focusTarget, kind, rect = PanelFilePicker, PanelFilePicker, g.configRect
+	case pt.In(g.statusRect):
+		focusTarget, kind, rect = PanelStatus, PanelStatus, g.statusRect
+	case pt.In(g.lowerRect):
+		focusTarget = m.focus // click on lower content focuses its owner
+		kind = m.lowerContentKind()
+		rect = g.lowerRect
+	default:
 		m.editing = false
 		return nil
 	}
 
-	m.focus = hitPanel
+	// If the config card was already the focused upper panel, a click on it
+	// should open the file-picker popup; otherwise just focus the panel.
+	wasConfigFocused := m.focus == PanelFilePicker
+
+	m.focus = focusTarget
 
 	// Click on a hint segment triggers its key action (like pressing the
 	// key). The inline editor owns input while open, so hint clicks wait.
 	if !m.editing {
-		if key, ok := m.hintHitTest(mouse, hitPanel, rects[hitPanel]); ok {
-			return m.dispatchHintKey(key)
+		if key, ok := m.hintHitTest(mouse, kind, rect); ok {
+			switch {
+			case kind == PanelConfig:
+				return m.dispatchConfigContentKey(key)
+			case kind == PanelFilePicker && key == "enter":
+				// The card's hint is labeled "Select Config": open the picker
+				// only when the panel was already focused; a first click merely
+				// focuses the panel without opening the picker.
+				if wasConfigFocused {
+					if !m.pickerOpen {
+						m.pickerOpen = true
+					}
+				}
+				return nil
+			default:
+				return m.dispatchHintKey(key)
+			}
 		}
 	}
 
-	switch hitPanel {
+	switch kind {
 	case PanelFilePicker:
-		// Click on config file card - open file picker popup
-		if !m.pickerOpen {
+		// Click on config file card - open file picker popup, but only when
+		// the panel was already focused (see the wasConfigFocused guard above).
+		if wasConfigFocused && !m.pickerOpen {
 			m.pickerOpen = true
 		}
 	case PanelConfig:
@@ -743,7 +831,7 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 			// viewport that starts below the title bar and hint rows and is
 			// scrolled by YOffset, so the screen Y must be mapped through
 			// both before asking the view which content row is there.
-			if tableRow := m.configTableRowAt(mouse.Y, rects[PanelConfig]); tableRow >= 0 {
+			if tableRow := m.configTableRowAt(mouse.Y, rect); tableRow >= 0 {
 				if content := m.configView.TableContentIndex(tableRow); content >= 0 {
 					m.startEditAtRow(content)
 				}
@@ -752,14 +840,22 @@ func (m *Model) handleClickPanel(mouse tea.Mouse) tea.Cmd {
 			// In raw mode, click just focuses the panel
 			// Could add raw mode editing here if needed
 		}
-	case PanelStatus:
-		// Could add start/pause button handling here
-		break
-	case PanelEvents:
-		// Events panel - just focus
-		break
 	}
 	return nil
+}
+
+// dispatchConfigContentKey runs the lower config content's hint actions. The
+// content's [Enter] Edit edits or toggles the cursor row; it never opens the
+// picker popup (that is the card's own Enter action).
+func (m *Model) dispatchConfigContentKey(key string) tea.Cmd {
+	if key == "enter" {
+		if m.toggleCollapsedItem() {
+			return nil
+		}
+		m.startEdit()
+		return nil
+	}
+	return m.dispatchHintKey(key)
 }
 
 // handlePickerPopupClick routes a click while the file picker popup is open.
@@ -895,6 +991,19 @@ func (m *Model) pickerPopupRect() image.Rectangle {
 	return image.Rect(left, top, left+ovW, top+ovH)
 }
 
+// editPopupSize returns the outer size of the inline value editor for a
+// panel of the given content width (shared by renderConfig and editPopupRect).
+func editPopupSize(w int) (ew int, eh int) {
+	ew = w * 2 / 3
+	if ew < 30 {
+		ew = 30
+	}
+	if ew > w-2 {
+		ew = w - 2
+	}
+	return ew, 9
+}
+
 // editPopupRect computes the screen rectangle of the inline edit popup,
 // mirroring the exact placement arithmetic in renderConfig: the popup is
 // centered inside a (w-2) x (h-3) box whose origin is the panel's content
@@ -903,17 +1012,10 @@ func (m *Model) editPopupRect() image.Rectangle {
 	if !m.editing || m.configView == nil {
 		return image.Rect(0, 0, 0, 0)
 	}
-	configRect := m.panelRects()[PanelConfig]
+	g := m.geometry()
+	configRect := g.lowerRect
 	w, h := configRect.Dx(), configRect.Dy()
-	// Popup size: same arithmetic as renderConfig.
-	ew := w * 2 / 3
-	if ew < 30 {
-		ew = 30
-	}
-	if ew > w-2 {
-		ew = w - 2
-	}
-	eh := 9
+	ew, eh := editPopupSize(w)
 	// The Place box (w-2 x h-3) starts at the panel's content origin: the
 	// title bar is row 0 and the hint rows (hint lines + separator) follow,
 	// exactly the rows RenderPanelWithSegments skips before drawing the body.
@@ -1089,7 +1191,7 @@ func (m *Model) startEditAtRow(row int) {
 
 // pageFocused pages the focused bottom panel by delta rows.
 func (m *Model) pageFocused(delta int) (tea.Model, tea.Cmd) {
-	switch m.focus {
+	switch m.lowerContentKind() {
 	case PanelConfig:
 		if delta > 0 {
 			m.configVP.ScrollDown(delta)
@@ -1106,23 +1208,8 @@ func (m *Model) pageFocused(delta int) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// topBandBottom returns the first row of the bottom band (the row below the
-// content-sized top band), used to route mouse-wheel events to the panel under
-// the pointer.
-func (m *Model) topBandBottom() int {
-	if m.height == 0 {
-		return 0
-	}
-	total := m.height - 1
-	topHeight := 9
-	if topHeight > total/2 {
-		topHeight = total / 2
-	}
-	return topHeight
-}
-
 // applyPanelHeights sizes the file picker to the popup overlay's inner rows
-// and the viewports to their panels.
+// and the viewports to the lower content area.
 func (m *Model) applyPanelHeights() {
 	if m.width == 0 || m.height == 0 {
 		return
@@ -1135,23 +1222,18 @@ func (m *Model) applyPanelHeights() {
 	}
 	m.filePicker.SetHeight(popupH - 4)
 
-	// Bottom panels: band height − 2 borders − 1 title row − 2 hint rows
-	// (hint + separator; a wrapped hint clips the last content row).
-	total := m.height - 1
-	topHeight := 9
-	if topHeight > total/2 {
-		topHeight = total / 2
-	}
-	bottomHeight := total - topHeight
-	inner := bottomHeight - 5
+	// Lower content area: band height − 2 borders − 1 title row − 2 hint
+	// rows (hint + separator; a wrapped hint clips the last content row).
+	g := m.geometry()
+	inner := g.lowerRect.Dy() - 5
 	m.configVP.SetHeight(inner)
 	m.eventsVP.SetHeight(inner)
-	m.configVP.SetWidth(m.leftWidth - 2)
-	m.eventsVP.SetWidth(m.rightWidth - 2)
+	m.configVP.SetWidth(g.lowerRect.Dx() - 2)
+	m.eventsVP.SetWidth(g.lowerRect.Dx() - 2)
 }
 
 func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch m.focus {
+	switch m.lowerContentKind() {
 	case PanelConfig:
 		m.configCursorUp()
 	case PanelEvents:
@@ -1164,7 +1246,7 @@ func (m *Model) handleUp(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *Model) handleDown(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
-	switch m.focus {
+	switch m.lowerContentKind() {
 	case PanelConfig:
 		m.configCursorDown()
 	case PanelEvents:
@@ -1253,6 +1335,26 @@ func (m *Model) cursorOnContent() bool {
 	return m.configView != nil && m.configView.TableContentIndex(tableLine) >= 0
 }
 
+// configCursorActionable reports whether the config content's cursor sits on
+// a row Enter can act on (an editable value or a collapsible item). With the
+// config card and the config content sharing one focus target, this — not
+// the focus — tells Enter apart between editing and opening the picker popup.
+func (m *Model) configCursorActionable() bool {
+	if m.configView == nil {
+		return false
+	}
+	line := m.configVP.YOffset() + m.configCursor
+	content := m.configView.TableContentIndex(line)
+	if content < 0 {
+		return false
+	}
+	if m.configView.lineIsSummary[content] || m.configView.isExpandedItemHeading(content) {
+		return true
+	}
+	_, _, ok := m.configView.EditTargetForLine(content)
+	return ok
+}
+
 // configCursorUp moves the selection cursor up one content row, skipping
 // table separator and header lines; at the top it scrolls the viewport.
 func (m *Model) configCursorUp() {
@@ -1296,7 +1398,11 @@ func (m *Model) handleConfigSelected(path string) {
 	m.state.UpdateConfig(path, string(content))
 }
 
-// View renders the TUI.
+// View renders the TUI. The layout consists of two rows: an upper row with
+// the config card and the execution status panel side by side, and a lower
+// full-width content area that shows the config content (when the config card
+// has focus) or the execution log (when the status panel has focus). All
+// panel rectangles are read from the single shared geometry source (spec REQ-3).
 func (m *Model) View() tea.View {
 	if m.width == 0 || m.height == 0 {
 		return tea.NewView("Loading...")
@@ -1306,43 +1412,23 @@ func (m *Model) View() tea.View {
 	// event-bridge goroutine that updates it.
 	s := m.state.Snapshot()
 
-	// Calculate panel dimensions
-	// Layout: 4 panels in 2x2 grid + 1 hint line. panelStyle fixes each box
-	// to exactly w x h rows (lipgloss Height counts the border; MaxHeight
-	// clips overflow), so the two bands plus the hint fill the terminal:
-	// topHeight + bottomHeight + 1 = m.height.
-	// Initialize width tracking if not set (e.g., first render before Init completes)
-	if m.leftWidth == 0 {
-		m.leftWidth = m.width / 3
-		if m.leftWidth < 10 {
-			m.leftWidth = 10
-		}
-		m.rightWidth = m.width - m.leftWidth
-	}
-	leftWidth := m.leftWidth
-	rightWidth := m.rightWidth
-	total := m.height - 1 // hint line
-	// The top panels are content-sized (the config card is ~6 rows, the
-	// status panel 8-9): the top band is a small fixed height and the bottom
-	// band gets the rest, instead of two equal halves that left a tall empty
-	// strip under the short card (user feedback 2026-10-09).
-	topHeight := 9
-	if topHeight > total/2 {
-		topHeight = total / 2
-	}
-	bottomHeight := total - topHeight
+	// Geometry comes from the single shared source (spec REQ-3).
+	g := m.geometry()
 
-	// Render each panel
-	configCard := m.renderConfigCard(leftWidth, topHeight)
-	configView := m.renderConfig(leftWidth, bottomHeight)
-	statusView := m.renderStatus(s, rightWidth, topHeight)
-	eventsView := m.renderEvents(s, rightWidth, bottomHeight)
-
-	// Combine into 2x2 grid. The config card is a short box, so top-align the
-	// row (lipgloss.JoinHorizontal(Top)) — the space below the card is free.
+	// Upper row: config card | execution status. Lower row: the content area
+	// of the focused upper panel (config content or the execution log).
+	configCard := m.renderConfigCard(g.configRect.Dx(), g.configRect.Dy())
+	statusView := m.renderStatus(s, g.statusRect.Dx(), g.statusRect.Dy())
 	topRow := lipgloss.JoinHorizontal(lipgloss.Top, configCard, statusView)
-	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, configView, eventsView)
-	mainView := lipgloss.JoinVertical(lipgloss.Left, topRow, bottomRow)
+
+	var lowerRow string
+	if m.lowerContentKind() == PanelConfig {
+		lowerRow = m.renderConfig(g.lowerRect.Dx(), g.lowerRect.Dy())
+	} else {
+		lowerRow = m.renderEvents(s, g.lowerRect.Dx(), g.lowerRect.Dy())
+	}
+
+	mainView := lipgloss.JoinVertical(lipgloss.Left, topRow, lowerRow)
 
 	// Add hint line at bottom
 	hint := m.renderHintLine()
@@ -1434,7 +1520,7 @@ func (m *Model) renderConfig(w, h int) string {
 				natWidth = 120
 			}
 			tbl := m.configView.RenderTable(natWidth)
-			if m.focus == PanelConfig {
+			if m.focus == PanelFilePicker {
 				tableRow := m.configVP.YOffset() + m.configCursor
 				if tableRow >= 0 && tableRow < len(tbl) && !m.configView.IsTableSeparator(tableRow) &&
 					m.configView.TableContentIndex(tableRow) >= 0 {
@@ -1460,14 +1546,7 @@ func (m *Model) renderConfig(w, h int) string {
 	// The value editor overlays the panel (spec amend2 REQ-8).
 	if m.editing {
 		// Popup size: width ~2/3 of panel, height enough for title+input+hint.
-		ew := w * 2 / 3
-		if ew < 30 {
-			ew = 30
-		}
-		if ew > w-2 {
-			ew = w - 2
-		}
-		eh := 9 // title + hint + separator + blank + input + blank + borders
+		ew, eh := editPopupSize(w)
 		// Content: blank line, input, blank line, hint
 		content := strings.Join([]string{
 			"",
@@ -1476,8 +1555,9 @@ func (m *Model) renderConfig(w, h int) string {
 		edit := RenderPopupWithTitle("Edit "+m.editPath, content, ew, eh, editPopupHint)
 		body = lipgloss.Place(w-2, h-3, lipgloss.Center, lipgloss.Center, edit)
 	}
-	// Hint row for config panel
-	return RenderPanelWithSegments(title, body, w, h, m.focus == PanelConfig, m.hintSegmentsFor(PanelConfig))
+	// Hint row for config panel; active when the config card has focus (its
+	// content is displayed in the lower area).
+	return RenderPanelWithSegments(title, body, w, h, m.focus == PanelFilePicker, m.hintSegmentsFor(PanelConfig))
 }
 
 func (m *Model) renderStatus(s StateSnapshot, w, h int) string {
@@ -1530,7 +1610,7 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 		m.eventsVP.GotoBottom()
 	}
 
-	return RenderPanelWithSegments(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelEvents, m.hintSegmentsFor(PanelEvents))
+	return RenderPanelWithSegments(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, false, m.hintSegmentsFor(PanelEvents))
 }
 
 // clipLines keeps at most n lines of content and truncates each to a display
@@ -1599,9 +1679,12 @@ func (m *Model) panelStyle(focused bool, w, h int) lipgloss.Style {
 }
 
 func (m *Model) renderHintLine() string {
+	// Clip to the terminal width: JoinVertical pads every frame line to the
+	// widest one, so an over-long hint on a narrow terminal would stretch the
+	// whole layout past the right edge (A1 boundary: resize stays in bounds).
 	if m.confirmPending {
-		return m.styles.ErrorStyle.Render(
-			"Pipeline is running — Press q again to quit, any other key to cancel")
+		return truncateANSI(m.styles.ErrorStyle.Render(
+			"Pipeline is running — Press q again to quit, any other key to cancel"), m.width)
 	}
 	hints := []string{
 		"↑↓ Navigate",
@@ -1610,7 +1693,7 @@ func (m *Model) renderHintLine() string {
 		"r Run",
 		"q Quit",
 	}
-	return HintStyle().Render(strings.Join(hints, "  "))
+	return truncateANSI(HintStyle().Render(strings.Join(hints, "  ")), m.width)
 }
 
 // QuitConfirmMsg is sent when user confirms quitting while pipeline is running.

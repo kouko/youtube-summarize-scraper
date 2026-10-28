@@ -56,14 +56,17 @@ func viewContent(t *testing.T, m *Model) string {
 	return v.Content
 }
 
-// W2-03 A4 positive: four panel titles are rendered.
-func TestModelRendersFourPanels(t *testing.T) {
+// W1-01 A1 positive (three-panel): two upper panels and one lower content panel.
+func TestModelRendersThreePanels(t *testing.T) {
 	m := sizedModel()
 	content := viewContent(t, m)
-	for _, title := range []string{"■ Config File", "■ Config", "■ Execution Status", "■ Recent Events"} {
+	for _, title := range []string{"■ Config File", "■ Execution Status", "■ Config"} {
 		if !strings.Contains(content, title) {
 			t.Errorf("View missing panel title %q", title)
 		}
+	}
+	if strings.Contains(content, "■ Recent Events") {
+		t.Error("execution log rendered while the config card has focus; the lower area must show the config content")
 	}
 }
 
@@ -83,16 +86,19 @@ func TestModelFocusMarkerOnActivePanel(t *testing.T) {
 	}
 }
 
-// W2-03 A4 positive: Tab cycles focus through the panels.
+// W1-01 A2 positive: Tab cycles focus between the two upper panels only.
 func TestModelTabCyclesFocus(t *testing.T) {
 	m := sizedModel()
 	seen := map[FocusedPanel]bool{}
-	for range PanelCount {
+	for range 2 {
 		seen[m.focus] = true
 		m.handleKey(pressKey("tab"))
 	}
-	if len(seen) != PanelCount {
-		t.Errorf("Tab visited %d/4 panels, want all 4", len(seen))
+	if len(seen) != 2 {
+		t.Errorf("Tab visited %d/2 panels, want exactly 2 upper panels", len(seen))
+	}
+	if seen[PanelConfig] || seen[PanelEvents] {
+		t.Errorf("Tab visited a lower content kind: %v", seen)
 	}
 }
 
@@ -530,9 +536,10 @@ func TestModelForwardsPickerDirectoryListing(t *testing.T) {
 	}
 }
 
-// Regression: the whole TUI must fit the terminal height. The picker used
-// to auto-size itself to the full terminal height, pushing the bottom row
-// of panels off screen (user-reported).
+// Regression: the whole TUI must fit the terminal height. The config card,
+// execution status, and the focused lower content area must all fit within
+// the terminal. The lower content area shows the config card's short display
+// by default.
 func TestModelFitsTerminalHeight(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -543,10 +550,14 @@ func TestModelFitsTerminalHeight(t *testing.T) {
 		t.Errorf("View renders %d lines for a 30-row terminal; bottom panels are pushed off screen", lines)
 	}
 	content := viewContent(t, m)
-	for _, title := range []string{"■ Config File", "■ Execution Status", "■ Recent Events"} {
+	for _, title := range []string{"■ Config File", "■ Execution Status"} {
 		if !strings.Contains(content, title) {
 			t.Errorf("panel %q missing from view", title)
 		}
+	}
+	// The lower area shows the config content when the config card has focus.
+	if !strings.Contains(content, "■ Config") {
+		t.Error("lower panel does not show the config content")
 	}
 }
 
@@ -582,9 +593,9 @@ func TestModelGridBandsAndHintAlign(t *testing.T) {
 	for _, ln := range lines {
 		totalBottomCorners += strings.Count(stripANSI(ln), "└")
 	}
-	// We expect 4 bottom corners (one for each panel)
-	if totalBottomCorners != 4 {
-		t.Fatalf("found %d bottom corners (└), want 4:\n%s", totalBottomCorners, strings.Join(lines, "\n"))
+	// We expect 3 bottom corners (one for each panel: two upper + one lower).
+	if totalBottomCorners != 3 {
+		t.Fatalf("found %d bottom corners (└), want 3:\n%s", totalBottomCorners, strings.Join(lines, "\n"))
 	}
 
 	// Find the first bottom border line (top band end)
@@ -598,7 +609,7 @@ func TestModelGridBandsAndHintAlign(t *testing.T) {
 	if firstBottomLine < 0 {
 		t.Fatal("first bottom border line not found")
 	}
-	// With title bar: top band content ends at row where bottom corner appears
+	// With title bar: top band content ends at row where bottom corner appears.
 	// Account for title row (0) before content starts
 	if firstBottomLine > 10 { // 9 content rows + 1 for title = 10
 		t.Errorf("top band ends at line %d, want content-sized (<=10); the empty strip is back", firstBottomLine)
@@ -614,8 +625,8 @@ func TestModelGridBandsAndHintAlign(t *testing.T) {
 	if !strings.Contains(last, "↑↓ Navigate") {
 		t.Errorf("last line is not the hint: %q", last)
 	}
-	// Every line of the content area (after title) carries 4 left borders
-	// (two side-by-side panels), i.e. no panel overflowed the row.
+	// Every line of the content area (after title) carries 4 vertical borders
+	// (two panels side by side in the upper row).
 	ansiRe := regexp.MustCompile(`\x1b\[[0-9;>?]*[a-zA-Z]`)
 	if firstBottomLine >= 0 {
 		for i := 1; i < firstBottomLine; i++ { // Skip title row (0); stop before bottom border
@@ -702,8 +713,8 @@ func stripANSI(s string) string {
 	return b.String()
 }
 
-// Config panel scrolls with ↑/↓ while focused: content window shifts, the
-// panel box stays fixed.
+// Config content scrolls with ↑/↓ while the config card is focused: the
+// cursor window shifts (highlight moves), the panel box stays fixed.
 func TestConfigPanelScrolls(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -713,7 +724,7 @@ func TestConfigPanelScrolls(t *testing.T) {
 		cfg.WriteString(strings.Repeat(" ", 2) + "opt_" + fmt.Sprint(i) + ": v\n")
 	}
 	m.configView = NewConfigView(cfg.String())
-	m.focus = PanelConfig
+	m.focus = PanelFilePicker // the config card owns the config content in the lower area
 
 	before := m.View().Content
 	_, _ = m.handleDown(pressKey("down"))
@@ -739,7 +750,7 @@ func TestEventsPanelScrolls(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
 	}
-	m.focus = PanelEvents
+	m.focus = PanelStatus // lower shows the execution log
 
 	content := m.View().Content
 	// Default shows the newest visible lines.
@@ -1445,9 +1456,9 @@ func TestModelTopBandContentSized(t *testing.T) {
 	for _, ln := range lines {
 		totalBottomCorners += strings.Count(stripANSI(ln), "└")
 	}
-	// We expect 4 bottom corners (one for each panel)
-	if totalBottomCorners != 4 {
-		t.Fatalf("expected 4 bottom corners, got %d", totalBottomCorners)
+	// We expect 3 bottom corners (one for each panel: two upper + one lower).
+	if totalBottomCorners != 3 {
+		t.Fatalf("expected 3 bottom corners, got %d", totalBottomCorners)
 	}
 
 	// Find the first bottom border line (top band end)
@@ -1476,16 +1487,17 @@ func TestModelTopBandContentSized(t *testing.T) {
 	}
 }
 
-// REQ-7 (spec amend2): the wheel scrolls the panel under the pointer without
-// changing focus; scrolling follows the pointer's column (left=config,
-// right=events).
+// REQ-7 (spec amend2): the wheel scrolls the lower content area under the
+// pointer without changing focus. With the log displayed (status panel
+// focused) the wheel scrolls the events viewport; with the config content
+// displayed (config card focused) it scrolls the config viewport.
 func TestModelWheelScrollsPanelUnderPointer(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	for i := 0; i < 40; i++ {
 		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
 	}
-	m.focus = PanelStatus // NOT the events panel — wheel must work anyway
+	m.focus = PanelStatus // lower shows the log; wheel must work anyway
 
 	// Render once so the viewports carry content (real flow: terminal user
 	// wheels after the frame is drawn).
@@ -1498,13 +1510,22 @@ func TestModelWheelScrollsPanelUnderPointer(t *testing.T) {
 	}
 	content := viewContent(t, m)
 	if !strings.Contains(content, "event-0") {
-		t.Error("wheel-up over events panel did not scroll to the oldest line")
+		t.Error("wheel-up over the lower content did not scroll to the oldest line")
 	}
 
-	// Wheel-up over the config panel (left half) scrolls the config viewport
-	// and does not move focus.
-	m.Update(tea.MouseWheelMsg{X: 30, Y: 20, Button: tea.MouseWheelUp})
+	// The wheel over the upper row scrolls nothing and does not move focus.
+	m.Update(tea.MouseWheelMsg{X: 30, Y: 4, Button: tea.MouseWheelUp})
 	if m.focus != PanelStatus {
+		t.Errorf("wheel changed focus to %v", m.focus)
+	}
+	// Switch to the config card: wheel-down over the config content
+	// should scroll the config viewport.
+	m.handleKey(pressKey("tab")) // config card focus
+	viewContent(t, m)
+	// Config viewport may have little content, but at least check it doesn't
+	// crash and that focus stays on the card.
+	m.Update(tea.MouseWheelMsg{X: 90, Y: 20, Button: tea.MouseWheelDown})
+	if m.focus != PanelFilePicker {
 		t.Errorf("wheel changed focus to %v", m.focus)
 	}
 }
@@ -1517,7 +1538,7 @@ func TestModelViewportKeyboardScroll(t *testing.T) {
 	for i := 0; i < 40; i++ {
 		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
 	}
-	m.focus = PanelEvents
+	m.focus = PanelStatus // lower shows the events log; keyboard scrolling works
 
 	before := viewContent(t, m)
 	m.handleKey(pressKey("up")) // scroll toward older events
@@ -1532,6 +1553,9 @@ func TestModelViewportKeyboardScroll(t *testing.T) {
 
 // REQ-8 (spec amend2): Enter on an editable config line opens the inline
 // editor; committing writes the change back to the YAML file on disk.
+// With the config card focused, Enter opens the editor when the cursor is on
+// an actionable row (a value row or a collapsible item), and opens the
+// file-picker popup otherwise.
 func TestModelEditConfigValueWritesFile(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "c.yaml")
@@ -1539,11 +1563,11 @@ func TestModelEditConfigValueWritesFile(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m.handleConfigSelected(cfgPath)
-	m.focus = PanelConfig
+	m.focus = PanelFilePicker // config card has focus; lower shows config content
 	m.View()                                           // builds the table index mapping
 	m.configCursor = m.configView.ContentTableIndex(1) // content row 1 = provider
 
-	// Enter opens the editor prefilled with the current value.
+	// Enter on a value row opens the editor (cursor is actionable).
 	_, cmd := m.handleKey(pressKey("enter"))
 	if cmd != nil {
 		t.Fatalf("enter on config line returned cmd, want nil (start edit)")
@@ -1583,7 +1607,7 @@ func TestModelEditCancelKeepsFile(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m.handleConfigSelected(cfgPath)
-	m.focus = PanelConfig
+	m.focus = PanelFilePicker // config card has focus; lower shows config content
 	m.View() // builds the table index mapping
 	m.configCursor = m.configView.ContentTableIndex(1)
 
@@ -1638,7 +1662,7 @@ func TestModelEnterTogglesListItem(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m.handleConfigSelected(cfgPath)
-	m.focus = PanelConfig
+	m.focus = PanelFilePicker // config card has focus; lower shows config content
 	m.View()
 
 	// Find the collapsed item row in table coordinates.
@@ -1703,10 +1727,10 @@ func TestModelSashDragFollowsMouse(t *testing.T) {
 	// Simulate mouse click on sash at x = leftWidth (the left edge of the sash)
 	// isOnVerticalSash considers a 2-column wide sash area (x == sashX || x == sashX-1)
 	sashX := initialLeft
-	clickMsg := tea.MouseClickMsg{X: sashX, Y: 10}
+	clickMsg := tea.MouseClickMsg{X: sashX, Y: 5}
 	m.Update(clickMsg)
 	// Drag right by 10 columns
-	m.Update(tea.MouseMotionMsg{X: sashX + 10, Y: 10})
+	m.Update(tea.MouseMotionMsg{X: sashX + 10, Y: 5})
 	// leftWidth should increase by 10, but not less than 10
 	expectedLeft := initialLeft + 10
 	if expectedLeft < 10 {
@@ -1725,7 +1749,7 @@ func TestModelSashDragFollowsMouse(t *testing.T) {
 		t.Errorf("after drag left, leftWidth=%d expected=%d", m.leftWidth, expectedLeft2)
 	}
 	// Release mouse
-	releaseMsg := tea.MouseReleaseMsg{X: sashX + 5, Y: 10}
+	releaseMsg := tea.MouseReleaseMsg{X: sashX + 5, Y: 5}
 	m.Update(releaseMsg)
 	// After release, dragSashStart should be -1
 	if m.dragSashStart != -1 {
@@ -1808,7 +1832,9 @@ func hintClickPoint(m *Model, p FocusedPanel, key string) (int, int, bool) {
 }
 
 // Clicking the [c] Switch View hint segment toggles the config view, exactly
-// like pressing the c key.
+// like pressing the c key. The hint lives in the lower config content area,
+// which is displayed while the config card has focus; clicking focuses the
+// config card.
 func TestHintClickTogglesConfigView(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
@@ -1822,8 +1848,8 @@ func TestHintClickTogglesConfigView(t *testing.T) {
 	if m.configView.Mode() == before {
 		t.Error("config view mode did not toggle after clicking the [c] hint segment")
 	}
-	if m.focus != PanelConfig {
-		t.Errorf("focus = %v, want PanelConfig", m.focus)
+	if m.focus != PanelFilePicker {
+		t.Errorf("focus = %v, want PanelFilePicker (owner of the config content)", m.focus)
 	}
 }
 
@@ -1862,10 +1888,16 @@ func TestHintClickRunEmitsStartRun(t *testing.T) {
 }
 
 // Clicking an informational hint segment ([↑↓] Scroll, Key "") focuses the
-// panel but triggers no action.
+// panel whose content is displayed in the lower area but triggers no action.
+// When the config card has focus (the default), the lower area shows the config
+// content and its informational hint is "[↑↓] Navigate"; clicking it focuses
+// the config card. When the status panel has focus, the lower area shows the
+// execution log and its informational hint is "[↑↓] Scroll"; clicking it
+// focuses the status panel.
 func TestHintClickInfoSegmentDoesNothing(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	m.focus = PanelStatus // the lower area shows the execution log
 	x, y, ok := hintClickPoint(m, PanelEvents, "")
 	if !ok {
 		t.Fatal("informational segment not found on the events hint")
@@ -1877,8 +1909,8 @@ func TestHintClickInfoSegmentDoesNothing(t *testing.T) {
 	if m.isRunning {
 		t.Error("run started from an informational segment click")
 	}
-	if m.focus != PanelEvents {
-		t.Errorf("focus = %v, want PanelEvents (click should still focus)", m.focus)
+	if m.focus != PanelStatus {
+		t.Errorf("focus = %v, want PanelStatus (click should still focus its owner)", m.focus)
 	}
 }
 
@@ -2082,7 +2114,7 @@ func TestEventsNewEventsStayPinned(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
 	}
-	m.focus = PanelEvents
+	m.focus = PanelStatus // lower shows the execution log
 	// Render once so the events viewport is sized and pinned at the bottom
 	// (real flow: the frame is drawn before the next event arrives).
 	m.View()
@@ -2102,7 +2134,7 @@ func TestEventsScrolledUpDoesNotJump(t *testing.T) {
 	for i := 0; i < 50; i++ {
 		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
 	}
-	m.focus = PanelEvents
+	m.focus = PanelStatus // lower shows the execution log
 
 	for i := 0; i < 5; i++ {
 		m.handleKey(pressKey("up"))
@@ -2115,6 +2147,214 @@ func TestEventsScrolledUpDoesNotJump(t *testing.T) {
 	if offsetBefore != offsetAfter {
 		t.Errorf("viewport offset changed from %d to %d after adding new event while scrolled up", offsetBefore, offsetAfter)
 	}
+}
+
+// W1-01 A1 positive: the layout is two rows — two upper panels and one
+// full-width lower content panel. The upper row contains the config card and
+// the execution status panel side by side; the lower row is a single content
+// area that shows config content when the config card has focus and the
+// execution log when the status panel has focus.
+func TestModelTwoRowsThreePanels(t *testing.T) {
+	m := sizedModel()
+	content := viewContent(t, m)
+	for _, title := range []string{"■ Config File", "■ Execution Status"} {
+		if !strings.Contains(content, title) {
+			t.Errorf("View missing upper panel title %q", title)
+		}
+	}
+	if strings.Contains(content, "■ Recent Events") {
+		t.Error("execution log rendered while the config card has focus; the lower area must show the config content")
+	}
+	lines := strings.Split(content, "\n")
+	corners := 0
+	for _, ln := range lines {
+		corners += strings.Count(stripANSI(ln), "└")
+	}
+	if corners != 3 {
+		t.Errorf("found %d panel bottom borders (└), want 3 (two upper + one full-width lower)", corners)
+	}
+	// The lower band is a single full-width panel: its rows carry exactly
+	// two vertical borders (one panel), not four (two side-by-side).
+	ansiRe := regexp.MustCompile(`\x1b\[[0-9;>?]*[a-zA-Z]`)
+	lowerRows := 0
+	for i, ln := range lines {
+		plain := ansiRe.ReplaceAllString(ln, "")
+		if strings.Count(plain, "│") == 4 {
+			continue // an upper-row line (two panels side by side)
+		}
+		if strings.Count(plain, "│") == 2 && i > 0 {
+			lowerRows++
+		}
+	}
+	if lowerRows == 0 {
+		t.Error("no full-width lower rows found; the bottom band is still split into two panels")
+	}
+	// The lower panel's bottom border should span the full terminal width.
+	fullWidthFound := false
+	for i := len(lines) - 1; i >= 0; i-- {
+		if strings.Contains(stripANSI(lines[i]), "└") && lipgloss.Width(stripANSI(lines[i])) == 120 {
+			fullWidthFound = true
+			break
+		}
+	}
+	if !fullWidthFound {
+		t.Error("lower panel bottom border does not span the full terminal width")
+	}
+}
+
+// A1 boundary: resize keeps the layout filled and in bounds.
+func TestModelResizeKeepsLayoutInBounds(t *testing.T) {
+	m := NewModel(NewAppState())
+	for _, size := range [][2]int{{80, 24}, {120, 40}, {60, 20}, {200, 50}} {
+		w, h := size[0], size[1]
+		m.Update(tea.WindowSizeMsg{Width: w, Height: h})
+		lines := strings.Split(m.View().Content, "\n")
+		if len(lines) > h {
+			t.Errorf("%dx%d: view renders %d lines (overflows the terminal)", w, h, len(lines))
+		}
+		if last := lines[len(lines)-1]; !strings.Contains(stripANSI(last), "↑↓ Navigate") {
+			t.Errorf("%dx%d: last line is not the hint line: %q", w, h, stripANSI(last))
+		}
+		corners := 0
+		fullWidth := false
+		for _, ln := range lines {
+			plain := stripANSI(ln)
+			corners += strings.Count(plain, "└")
+			if strings.Contains(plain, "└") && lipgloss.Width(plain) == w {
+				fullWidth = true
+			}
+		}
+		if corners != 3 {
+			t.Errorf("%dx%d: found %d panel bottom borders, want 3", w, h, corners)
+		}
+		if !fullWidth {
+			t.Errorf("%dx%d: no full-width lower panel border found", w, h)
+		}
+	}
+}
+
+// A2 positive: the focus cycle swaps lower content between the config view and
+// the execution log, and each view's scroll position survives the round trip.
+func TestModelFocusCycleSwapsLowerContentRestoresScroll(t *testing.T) {
+	m := sizedModel()
+	for i := 0; i < 60; i++ {
+		m.state.AddRecentEvent(fmt.Sprintf("event-%02d", i))
+	}
+	if m.focus != PanelFilePicker {
+		t.Fatalf("initial focus = %v, want PanelFilePicker", m.focus)
+	}
+	content := viewContent(t, m)
+	if strings.Contains(content, "■ Recent Events") {
+		t.Error("log shown while the config card has focus")
+	}
+	m.handleKey(pressKey("tab"))
+	if m.focus != PanelStatus {
+		t.Fatalf("after Tab focus = %v, want PanelStatus (the cycle has exactly two targets)", m.focus)
+	}
+	content = viewContent(t, m)
+	if !strings.Contains(content, "■ Recent Events") {
+		t.Error("log not shown while the status panel has focus")
+	}
+	// Scroll up into older events, switch away and back: the offset survives.
+	for i := 0; i < 10; i++ {
+		m.handleKey(pressKey("up"))
+	}
+	offset := m.eventsVP.YOffset()
+	if offset == 0 {
+		t.Fatal("scrolling up did not move the events viewport")
+	}
+	m.handleKey(pressKey("tab")) // to the config card: lower shows the config view
+	viewContent(t, m)
+	m.handleKey(pressKey("tab")) // back to status: lower shows the log again
+	viewContent(t, m)
+	if m.eventsVP.YOffset() != offset {
+		t.Errorf("events scroll offset = %d after a focus round-trip, want %d", m.eventsVP.YOffset(), offset)
+	}
+	if m.focus != PanelStatus {
+		t.Errorf("focus after round-trip = %v, want PanelStatus", m.focus)
+	}
+}
+
+// A2 boundary: with a single focus target the cycle is a no-op; a focus
+// outside the active set snaps into it.
+func TestNextFocusTargetSingleTargetAndSnapIn(t *testing.T) {
+	solo := []FocusedPanel{PanelStatus}
+	if got := nextFocusTarget(solo, PanelStatus, 1); got != PanelStatus {
+		t.Errorf("single-target cycle forward = %v, want PanelStatus (no-op)", got)
+	}
+	if got := nextFocusTarget(solo, PanelStatus, -1); got != PanelStatus {
+		t.Errorf("single-target cycle backward = %v, want PanelStatus (no-op)", got)
+	}
+	if got := nextFocusTarget(focusTargets(), PanelConfig, 1); got != PanelFilePicker {
+		t.Errorf("stale focus PanelConfig cycles to %v, want snap into the active set", got)
+	}
+}
+
+// A3 positive: rendering and hit-testing agree on one shared geometry source.
+func TestModelRenderMatchesGeometryHitTest(t *testing.T) {
+	m := sizedModel()
+	g := m.geometry()
+	lines := strings.Split(m.View().Content, "\n")
+	if title := stripANSI(lines[g.configRect.Min.Y]); !strings.Contains(title, "Config File") {
+		t.Errorf("config card title not at geometry row %d: %q", g.configRect.Min.Y, title)
+	}
+	if title := stripANSI(lines[g.statusRect.Min.Y]); !strings.Contains(title, "Execution Status") {
+		t.Errorf("status title not at geometry row %d: %q", g.statusRect.Min.Y, title)
+	}
+	if title := stripANSI(lines[g.lowerRect.Min.Y]); !strings.Contains(title, "Config") {
+		t.Errorf("lower content title not at geometry row %d: %q", g.lowerRect.Min.Y, title)
+	}
+	// A click inside the status rect focuses it.
+	m.Update(tea.MouseClickMsg{X: g.statusRect.Min.X + 2, Y: g.statusRect.Min.Y + 4})
+	if m.focus != PanelStatus {
+		t.Errorf("click inside the status rect left focus = %v, want PanelStatus", m.focus)
+	}
+	// The lower area now shows the log, whose owner is the status panel: a
+	// click in the lower content area keeps focus on that owner — it must
+	// not flip to the other panel or open the picker.
+	m.Update(tea.MouseClickMsg{X: g.lowerRect.Dx() / 2, Y: g.lowerRect.Min.Y + 4})
+	if m.focus != PanelStatus {
+		t.Errorf("click in the log content left focus = %v, want PanelStatus (its owner)", m.focus)
+	}
+	if m.pickerOpen {
+		t.Error("click in the log content opened the file picker")
+	}
+	// Switch to the config card: the lower area shows the config content,
+	// whose owner is the config card. Clicking it keeps that focus.
+	m.handleKey(pressKey("tab"))
+	viewContent(t, m)
+	m.Update(tea.MouseClickMsg{X: g.lowerRect.Dx() / 2, Y: g.lowerRect.Min.Y + 4})
+	if m.focus != PanelFilePicker {
+		t.Errorf("click in the config content left focus = %v, want PanelFilePicker (its owner)", m.focus)
+	}
+	if m.editing {
+		t.Error("click in the config content started the inline editor")
+	}
+}
+
+// A3 boundary: panelRects is derived from the single geometry source.
+func TestModelPanelRectsDerivedFromGeometry(t *testing.T) {
+	m := NewModel(NewAppState())
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
+	g := m.geometry()
+	rects := m.panelRects()
+	if rects[PanelFilePicker] != g.configRect {
+		t.Error("panelRects[PanelFilePicker] diverged from geometry().configRect")
+	}
+	if rects[PanelStatus] != g.statusRect {
+		t.Error("panelRects[PanelStatus] diverged from geometry().statusRect")
+	}
+	if rects[PanelConfig] != g.lowerRect || rects[PanelEvents] != g.lowerRect {
+		t.Error("panelRects content kinds diverged from geometry().lowerRect")
+	}
+	// The edit popup is placed from the same lower rect.
+	m.editing = true
+	m.editPath = "x"
+	if er := m.editPopupRect(); er.Max.X > g.lowerRect.Max.X-1 || er.Min.X < g.lowerRect.Min.X+1 ||
+		er.Max.Y > g.lowerRect.Max.Y-1 || er.Min.Y < g.lowerRect.Min.Y+1 {
+		t.Errorf("editPopupRect %v escapes the lower content rect %v", er, g.lowerRect)
+	}
+	m.editing = false
 }
 
 // W1-01 round 2: finishRun must skip the end-of-run SetRunning(false) while

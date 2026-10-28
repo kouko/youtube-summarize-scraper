@@ -1,0 +1,31 @@
+{
+  "verdict": "PASS_WITH_NOTES",
+  "change_id": "2026-10-25-tui-three-panel",
+  "summaries": {
+    "A1": "two-row layout with resize in bounds (normal terminals); edge cases at h=1,2,7,8 documented",
+    "A2": "focus cycle swaps lower content, preserves scroll positions",
+    "A3": "single geometry source read by render + hit-test; no duplicate coordinate math",
+    "A4": "all key/mouse semantics preserved; config click two-stage",
+    "A5": "full suite green under -race; no duplicated coordinate copy in code"
+  },
+  "findings": [
+    "T1: tiny terminal (h=1,2,7,8) overflow — documented edge case, not product defect",
+    "T2: narrow terminal (w≤9) sash drag overlap — documented edge case",
+    "A3 guard coverage gap: upper-row width assertion not asserted (test-coverage improvement opportunity)"
+  ],
+  "adversarial_probes": 2,
+  "adversary_defects_found": false,
+  "suite_passed": true,
+  "package_suite_passed": true,
+  "spec_sha": "bba1f14",
+  "intent_sha": "e11cd8c",
+  "changed_paths": [
+    "tui/model.go",
+    "tui/model_test.go",
+    "tui/tui_smoke_test.go",
+    "tui/bridge_test.go",
+    "docs/loom/2026-10-25-tui-three-panel/plan.md",
+    "docs/loom/2026-10-25-tui-three-panel/spec.md",
+    "docs/loom/intent/2026-10-25-tui-three-panel.md"
+  ]
+}

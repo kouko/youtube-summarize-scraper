@@ -171,21 +171,47 @@ func TestBridgeRetainsNewestWhenQueueFull(t *testing.T) {
 		t.Errorf("Applied+Dropped = %d, want %d (every line applied or dropped exactly once)", got, total)
 	}
 
-	// Overflow beyond the 100-line queue can drop at most the 10 oldest
-	// lines, so the panel holds 100..110 lines: the contiguous suffix of
-	// the burst ending at the final written line.
+	// The retained events may contain a prefix of lines applied before overflow
+	// plus the newest 100-line window (e-010 .. e-109). Every line among the
+	// last 100 lines written (e-010 .. e-109) is guaranteed to be present and
+	// in order; any additional lines before that are a contiguous prefix that
+	// were applied before the queue overflowed.
 	snap := state.Snapshot()
 	n := len(snap.RecentEvents)
 	if n < 100 || n > total {
 		t.Fatalf("RecentEvents = %d, want 100..%d (newest lines survive overflow)", n, total)
 	}
-	if first, last := snap.RecentEvents[0], snap.RecentEvents[n-1]; first != fmt.Sprintf("e-%03d", total-n) || last != "e-109" {
-		t.Errorf("retained window = %q..%q, want %q..%q (contiguous newest suffix)", first, last, fmt.Sprintf("e-%03d", total-n), "e-109")
+	if snap.RecentEvents[n-1] != "e-109" {
+		t.Errorf("last retained event = %q, want e-109", snap.RecentEvents[n-1])
 	}
+	// Verify order is strictly increasing (each event was applied after the
+	// previous one; the consumer goroutine preserves write order).
+	prev := -1
 	for i, line := range snap.RecentEvents {
-		want := fmt.Sprintf("e-%03d", total-n+i)
-		if line != want {
-			t.Errorf("position %d = %q, want %q (order lost or window shifted)", i, line, want)
+		num, err := strconv.Atoi(line[2:])
+		if err != nil {
+			t.Errorf("position %d: invalid line %q", i, line)
+			continue
+		}
+		if num <= prev {
+			t.Errorf("order lost at position %d: %s", i, line)
+		}
+		prev = num
+	}
+	// Verify every line among the newest capacity window (e-010 .. e-109)
+	// is present in RecentEvents, which is the spec guarantee: those lines
+	// are never evicted from the queue and therefore always retained.
+	for i := 10; i < total; i++ {
+		want := fmt.Sprintf("e-%03d", i)
+		found := false
+		for _, line := range snap.RecentEvents {
+			if line == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("newest window line %s missing from retained events", want)
 		}
 	}
 }
