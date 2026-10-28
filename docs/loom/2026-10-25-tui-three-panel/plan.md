@@ -20,6 +20,11 @@ Wave 1 — one coherent layout refactor, then preservation and suite
 - Test: A4 positive: existing key and mouse tests pass unchanged; boundary: picker and edit popups still clickable. A5 positive: go test ./... -race green; boundary: inspection finds no second coordinate copy.
 - Risk: hit-test coordinates may shift with new rects; guarded by existing popup tests; flaky bridge test oracle fixed so A5 suite is deterministic.
 
+**W1-03 Config card two-stage click**  after: W1-02  acceptance: 4
+- Files: tui/model.go, tui/model_test.go
+- Test: A4 positive: first click on unfocused config card focuses without opening picker; boundary: second click while focused opens picker.
+- Risk: users may expect single-click picker; behavior documented in spec UI flows.
+
 ## Simplicity check
 - keep the four-panel grid and only change visible content — declined: the duplicated-copy problem stays; every visual tweak still needs two syncs. No net reduction in code surface.
 - add a config switch to toggle between four-panel and two-panel — declined: adds a new runtime flag and its associated code path; scope exceeds the confirmed intent.
