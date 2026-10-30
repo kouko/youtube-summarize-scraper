@@ -399,6 +399,7 @@ func DefaultConfig() *Config {
 		VideoEmbed: true,
 		Batch: BatchConfig{
 			RandomOrder:      true,
+			Watch:            true,
 			WatchInterval:    10,
 			FetchConcurrency: 3,
 		},
