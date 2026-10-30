@@ -117,8 +117,8 @@ summary:
 func TestDefaultConfig_WatchMode(t *testing.T) {
 	cfg := DefaultConfig()
 
-	if cfg.Batch.Watch {
-		t.Error("Watch: expected false by default")
+	if !cfg.Batch.Watch {
+		t.Error("Watch: expected true by default")
 	}
 	if cfg.Batch.WatchInterval != 10 {
 		t.Errorf("WatchInterval: got %d, want 10", cfg.Batch.WatchInterval)
@@ -163,8 +163,8 @@ output_dir: "./test-output"
 		t.Fatal(err)
 	}
 
-	if cfg.Batch.Watch {
-		t.Error("Watch: expected false (default)")
+	if !cfg.Batch.Watch {
+		t.Error("Watch: expected true (default)")
 	}
 	if cfg.Batch.WatchInterval != 10 {
 		t.Errorf("WatchInterval: got %d, want 10 (default)", cfg.Batch.WatchInterval)

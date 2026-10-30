@@ -1786,8 +1786,10 @@ func runPipelineWithConfig(configPath string, state *AppState, ctx context.Conte
 		p.RebuildIndex()
 		pipelineMu.Unlock()
 
-		if err := runOneBatch(p, state); err != nil {
-			return err
+		err := runOneBatch(p, state)
+		if err != nil {
+			// Log the error but continue to next iteration (mirror cmd/run.go behavior)
+			slog.Error("watch: batch processing failed", "iteration", iteration, "error", err)
 		}
 
 		select {
