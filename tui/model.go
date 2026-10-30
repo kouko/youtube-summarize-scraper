@@ -1610,7 +1610,7 @@ func (m *Model) renderEvents(s StateSnapshot, w, h int) string {
 		m.eventsVP.GotoBottom()
 	}
 
-	return RenderPanelWithSegments(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, false, m.hintSegmentsFor(PanelEvents))
+	return RenderPanelWithSegments(title, clipLines(m.eventsVP.View(), w-2, h-4), w, h, m.focus == PanelStatus, m.hintSegmentsFor(PanelEvents))
 }
 
 // clipLines keeps at most n lines of content and truncates each to a display
