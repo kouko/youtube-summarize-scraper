@@ -42,5 +42,5 @@ func copyConfigPath(path string) error {
 // revealConfigFolder runs `open -R <path>` to reveal the file in Finder.
 // Returns error if open fails.
 func revealConfigFolder(path string) error {
-	return runCommand(path, "open", "-R")
+	return runCommand("", "open", "-R", path)
 }
