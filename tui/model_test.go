@@ -1781,6 +1781,9 @@ func TestModelClickConfigFileOpensPicker(t *testing.T) {
 	clickY := 2
 	if clickY >= topHeight {
 		clickY = topHeight / 2
+	} else {
+		// New hint segments add 2 lines; adjust click point accordingly.
+		clickY = 4
 	}
 	// Log the panel rectangle for debugging
 	rects := m.panelRects()
