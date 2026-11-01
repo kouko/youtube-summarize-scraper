@@ -701,6 +701,32 @@ func (m *Model) handleKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case "y":
+		if m.focus == PanelFilePicker {
+			path := m.state.Snapshot().ConfigPath
+			if path == "" {
+				m.state.AddRecentEvent("No config selected — press Enter to choose one")
+			} else if err := copyConfigPath(path); err != nil {
+				m.state.AddRecentEvent(fmt.Sprintf("Copy failed: %v — try again", err))
+			} else {
+				m.state.AddRecentEvent(fmt.Sprintf("Config path copied to clipboard: %s", path))
+			}
+		}
+		return m, nil
+
+	case "o":
+		if m.focus == PanelFilePicker {
+			path := m.state.Snapshot().ConfigPath
+			if path == "" {
+				m.state.AddRecentEvent("No config selected — press Enter to choose one")
+			} else if err := revealConfigFolder(path); err != nil {
+				m.state.AddRecentEvent(fmt.Sprintf("Reveal failed: %v — check the path exists", err))
+			} else {
+				m.state.AddRecentEvent(fmt.Sprintf("Revealed in Finder: %s", path))
+			}
+		}
+		return m, nil
+
 	case "tab":
 		m.cycleFocus(1)
 		return m, nil
@@ -1120,7 +1146,11 @@ func parsePopupHint(hint string) []HintSegment {
 func (m *Model) hintSegmentsFor(p FocusedPanel) []HintSegment {
 	switch p {
 	case PanelFilePicker:
-		return []HintSegment{{Text: "[Enter] Select Config", Key: "enter"}}
+		return []HintSegment{
+			{Text: "[Enter] Select Config", Key: "enter"},
+			{Text: "[y] Copy", Key: "y"},
+			{Text: "[o] Reveal", Key: "o"},
+		}
 	case PanelConfig:
 		return []HintSegment{
 			{Text: "[↑↓] Navigate"},

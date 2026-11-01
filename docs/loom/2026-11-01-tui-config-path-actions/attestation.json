@@ -1,0 +1,43 @@
+{
+  "schema": "loom-attestation/v2",
+  "change_id": "2026-11-01-tui-config-path-actions",
+  "content_digest": "7530c7f6fabc2564274d525f9984497c3356576f",
+  "executions": [
+    {
+      "kind": "package-tests",
+      "command": "go test ./...",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "1bb497e3e13a1105cf24e3359fa3ef75de08b66ff8a2839cd7f9ea97824d9eb3"
+    },
+    {
+      "kind": "adversarial",
+      "command": "go test -json docs/loom/2026-11-01-tui-config-path-actions/evidence/probes/reveal_missing_path_arg_test.go",
+      "artifact": "docs/loom/2026-11-01-tui-config-path-actions/evidence/probes/reveal_missing_path_arg_test.go",
+      "result": "pass",
+      "command_digest": "4b27e677d2c6d401e56b5cdc9ea0f88c28c101ee71996ca4f30e08176f795618",
+      "evidence": "parsed",
+      "passed": 1
+    }
+  ],
+  "verdicts": [
+    {
+      "reviewer": "internal-code",
+      "vendor": "codex",
+      "model": "gpt-4o",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": []
+    },
+    {
+      "reviewer": "internal-spec",
+      "vendor": "codex",
+      "model": "gpt-4o",
+      "lens": "spec",
+      "verdict": "PASS",
+      "findings": []
+    }
+  ],
+  "findings": [],
+  "selection": null
+}
