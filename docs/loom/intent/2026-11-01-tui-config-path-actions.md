@@ -3,7 +3,9 @@ originator: kouko
 kind: product
 needs-design: yes — TUI 設定檔卡片新增「複製路徑」與「開啟所在資料夾」動作（新按鍵、新外部副作用），倉庫沒有 DESIGN.md 或 ui-flows 文件涵蓋該表面
 status: confirmed 2026-11-01
-publication: automatic — authorized 2026-11-01 by kouko## Problem
+publication: automatic — authorized 2026-11-01 by kouko
+
+## Problem
 在 TUI 裡選好設定檔後，使用者沒有辦法把設定檔的路徑帶出程式：要複製路徑只能手動打字或另外開終端機；要在 Finder 找到設定檔必須自己記住路徑再去一層層找。畫面上明明顯示著路徑，卻沒有任何方式把它帶出 TUI，來回切換視窗浪費時間。
 
 ## Proposed outcome
