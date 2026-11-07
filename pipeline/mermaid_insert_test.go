@@ -112,12 +112,18 @@ func TestInsertMermaidBlocks_H4MermaidVsH3Summary(t *testing.T) {
 }
 
 func TestInsertMermaidBlocks_Unmatched(t *testing.T) {
+	// Realistic article skeleton: the viewpoint section is an H2, chapters are H3.
+	// Unmatched blocks (e.g. the mandatory Key Viewpoints overview diagram) belong
+	// right after the viewpoint prose and before the first chapter heading.
 	summary := strings.Join([]string{
-		"### 概述",
-		"概述內容",
+		"## 主要觀點",
+		"觀點內容",
 		"",
-		"### 章節摘要",
-		"章節內容",
+		"### 章節A",
+		"章節內容A",
+		"",
+		"### 章節B",
+		"章節內容B",
 	}, "\n")
 
 	blocks := []summarizer.MermaidBlock{
@@ -131,12 +137,12 @@ func TestInsertMermaidBlocks_Unmatched(t *testing.T) {
 		t.Errorf("unmatched mermaid block should appear in output:\n%s", result)
 	}
 
-	// Should appear after 概述, before 章節摘要.
-	idxOverview := strings.Index(result, "### 概述")
+	// Should appear after the viewpoint prose, before the first chapter heading.
+	idxViewpoint := strings.Index(result, "觀點內容")
 	idxMermaid := strings.Index(result, "X-->Y")
-	idxSection := strings.Index(result, "### 章節摘要")
-	if !(idxOverview < idxMermaid && idxMermaid < idxSection) {
-		t.Errorf("unmatched block should be between overview and section:\n%s", result)
+	idxSection := strings.Index(result, "### 章節A")
+	if !(idxViewpoint < idxMermaid && idxMermaid < idxSection) {
+		t.Errorf("unmatched block should be between viewpoint prose and first chapter:\n%s", result)
 	}
 }
 
