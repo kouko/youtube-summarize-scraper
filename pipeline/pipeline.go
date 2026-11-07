@@ -1779,7 +1779,7 @@ func insertMermaidBlocksAfterFirstHeading(summaryText string, blocks []summarize
 
 	result := strings.Join(lines, "\n")
 
-	// Insert unmatched blocks after overview (before the second ### heading).
+	// Insert unmatched blocks after the first `###` heading (right after the viewpoint section's prose, before the first chapter).
 	if len(unmatched) > 0 {
 		var sb strings.Builder
 		for _, b := range unmatched {
@@ -1792,7 +1792,7 @@ func insertMermaidBlocksAfterFirstHeading(summaryText string, blocks []summarize
 		for i, line := range resultLines {
 			if strings.HasPrefix(strings.TrimSpace(line), "### ") {
 				h3Count++
-				if h3Count == 2 {
+				if h3Count == 1 {
 					before := strings.Join(resultLines[:i], "\n")
 					after := strings.Join(resultLines[i:], "\n")
 					return before + fallback + "\n" + after
