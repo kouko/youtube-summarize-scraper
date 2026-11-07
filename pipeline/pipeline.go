@@ -854,6 +854,45 @@ func (p *Pipeline) runSummarization(
 	}
 	slog.Info("stage 1 complete", "video_id", meta.ID, "provider", summaryResult.Provider, "model", summaryResult.Model, "response_length", len(summaryText))
 
+	// Length guard: if prose is below 40% of transcription length, retry once with
+	// explicit shortfall feedback. This is a measurement-only guard; we do not
+	// rewrite the text in code, we just ask the model to regenerate with a
+	// concrete target (current length vs required floor).
+	transcriptionRunes := len([]rune(transcriptText))
+	proseLen := len([]rune(summaryText))
+	targetFloor := transcriptionRunes * 40 / 100 // 40% floor
+	if proseLen < targetFloor {
+		slog.Info("stage 1 summary below length floor, retrying",
+			"video_id", meta.ID,
+			"prose_len", proseLen,
+			"target_floor", targetFloor,
+			"transcription_len", transcriptionRunes)
+
+		retryPrompt := fmt.Sprintf(
+			"【長度回饋】你的上一次輸出只有 %d 字，低於要求的最少 %d 字（轉錄字數的 40%%）。請在保留所有具體細節（數字、人名、案例、引述）的前提下，擴充正文長度，使其達到至少 %d 字。重點補充：每個章節的完整論點、數據與案例，不得為了精簡而整段略過。\n\n%s",
+			proseLen, targetFloor, targetFloor, prompt)
+
+		retryOpts := summarizer.SummarizeOptions{
+			Prompt:    retryPrompt,
+			MaxTokens: p.config.Summary.MaxTokens,
+			Model:     "",
+		}
+
+		retryResult, err := p.summarizer.Summarize(transcriptText, retryOpts)
+		if err == nil && strings.TrimSpace(retryResult.Text) != "" {
+			retryLen := len([]rune(retryResult.Text))
+			if retryLen > proseLen {
+				summaryText = retryResult.Text
+				proseLen = retryLen
+				slog.Info("stage 1 retry improved length", "video_id", meta.ID, "new_len", retryLen)
+			} else {
+				slog.Warn("stage 1 retry did not improve length, keeping original", "video_id", meta.ID, "retry_len", retryLen)
+			}
+		} else if err != nil {
+			slog.Warn("stage 1 retry failed, keeping original", "video_id", meta.ID, "error", err)
+		}
+	}
+
 	// Stage 2: Keywords (non-blocking).
 	var keywords []string
 	if p.config.Summary.Keywords.Enabled {
