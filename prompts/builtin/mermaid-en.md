@@ -1,9 +1,8 @@
 Based on the video summary below, create Mermaid flowcharts showing the narrative logic and key relationships.
-Produce one diagram for each chapter section in the summary that is suitable for visualization.
+{{mermaid_limit}}
+The diagram count follows the "Diagram count limit" block at the top: one mandatory diagram for Key Viewpoints, and the rest only from the sections best suited to visualization — never one diagram per chapter.
 
 Output format:
-Each diagram corresponds to a chapter section in the summary. The diagram heading must use the #### prefix followed by the exact chapter title text from the summary.
-If a section is not suitable for a flowchart, you may skip it.
 No blank line between the heading and ```mermaid.
 
 Strict rules:

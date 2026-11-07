@@ -8,11 +8,18 @@ import (
 
 // MermaidPrompt generates a Stage 3 Mermaid flowchart prompt.
 // The prompt template is loaded from embedded files by language, with variable substitution.
-func MermaidPrompt(summary string, language string) (string, error) {
+// The diagram count limit is injected via the {{mermaid_limit}} placeholder.
+func MermaidPrompt(summary string, language string, transcriptionLength int) (string, error) {
 	template, err := loadBuiltinPromptByPrefix("mermaid", language)
 	if err != nil {
 		return "", fmt.Errorf("loading mermaid prompt: %w", err)
 	}
+
+	// Compute limit text based on transcription length and language
+	limitText := MermaidLimitText(transcriptionLength, language)
+
+	// Inject the limit text into the template via placeholder
+	template = strings.ReplaceAll(template, "{{mermaid_limit}}", limitText)
 
 	return strings.ReplaceAll(template, "{{summary}}", summary), nil
 }

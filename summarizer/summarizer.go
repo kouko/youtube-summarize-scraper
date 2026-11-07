@@ -253,3 +253,69 @@ func stripPreambleBeforeContent(response string) string {
 
 	return response
 }
+
+// mermaidLimit returns the total diagram cap and additional range for a transcription length tier.
+func mermaidLimit(transcriptionLength int) (total int, additional string) {
+	switch {
+	case transcriptionLength < 500:
+		return 2, "0-1"
+	case transcriptionLength < 3000:
+		return 3, "1-2"
+	case transcriptionLength < 10000:
+		return 4, "2-3"
+	default:
+		return 5, "3-4"
+	}
+}
+
+// mermaidLimitLang normalizes a language code into zh / ja / en.
+func mermaidLimitLang(language string) string {
+	switch {
+	case strings.HasPrefix(language, "zh"):
+		return "zh"
+	case strings.HasPrefix(language, "ja"):
+		return "ja"
+	default:
+		return "en"
+	}
+}
+
+// MermaidLimitText returns the dynamic diagram count limit text based on
+// transcription length and prompt language. It is prepended to the mermaid
+// prompt at Stage 3 to enforce the count rules (total cap, one mandatory
+// diagram for the leading Key Viewpoints section without a duplicated
+// heading, and selective choice among chapter sections).
+func MermaidLimitText(transcriptionLength int, language string) string {
+	total, additional := mermaidLimit(transcriptionLength)
+	lang := mermaidLimitLang(language)
+
+	switch lang {
+	case "zh":
+		return fmt.Sprintf(`
+【圖表數量限制（最高優先，必須遵守）】
+本次最多輸出 %d 張圖表（總數上限，含主要觀點圖）。主要觀點 1 張（必要），其餘章節額外 %s 張。
+- 第 1 張固定對應摘要最前面的「## 主要觀點」，作為全片架構總覽；此圖**不要**加 #### 標題，避免與「主要觀點」標題重複。
+- 其餘圖表只從「###」章節中挑選，每章最多 1 張，依適合視覺化的程度擇優；不適合的章節一律跳過。
+- 寧缺勿濫：圖表總數不得超過上限，絕對不要為每個章節都畫一張。
+
+`, total, additional)
+	case "ja":
+		return fmt.Sprintf(`
+【図表数の上限（最優先・必ず遵守）】
+今回出力できる図表は合計 %d 枚まで（主要観点の図を含む）。主要観点 1 枚（必須）、その他の章節は追加 %s 枚。
+- 1枚目は要約冒頭の「## 主要觀點」に対応させ、全体のアーキテクチャ概観とする。この図には #### 見出しを付けないこと（見出しの重複を避けるため）。
+- 残りの図表は「###」セクションの中からのみ選び、各セクション最大 1 枚、視覚化に適したものを優先的に選ぶ。適さないセクションはスキップすること。
+- 少なめを優先：図表の総数は上限を超えないこと。各章に1枚ずつ作成しないこと。
+
+`, total, additional)
+	default:
+		return fmt.Sprintf(`
+[Diagram count limit — highest priority, must comply]
+Output at most %d diagrams in total (cap, including the Key Viewpoints diagram). Key Viewpoints 1 (mandatory), chapters add %s more.
+- The first diagram must correspond to the "## Key Viewpoints" section at the top of the summary as the overall architecture overview; do NOT add a #### heading to it (it would duplicate the Key Viewpoints heading).
+- The remaining diagrams must be selected only from "###" chapter sections, at most one per section, prioritizing sections best suited to visualization; skip sections that do not fit.
+- Prefer fewer: the total must not exceed the cap; never produce one diagram per chapter.
+
+`, total, additional)
+	}
+}

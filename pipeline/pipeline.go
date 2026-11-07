@@ -883,7 +883,9 @@ func (p *Pipeline) runSummarization(
 	var mermaidBlocks []summarizer.MermaidBlock
 	if p.config.Summary.Mermaid.Enabled {
 		slog.Info("stage 3: generating mermaid diagrams", "video_id", meta.ID)
-		mermaidPrompt, mermaidPromptErr := summarizer.MermaidPrompt(summaryText, p.config.Summary.Language)
+		// inject dynamic diagram count limits based on transcription length via template placeholder
+		// use the original transcript length (same as PromptVars.TranscriptionLength)
+		mermaidPrompt, mermaidPromptErr := summarizer.MermaidPrompt(summaryText, p.config.Summary.Language, len([]rune(transcriptText)))
 		if mermaidPromptErr != nil {
 			slog.Warn("stage 3 mermaid prompt loading failed", "video_id", meta.ID, "error", mermaidPromptErr)
 		}
@@ -1377,7 +1379,9 @@ func (p *Pipeline) runSummarizationPlaylist(
 	var mermaidBlocks []summarizer.MermaidBlock
 	if p.config.Summary.Mermaid.Enabled {
 		slog.Info("stage 3: generating mermaid diagrams", "video_id", meta.ID)
-		mermaidPrompt, mermaidPromptErr := summarizer.MermaidPrompt(summaryText, p.config.Summary.Language)
+		// inject dynamic diagram count limits based on transcription length via template placeholder
+		// use the original transcript length (same as PromptVars.TranscriptionLength)
+		mermaidPrompt, mermaidPromptErr := summarizer.MermaidPrompt(summaryText, p.config.Summary.Language, len([]rune(transcriptText)))
 		if mermaidPromptErr != nil {
 			slog.Warn("stage 3 mermaid prompt loading failed", "video_id", meta.ID, "error", mermaidPromptErr)
 		}
