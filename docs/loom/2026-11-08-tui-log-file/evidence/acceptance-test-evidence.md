@@ -17,7 +17,7 @@ TUI's `r` key uses (`tui/model.go:535`).
 
 Raw captures kept next to this file: `raw-probe-runs.log`,
 `raw-probe-redline.log`, `raw-runlog-tests.log`, `raw-model-tests.log`,
-`raw-tui-drive.log`, `run-a/`, `run-c/`, `run-tui-smoke/`, `drive_tui.py`.
+`raw-tui-drive.log`, `run-a/`, `run-c/`, `run-tui-smoke/`, `../evidence/drive_tui.py`.
 
 ## 1. 執行一次批次(或單支影片)後,輸出資料夾的 logs 子目錄內出現日誌檔,內容包含該次執行的處理訊息(例如影片處理的各階段)。
 
