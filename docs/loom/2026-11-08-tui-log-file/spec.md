@@ -20,7 +20,7 @@ REQ-5 — No credentials in the file
   The log file shall never contain cookie values, keychain contents, or API key values → Acceptance #5
 
 REQ-6 — TUI unchanged
-  The TUI panels, recent-events content, and key bindings shall behave as they do before this change → Acceptance #6
+  The TUI panels, recent-events content, and key bindings shall behave as they do before this change, except for the log-writer error events defined in the Design decision → Acceptance #6
 
 ## Design decision
 
@@ -56,7 +56,10 @@ REQ-6 — TUI unchanged
 | success | opens `logs/ytss.log` in any editor | plain text for the whole run; select-all and copy work |
 | repeat | runs a second batch | the file keeps both runs' lines; earlier content is intact |
 | error (file unwritable) | runs with the output folder read-only | one error line in the event panel names the path and cause; processing still finishes |
+| error (write fails mid-run) | disk fills during the run | one ERROR event in the event panel names the path and cause; processing continues |
 | error (red log line) | a stage fails during the run | the failing stage's message appears in the file with its error text, copyable |
-| unchanged | watches the panels and presses keys during a run | panels, recent events, and bindings behave as before |
+| unchanged | watches the panels and presses keys during a run | panels, recent events (except log-writer error events), and bindings behave as before |
 
-Paths: after the first run the file exists for every later run; deleting it between runs is safe (the next run recreates it). **During a run**, especially in an hours‑long unattended watch loop (`tui/model.go:1804‑1830`), the append fd keeps writing to the same inode; if the file is deleted mid‑batch, records written after the deletion are lost to a dead inode and will not appear in any later run — the next run recreates the file and starts a fresh tail. This risk is explicitly disclosed because it strikes PRINCIPLES non-negotiable 1 (records can be lost silently) and non-negotiable 3 (unattended runs must keep working without surprise data loss). **Within a watch loop**, config reload can change `output_dir`; the spec's "writes to that config's output folder from the next run on" only applies between iterations, not mid‑batch.\n\nThe file writer's permission mode is `0644` (umask‑dependent) with a stated reason: the file contains only processed‑run messages, no secrets, and restricting to owner‑read would impede debugging by other tools the user may run on the same output folder.
+Paths: after the first run the file exists for every later run; deleting it between runs is safe (the next run recreates it). **During a run**, especially in an hours‑long unattended watch loop (`tui/model.go:1804‑1830`), the append fd keeps writing to the same inode; if the file is deleted mid‑batch, records written after the deletion are lost to a dead inode and will not appear in any later run — the next run recreates the file and starts a fresh tail. This risk is explicitly disclosed because it strikes PRINCIPLES non-negotiable 1 (records can be lost silently) and non-negotiable 3 (unattended runs must keep working without surprise data loss). **Within a watch loop**, config reload can change `output_dir`; the writer was created once per run at run start in `runPipelineWithConfig` before the loop, so the path does not change mid‑batch. The spec's former phrase about switching configs is therefore not applicable inside a watch loop — a config change takes effect at the next TUI run start.
+
+The file writer's permission mode is `0644` (umask‑dependent) with a stated reason: the file contains only processed‑run messages, no secrets, and restricting to owner‑read would impede debugging by other tools the user may run on the same output folder.
