@@ -27,7 +27,8 @@ REQ-6 — TUI unchanged
 - The log path is `<output_dir>/logs/ytss.log`, resolved from the config actually used for the run, with the `logs` directory created on first use. `agent-decided` — the intent's Constraints pin "follows the output folder"; no new config field, per the complexity check at intent confirmation.
 - The logger writes each record twice: once to the existing event bridge (unchanged TUI behaviour) and once to the file, opened append-only (`O_CREATE|O_APPEND|O_WRONLY`) at run start. `agent-decided` — smallest change that keeps REQ-6; reopening per run is what makes REQ-3 hold without rotation.
 - No per-line `fsync` and no buffered writer flush cycle; the OS page cache handles durability. `agent-decided` — the intent's Constraints ask for low I/O; a crash loses at most the tail of the current run.
-- File tee lives at the TUI command boundary (`cmd/tui.go`) with the target path set from the run's loaded config, not inside the pipeline. `agent-decided` — the non-TUI `run` command already writes copyable stderr (`cmd/helpers.go:87`), and a pipeline-level tee would double-write there.
+- **File writer target is set in `runPipelineWithConfig` (`tui/model.go:1765-1771`) where the run's config is loaded, not in `cmd/tui.go`; the CLI stays unchanged because the writer is only created once per run with that path.** `agent-decided` — keeping the tee outside the pipeline layer is sound; the exact seam lives where config is available.
+- The file writer detects write-level errors (Go's `slog` discards `Handler.Handle` errors) and records **one** ERROR event in the Recent Events panel naming the path and cause; processing continues unchanged. `agent-decided` — per PRINCIPLES non-negotiable 1, a log file must not silently swallow write failures; the error line makes the failure visible to the user.
 - If the log file cannot be opened (permissions, read-only volume), the run continues and the Recent Events panel shows one error line naming the path and the cause. `agent-decided` — PRINCIPLES non-negotiable 1 (never fail silently) and 3 (unattended runs keep working); a log file must not stop processing.
 - Log content is unchanged; the tee adds no request/response bodies and no credentials. `agent-decided` — PRINCIPLES non-negotiable 2 already pins the content rule, so this is compliance, not a fork.
 
@@ -42,7 +43,7 @@ REQ-6 — TUI unchanged
 
 - Forward: `cmd/tui.go:28` sets the default logger to a text handler over the event bridge, so every pipeline log record starts there today.
 - Reverse: `tui/bridge.go:57` (`NewEventBridge`) and `tui/bridge.go:105` (`Write`) consume those records into `AppState` recent events; the bridge is created in `cmd/tui.go:27` and owned by the model (`tui/model.go:266`).
-- Error: nothing is persisted today — `cmd/tui.go:33-36` discards subprocess stderr and the standard logger, so a run's messages vanish when the process exits.
+- Error: nothing is persisted today — `cmd/tui.go:33-37` discards subprocess stderr and the standard logger, so a run's messages vanish when the process exits.
 - Data: records are slog text lines shaped `time=<ts> level=<lvl> msg="..." key=value`.
 - Boundary: this change stops at producing the file; it adds no rotation, no size cap, no config path, no TUI copy key, and does not change which lines are logged.
 
@@ -58,4 +59,4 @@ REQ-6 — TUI unchanged
 | error (red log line) | a stage fails during the run | the failing stage's message appears in the file with its error text, copyable |
 | unchanged | watches the panels and presses keys during a run | panels, recent events, and bindings behave as before |
 
-Paths: after the first run the file exists for every later run; deleting it between runs is safe (the next run recreates it); switching to a config with a different `output_dir` writes to that config's output folder from the next run on.
+Paths: after the first run the file exists for every later run; deleting it between runs is safe (the next run recreates it). **During a run**, especially in an hours‑long unattended watch loop (`tui/model.go:1804‑1830`), the append fd keeps writing to the same inode; if the file is deleted mid‑batch, records written after the deletion are lost to a dead inode and will not appear in any later run — the next run recreates the file and starts a fresh tail. This risk is explicitly disclosed because it strikes PRINCIPLES non-negotiable 1 (records can be lost silently) and non-negotiable 3 (unattended runs must keep working without surprise data loss). **Within a watch loop**, config reload can change `output_dir`; the spec's "writes to that config's output folder from the next run on" only applies between iterations, not mid‑batch.\n\nThe file writer's permission mode is `0644` (umask‑dependent) with a stated reason: the file contains only processed‑run messages, no secrets, and restricting to owner‑read would impede debugging by other tools the user may run on the same output folder.
