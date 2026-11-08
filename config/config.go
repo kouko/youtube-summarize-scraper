@@ -261,10 +261,11 @@ type FilterOverride struct {
 }
 
 type ObsidianConfig struct {
-	Enabled     bool     `yaml:"enabled"`
-	AutoTags    []string `yaml:"auto_tags"`
-	GenerateMOC bool     `yaml:"generate_moc"`
-	Wikilinks   bool     `yaml:"wikilinks"`
+	Enabled            bool     `yaml:"enabled"`
+	AutoTags           []string `yaml:"auto_tags"`
+	GenerateMOC        bool     `yaml:"generate_moc"`
+	Wikilinks          bool     `yaml:"wikilinks"`
+	IncludeChannelName bool     `yaml:"include_channel_name"`
 }
 
 type CopyToConfig struct {

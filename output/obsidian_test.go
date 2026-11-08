@@ -51,6 +51,7 @@ func TestEnrichTagsForObsidian_Sanitized(t *testing.T) {
 		[]string{"Federal Reserve", "量化寬鬆", "AI/ML"},
 		"Test Channel",
 		[]string{"youtube"},
+		true, // includeChannelName = true to match old behavior
 	)
 
 	expected := []string{"federal-reserve", "量化寬鬆", "aiml", "test-channel", "youtube"}
@@ -70,6 +71,7 @@ func TestEnrichTagsForObsidian_Dedup(t *testing.T) {
 		[]string{"AI", "ai", "Ai"},
 		"",
 		[]string{},
+		true, // includeChannelName = true (no channel name anyway)
 	)
 
 	if len(tags) != 1 {
