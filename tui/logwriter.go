@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -38,14 +39,18 @@ type LogWriter struct {
 
 // NewLogWriter opens (creating when absent) <outputDir>/logs/ytss.log for
 // appending and returns a writer that tees each record to inner and the file.
-// inner may be nil. An unwritable output dir returns the underlying open error
-// (an *os.PathError naming the path and cause) instead of panicking.
+// inner may be nil. An unwritable output dir returns an error naming the log
+// file path and the cause (wrapping the underlying *os.PathError) instead of
+// panicking.
 func NewLogWriter(outputDir string, inner io.Writer) (*LogWriter, error) {
 	logsDir := filepath.Join(outputDir, logDirName)
-	if err := os.MkdirAll(logsDir, 0o755); err != nil {
-		return nil, err
-	}
 	path := filepath.Join(logsDir, logFileName)
+	if err := os.MkdirAll(logsDir, 0o755); err != nil {
+		// The mkdir error names only the logs directory; the caller surfaces
+		// this as one Recent Events error line that must name the log file
+		// path and the cause, so include the file path here.
+		return nil, fmt.Errorf("open %s: %w", path, err)
+	}
 	file, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return nil, err

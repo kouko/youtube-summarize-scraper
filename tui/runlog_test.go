@@ -388,6 +388,92 @@ func TestRunLogFileOmitsConfiguredCookieValue(t *testing.T) {
 	}
 }
 
+// makeReadOnly makes dir unwritable for the duration of the test, so opening
+// the run log under it fails the way a read-only volume would.
+func makeReadOnly(t *testing.T, dir string) {
+	t.Helper()
+	if os.Geteuid() == 0 {
+		t.Skip("root bypasses directory permissions")
+	}
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) }) // let TempDir cleanup remove it
+}
+
+// A6 positive (W2-01): when the log file cannot be opened (read-only output
+// dir), Recent Events gains exactly one error line naming the log path and the
+// cause, and nothing is written to the log file.
+func TestRunLogOpenFailureShowsOneErrorEvent(t *testing.T) {
+	requireEmbedded(t)
+	out := t.TempDir()
+	makeReadOnly(t, out)
+	state := NewAppState()
+	setupRunLog(t, state)
+
+	runBatchOnce(t, writeRunLogConfig(t, out, ""), state)
+
+	var logErrs []string
+	for _, ev := range state.Snapshot().RecentEvents {
+		if strings.HasPrefix(ev, "ERROR: log file") {
+			logErrs = append(logErrs, ev)
+		}
+	}
+	if len(logErrs) != 1 {
+		t.Fatalf("log-writer error events = %d, want exactly 1: %q", len(logErrs), logErrs)
+	}
+	msg := logErrs[0]
+	if !strings.Contains(msg, logFilePath(out)) {
+		t.Errorf("error event does not name the log path %q: %q", logFilePath(out), msg)
+	}
+	if !strings.Contains(msg, "permission denied") {
+		t.Errorf("error event does not name the cause: %q", msg)
+	}
+	if _, err := os.Stat(logFilePath(out)); !os.IsNotExist(err) {
+		t.Errorf("log file exists after an open failure: err=%v", err)
+	}
+}
+
+// A6 negative (W2-01): the open failure does not abort the run — later stages
+// keep emitting events after the error line.
+func TestRunLogOpenFailureRunContinues(t *testing.T) {
+	requireEmbedded(t)
+	out := t.TempDir()
+	makeReadOnly(t, out)
+	state := NewAppState()
+	setupRunLog(t, state)
+
+	// runBatchOnce fails this test if runPipelineWithConfig returns an error,
+	// i.e. if the open failure aborted the run.
+	runBatchOnce(t, writeRunLogConfig(t, out, ""), state)
+
+	waitFor(t, func() bool {
+		for _, ev := range state.Snapshot().RecentEvents {
+			if strings.HasPrefix(ev, "batch complete:") {
+				return true
+			}
+		}
+		return false
+	})
+
+	evs := state.Snapshot().RecentEvents
+	errIdx, doneIdx := -1, -1
+	for i, ev := range evs {
+		if strings.HasPrefix(ev, "ERROR: log file") {
+			errIdx = i
+		}
+		if strings.HasPrefix(ev, "batch complete:") {
+			doneIdx = i
+		}
+	}
+	if errIdx < 0 {
+		t.Fatalf("no log-writer error event in %q", evs)
+	}
+	if doneIdx <= errIdx {
+		t.Errorf("no later event after the error line: error at %d, batch complete at %d\nevents: %q", errIdx, doneIdx, evs)
+	}
+}
+
 // A6 positive: the event bridge still receives every record the tee wrote, so
 // the panels see what they saw before the file writer existed.
 func TestRunLogKeepsEventBridgeContent(t *testing.T) {
