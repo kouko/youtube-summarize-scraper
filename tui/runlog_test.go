@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/kouko/youtube-summarize-scraper/config"
@@ -607,5 +608,150 @@ func TestRunLogNoWriterErrorOnSuccess(t *testing.T) {
 		if strings.HasPrefix(ev, "ERROR:") {
 			t.Errorf("unexpected error event on a successful run: %q", ev)
 		}
+	}
+}
+
+// watchRunLogConfigBody is a config body whose batch runs in watch mode with a
+// zero interval, so a test can observe several iterations without waiting
+// minutes between them.
+func watchRunLogConfigBody(outputDir string) string {
+	return "output_dir: \"" + outputDir + "\"\n" +
+		"batch:\n  watch: true\n  watch_interval: 0\n"
+}
+
+// runWatchLoop starts runPipelineWithConfig in watch mode (the way the TUI's
+// run key does) and once the loop has entered at least minIterations
+// iterations, cancels it the way the TUI's stop key would, then waits for the
+// run to end.
+func runWatchLoop(t *testing.T, cfg string, state *AppState, minIterations int) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- runPipelineWithConfig(cfg, state, ctx) }()
+
+	waitFor(t, func() bool { return state.Snapshot().WatchIter >= minIterations })
+	cancel()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runPipelineWithConfig: %v", err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("watch loop did not stop after context cancel")
+	}
+}
+
+// countRunLogWriters swaps the per-run writer factory for one that counts the
+// writers the run creates, and restores the factory at test end. The counter
+// is safe to read once the run has returned (the factory is only called from
+// the run goroutine, and runWatchLoop synchronizes on its completion).
+func countRunLogWriters(t *testing.T) *int {
+	t.Helper()
+	prev := newRunLogWriter
+	n := 0
+	newRunLogWriter = func(dir string, inner io.Writer) (*LogWriter, error) {
+		lw, err := prev(dir, inner)
+		if err == nil {
+			n++
+		}
+		return lw, err
+	}
+	t.Cleanup(func() { newRunLogWriter = prev })
+	return &n
+}
+
+// W3-01 (Acceptance 3) positive: two watch-loop iterations append to the same
+// log file — the first iteration's lines are still present and the second
+// iteration's lines were appended — and the writer is opened once for the
+// whole run, before the loop, not once per iteration.
+func TestRunLogWatchLoopAppendsAcrossIterations(t *testing.T) {
+	requireEmbedded(t)
+	out := t.TempDir()
+	cfg := writeMinimalConfig(t, watchRunLogConfigBody(out))
+	state := NewAppState()
+	setupRunLog(t, state)
+
+	writers := countRunLogWriters(t)
+	runWatchLoop(t, cfg, state, 2)
+
+	if *writers != 1 {
+		t.Errorf("log writer created %d times over two watch iterations, want 1", *writers)
+	}
+	content := readRunLog(t, out)
+	first := strings.Index(content, "watch: iteration 1 starting")
+	second := strings.Index(content, "watch: iteration 2 starting")
+	if first < 0 || second < 0 {
+		t.Fatalf("watch iteration lines missing from the log file:\n%s", content)
+	}
+	if first > second {
+		t.Errorf("iteration 2's lines were written before iteration 1's")
+	}
+}
+
+// W3-01 (Acceptance 3) boundary: a watch-loop config reload that changes
+// output_dir does not move the current run's writer mid-batch — every
+// iteration keeps writing to the run-start path — and the new path is used
+// only at the next run start.
+func TestRunLogWatchReloadKeepsWriterPath(t *testing.T) {
+	requireEmbedded(t)
+	out1, out2 := t.TempDir(), t.TempDir()
+	cfg := writeMinimalConfig(t, watchRunLogConfigBody(out1))
+
+	// Rewrite the config to a different output_dir from inside the writer
+	// factory: the factory runs once per run, after the run's initial
+	// config.Load picked out1 and before the watch loop's first per-iteration
+	// ReloadConfig, so every reload of this run sees out2 deterministically.
+	prev := newRunLogWriter
+	var writers []*LogWriter
+	newRunLogWriter = func(dir string, inner io.Writer) (*LogWriter, error) {
+		lw, err := prev(dir, inner)
+		if err == nil {
+			writers = append(writers, lw)
+		}
+		if werr := os.WriteFile(cfg, []byte(watchRunLogConfigBody(out2)), 0o644); werr != nil {
+			t.Errorf("rewrite config for reload: %v", werr)
+		}
+		return lw, err
+	}
+	t.Cleanup(func() { newRunLogWriter = prev })
+
+	state := NewAppState()
+	setupRunLog(t, state)
+	runWatchLoop(t, cfg, state, 2)
+
+	if len(writers) == 0 {
+		t.Fatal("no log writer created for the watch run")
+	}
+	if len(writers) != 1 {
+		t.Errorf("log writers created = %d over two watch iterations, want 1", len(writers))
+	}
+	if got, want := writers[0].Path(), logFilePath(out1); got != want {
+		t.Errorf("run writer path = %q, want the run-start path %q", got, want)
+	}
+	content := readRunLog(t, out1)
+	if !strings.Contains(content, "watch: iteration 1 starting") ||
+		!strings.Contains(content, "watch: iteration 2 starting") {
+		t.Errorf("iteration lines did not keep going to the run-start path:\n%s", content)
+	}
+	if _, err := os.Stat(logFilePath(out2)); !os.IsNotExist(err) {
+		t.Errorf("log path switched mid-batch: %s exists (err=%v)", logFilePath(out2), err)
+	}
+
+	// The reloaded output_dir applies at the next run start: that run's
+	// writer opens the new path, the earlier run's file stays untouched.
+	runBatchOnce(t, writeRunLogConfig(t, out2, ""), state)
+	if len(writers) < 2 {
+		t.Errorf("log writers created = %d after the next run, want 2", len(writers))
+	} else {
+		if got, want := writers[1].Path(), logFilePath(out2); got != want {
+			t.Errorf("next run writer path = %q, want %q", got, want)
+		}
+	}
+	if next := readRunLog(t, out2); !strings.Contains(next, "streaming batch complete") {
+		t.Errorf("next run did not write to the reloaded path:\n%s", next)
+	}
+	if again := readRunLog(t, out1); again != content {
+		t.Errorf("next run appended to the earlier run's log file")
 	}
 }
