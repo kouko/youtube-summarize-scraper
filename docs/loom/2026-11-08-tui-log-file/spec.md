@@ -1,6 +1,6 @@
 # TUI run log file — spec
 intent: 2026-11-08-tui-log-file@ff2991515dc93c9c7990fb2fd44afb509a07da44
-confirmed-behavior: 2026-11-08 @b757c0f # decision point ②: log file created after run, selectable + copyable
+confirmed-behavior: 2026-11-08 @0b89a58 # decision point ②: log file created after run, selectable + copyable
 pre-build-review: required — the change creates a persistent on-disk artifact that could carry credentials; PRINCIPLES non-negotiable 2 (never leak secrets) applies, and the file's write path is new I/O surface.
 
 ## Requirements
