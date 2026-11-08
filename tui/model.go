@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"io"
 	"log/slog"
 	"os"
 	"strings"
@@ -1758,6 +1759,86 @@ type TickMsg struct{}
 // (spec amend2 REQ-6); the periodic tick stays as the fallback.
 type RefreshMsg struct{}
 
+// LogTarget is the writer the TUI's slog handler writes through. cmd/tui.go
+// points it at the event bridge at startup; runPipelineWithConfig swaps in a
+// per-run file tee around each run and swaps the bridge back out when the run
+// ends, so every record reaches both the Recent Events panel and
+// <output_dir>/logs/ytss.log without changing where the pipeline logs.
+var LogTarget = &swappableWriter{}
+
+// newRunLogWriter creates the per-run file tee <output_dir>/logs/ytss.log.
+// It is a variable so tests can reach the run's LogWriter and inject write
+// failures through its writeFailure seam (spec Design decision 31);
+// production always uses NewLogWriter.
+var newRunLogWriter = NewLogWriter
+
+// swappableWriter is an io.Writer whose target can be replaced at run
+// boundaries. A write and a swap are mutually exclusive, so a record is never
+// torn across two targets; the target itself (the bridge or a LogWriter) keeps
+// its own locking.
+type swappableWriter struct {
+	mu sync.RWMutex
+	w  io.Writer
+}
+
+// Set replaces the target writer. A nil writer discards records, which only
+// happens before cmd/tui.go wires the bridge (or in tests).
+func (s *swappableWriter) Set(w io.Writer) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.w = w
+}
+
+// CompareAndSet replaces the target with next only while the current target
+// is still old, reporting whether the swap happened. A run's deferred restore
+// uses it to back out when a newer run already swapped in its own writer
+// during a stop→restart overlap, so the restore can never clobber the newer
+// swap. The write lock excludes concurrent Write calls, so once the call
+// returns — either way — no record can be in flight through old.
+func (s *swappableWriter) CompareAndSet(old, next io.Writer) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.w != old {
+		return false
+	}
+	s.w = next
+	return true
+}
+
+// current returns the target writer without changing it.
+func (s *swappableWriter) current() io.Writer {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.w
+}
+
+// Write forwards p to the current target.
+func (s *swappableWriter) Write(p []byte) (int, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.w == nil {
+		return len(p), nil
+	}
+	return s.w.Write(p)
+}
+
+// swapRunLogWriter installs lw as the run's log target and returns the
+// function that undoes the swap when the run ends. The undo is conditional:
+// it replaces lw with prev only while lw is still the installed target, so a
+// newer run that swapped in its own writer during a stop→restart overlap is
+// never clobbered. The run's writer is closed only after it is no longer
+// installed: a non-installed LogWriter is referenced by no other writer
+// (installs always unwrap an older run's writer down to the bridge), and the
+// write lock guarantees no record is in flight through it, so closing it is
+// safe and leaks no descriptor.
+func swapRunLogWriter(lw *LogWriter, prev io.Writer) func() {
+	LogTarget.Set(lw)
+	return func() {
+		LogTarget.CompareAndSet(lw, prev)
+		lw.Close()
+	}
+}
+
 // runPipelineWithConfig loads the selected config and runs the batch (single
 // or watch loop) in-process. Failures are reported to RecentEvents and
 // returned as the error. The pipeline's own slog output is teed into state by
@@ -1771,6 +1852,42 @@ func runPipelineWithConfig(configPath string, state *AppState, ctx context.Conte
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		return fail(fmt.Errorf("loading config: %w", err))
+	}
+
+	// Tee this run's own slog records to <output_dir>/logs/ytss.log (spec
+	// Design decision 28, 30-31). The writer is opened once per run here,
+	// where the run's config is loaded and before the watch loop, and the
+	// bridge is swapped back in when the run ends; the bridge keeps receiving
+	// every record unchanged. A failed open is surfaced once and the run
+	// continues without the file.
+	if inner := LogTarget.current(); inner != nil {
+		// A previous run may still be installed while it unwinds after a
+		// stop→restart (its restore runs after pipeline shutdown). Never tee
+		// this run's records through that run's writer: its file belongs to
+		// the other run's output dir and is closed when that run's restore
+		// runs. Unwrap it down to the writer below — the event bridge.
+		for {
+			lw, ok := inner.(*LogWriter)
+			if !ok {
+				break
+			}
+			inner = lw.inner
+		}
+		lw, err := newRunLogWriter(cfg.OutputDir, inner)
+		if err != nil {
+			state.AddRecentEvent("ERROR: log file: " + err.Error())
+		} else {
+			// slog discards Handler.Handle errors, so the writer surfaces
+			// file write failures here: exactly one ERROR event on the
+			// first failure, later ones silent (spec Design decision 31).
+			// The event goes straight to the state, never back through
+			// the tee.
+			lw.reportWriteErr = func(writeErr error) {
+				state.AddRecentEvent("ERROR: log file: " + writeErr.Error())
+			}
+			restore := swapRunLogWriter(lw, inner)
+			defer restore()
+		}
 	}
 
 	p, err := pipeline.NewPipeline(cfg, false, false)

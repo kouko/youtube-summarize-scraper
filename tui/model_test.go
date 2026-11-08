@@ -1563,7 +1563,7 @@ func TestModelEditConfigValueWritesFile(t *testing.T) {
 	m := NewModel(NewAppState())
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m.handleConfigSelected(cfgPath)
-	m.focus = PanelFilePicker // config card has focus; lower shows config content
+	m.focus = PanelFilePicker                          // config card has focus; lower shows config content
 	m.View()                                           // builds the table index mapping
 	m.configCursor = m.configView.ContentTableIndex(1) // content row 1 = provider
 
@@ -1608,7 +1608,7 @@ func TestModelEditCancelKeepsFile(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
 	m.handleConfigSelected(cfgPath)
 	m.focus = PanelFilePicker // config card has focus; lower shows config content
-	m.View() // builds the table index mapping
+	m.View()                  // builds the table index mapping
 	m.configCursor = m.configView.ContentTableIndex(1)
 
 	m.handleKey(pressKey("enter"))
