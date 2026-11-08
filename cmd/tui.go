@@ -25,7 +25,12 @@ var tuiCmd = &cobra.Command{
 		// The queue matches the state's history cap so bursts never drop at
 		// the bridge before the buffer would.
 		bridge := tui.NewEventBridge(io.Discard, state, tui.MaxRecentEvents)
-		slog.SetDefault(slog.New(slog.NewTextHandler(bridge, nil)))
+		// The handler writes through the swappable log target: the bridge
+		// normally, and the per-run file tee that runPipelineWithConfig swaps
+		// in while a run is active, so logs/ytss.log and the panel receive the
+		// same records. The CLI `run` command keeps its own stderr handler.
+		tui.LogTarget.Set(bridge)
+		slog.SetDefault(slog.New(slog.NewTextHandler(tui.LogTarget, nil)))
 
 		// The TUI owns the whole terminal while the alternate screen is active:
 		// yt-dlp / whisper subprocess output and the standard logger would
