@@ -3,7 +3,7 @@ originator: kouko
 kind: product
 needs-design: yes — 新增使用者會開啟閱讀的日誌檔成品（檔案成品表面），倉庫沒有 DESIGN.md 或 ui-flows 文件涵蓋該表面
 status: confirmed 2026-11-08
-intent_confirmed_sha: 1e2ddc97d79474deee10383b308871c22ef323db
+intent_confirmed_sha: cee64b6f9508c355e6599ee1b05bdeb5dad6ef63
 publication: automatic — authorized 2026-11-08 by kouko
 
 ## Problem
