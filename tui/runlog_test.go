@@ -3,7 +3,9 @@ package tui
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -471,6 +473,91 @@ func TestRunLogOpenFailureRunContinues(t *testing.T) {
 	}
 	if doneIdx <= errIdx {
 		t.Errorf("no later event after the error line: error at %d, batch complete at %d\nevents: %q", errIdx, doneIdx, evs)
+	}
+}
+
+// injectRunWriteFailure swaps the per-run LogWriter factory for one whose
+// file writes succeed for the first succeedFirst records and then fail like a
+// full disk. It restores the factory at test end and returns the number of
+// failing writes; it is safe to read after runPipelineWithConfig returns
+// because all tee writes have stopped by then (the writer is closed on exit).
+func injectRunWriteFailure(t *testing.T, outputDir string, succeedFirst int) *int {
+	t.Helper()
+	prev := newRunLogWriter
+	failures := 0
+	newRunLogWriter = func(dir string, inner io.Writer) (*LogWriter, error) {
+		lw, err := prev(dir, inner)
+		if err != nil {
+			return nil, err
+		}
+		full := &fs.PathError{Op: "write", Path: logFilePath(outputDir), Err: errors.New("no space left on device")}
+		writes := 0
+		lw.writeFailure = func() error {
+			writes++
+			if writes <= succeedFirst {
+				return nil
+			}
+			failures++
+			return full
+		}
+		return lw, nil
+	}
+	t.Cleanup(func() { newRunLogWriter = prev })
+	return &failures
+}
+
+// A6 positive (W2-02): a mid-run write failure adds exactly one ERROR event to
+// the Recent Events panel naming the log path and the cause; the run completes.
+func TestRunLogWriteFailureShowsOneErrorEvent(t *testing.T) {
+	requireEmbedded(t)
+	out := t.TempDir()
+	state := NewAppState()
+	setupRunLog(t, state)
+
+	injectRunWriteFailure(t, out, 1) // first record lands, the rest fail
+
+	runBatchOnce(t, writeRunLogConfig(t, out, ""), state)
+
+	var logErrs []string
+	for _, ev := range state.Snapshot().RecentEvents {
+		if strings.HasPrefix(ev, "ERROR: log file") {
+			logErrs = append(logErrs, ev)
+		}
+	}
+	if len(logErrs) != 1 {
+		t.Fatalf("log-writer error events = %d, want exactly 1: %q", len(logErrs), logErrs)
+	}
+	msg := logErrs[0]
+	if !strings.Contains(msg, logFilePath(out)) {
+		t.Errorf("error event does not name the log path %q: %q", logFilePath(out), msg)
+	}
+	if !strings.Contains(msg, "no space left on device") {
+		t.Errorf("error event does not name the cause: %q", msg)
+	}
+}
+
+// A6 negative (W2-02): further write failures in the same run add no more
+// events after the first.
+func TestRunLogWriteFailureReportsOnlyOnce(t *testing.T) {
+	requireEmbedded(t)
+	out := t.TempDir()
+	state := NewAppState()
+	setupRunLog(t, state)
+
+	failures := injectRunWriteFailure(t, out, 1)
+	runBatchOnce(t, writeRunLogConfig(t, out, ""), state)
+
+	if *failures < 2 {
+		t.Fatalf("test did not exercise repeated failure: %d failing writes", *failures)
+	}
+	count := 0
+	for _, ev := range state.Snapshot().RecentEvents {
+		if strings.HasPrefix(ev, "ERROR: log file") {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("log-writer error events = %d after %d failing writes, want exactly 1", count, *failures)
 	}
 }
 

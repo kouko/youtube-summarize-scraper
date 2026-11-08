@@ -1766,6 +1766,12 @@ type RefreshMsg struct{}
 // <output_dir>/logs/ytss.log without changing where the pipeline logs.
 var LogTarget = &swappableWriter{}
 
+// newRunLogWriter creates the per-run file tee <output_dir>/logs/ytss.log.
+// It is a variable so tests can reach the run's LogWriter and inject write
+// failures through its writeFailure seam (spec Design decision 31);
+// production always uses NewLogWriter.
+var newRunLogWriter = NewLogWriter
+
 // swappableWriter is an io.Writer whose target can be replaced at run
 // boundaries. A write and a swap are mutually exclusive, so a record is never
 // torn across two targets; the target itself (the bridge or a LogWriter) keeps
@@ -1822,10 +1828,18 @@ func runPipelineWithConfig(configPath string, state *AppState, ctx context.Conte
 	// every record unchanged. A failed open is surfaced once and the run
 	// continues without the file.
 	if inner := LogTarget.current(); inner != nil {
-		lw, err := NewLogWriter(cfg.OutputDir, inner)
+		lw, err := newRunLogWriter(cfg.OutputDir, inner)
 		if err != nil {
 			state.AddRecentEvent("ERROR: log file: " + err.Error())
 		} else {
+			// slog discards Handler.Handle errors, so the writer surfaces
+			// file write failures here: exactly one ERROR event on the
+			// first failure, later ones silent (spec Design decision 31).
+			// The event goes straight to the state, never back through
+			// the tee.
+			lw.reportWriteErr = func(writeErr error) {
+				state.AddRecentEvent("ERROR: log file: " + writeErr.Error())
+			}
 			LogTarget.Set(lw)
 			defer func() {
 				LogTarget.Set(inner)

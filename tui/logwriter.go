@@ -25,14 +25,31 @@ const (
 // the current run (spec Design decision).
 //
 // Go's slog discards the error returned by Handler.Handle, so write failures
-// are detected here, in the writer itself. A failure is returned to the caller
-// and never logged to the file: an on-failure record would recurse through
-// this same Write (spec Design decision 31; surfacing the one ERROR event is
-// the caller's job).
+// are detected here, in the writer itself. The first file write failure of a
+// run is delivered once through reportWriteErr, which the caller turns into a
+// single ERROR event in the Recent Events panel; later failures in the same
+// run stay silent. The failure is never logged through this Write: an
+// on-failure record would recurse through this same tee (spec Design decision
+// 31).
 type LogWriter struct {
 	inner io.Writer
 	file  *os.File
 	path  string
+
+	// reportWriteErr, when set, is called with the first file write error
+	// and never again — later write failures in the same run stay silent
+	// (spec Design decision 31). The caller records the one ERROR event;
+	// this writer never logs the failure through itself.
+	reportWriteErr func(error)
+
+	// writeFailure, when set, is consulted before each file write and its
+	// non-nil return replaces the file write result (the record is not
+	// appended). Test-only seam for simulating mid-run write failures such
+	// as a full disk; production code never sets it.
+	writeFailure func() error
+
+	// errReported guards the once-only reportWriteErr delivery.
+	errReported bool
 
 	mu sync.Mutex
 }
@@ -59,16 +76,33 @@ func NewLogWriter(outputDir string, inner io.Writer) (*LogWriter, error) {
 }
 
 // Write implements io.Writer. It appends p to the log file and forwards p to
-// inner, so a failed file write never stops delivery to the existing flow. It
-// never writes a failure through itself.
+// inner, so a failed file write never stops delivery to the existing flow. On
+// the first file write failure it calls reportWriteErr (when set) and never
+// again; it never writes a failure through itself.
 func (w *LogWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
-	defer w.mu.Unlock()
 
-	_, fileErr := w.file.Write(p)
+	var fileErr error
+	if w.writeFailure != nil {
+		fileErr = w.writeFailure()
+	}
+	if fileErr == nil {
+		_, fileErr = w.file.Write(p)
+	}
 	var innerErr error
 	if w.inner != nil {
 		_, innerErr = w.inner.Write(p)
+	}
+	report := fileErr != nil && !w.errReported
+	if report {
+		w.errReported = true
+	}
+	reportFn := w.reportWriteErr
+	w.mu.Unlock()
+
+	// Deliver the first file write error outside the lock, once per run.
+	if report && reportFn != nil {
+		reportFn(fileErr)
 	}
 	if fileErr != nil {
 		return 0, fileErr
