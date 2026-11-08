@@ -689,6 +689,72 @@ func TestRunLogWatchLoopAppendsAcrossIterations(t *testing.T) {
 	}
 }
 
+// Adversary F-important: a stop→restart overlap. Run A installs its writer,
+// run B swaps in its own before A's run ends, and A's deferred restore then
+// runs. The restore must leave B installed so records still reach B's log
+// file and the panel; nothing may be written through a closed file (which
+// would inject a stale ERROR line), and after B's own restore the target is
+// the bridge again.
+func TestRunLogRestoreDoesNotClobberNewerTarget(t *testing.T) {
+	outA, outB := t.TempDir(), t.TempDir()
+	state := NewAppState()
+	bridge := NewEventBridge(nil, state, MaxRecentEvents)
+	defer bridge.Close()
+	prevTarget := LogTarget.current()
+	LogTarget.Set(bridge)
+	defer LogTarget.Set(prevTarget)
+
+	lwA, err := NewLogWriter(outA, bridge)
+	if err != nil {
+		t.Fatalf("writer A: %v", err)
+	}
+	lwB, err := NewLogWriter(outB, bridge)
+	if err != nil {
+		t.Fatalf("writer B: %v", err)
+	}
+
+	// A installs its writer, then B swaps in its own before A unwinds.
+	restoreA := swapRunLogWriter(lwA, bridge)
+	restoreB := swapRunLogWriter(lwB, bridge)
+
+	// A's deferred restore runs after B installed: it must not clobber B.
+	restoreA()
+	if got := LogTarget.current(); got != lwB {
+		t.Fatalf("after run A's restore the target is %T, want run B's writer still installed", got)
+	}
+
+	// Records after A's restore still reach B's log file and the panel.
+	const rec = "time=1 level=INFO msg=\"after restore\"\n"
+	if _, err := LogTarget.Write([]byte(rec)); err != nil {
+		t.Fatalf("write after A's restore failed: %v", err)
+	}
+	if content := readRunLog(t, outB); !strings.Contains(content, "msg=\"after restore\"") {
+		t.Errorf("record after A's restore did not reach run B's log file:\n%s", content)
+	}
+	if content := readRunLog(t, outA); strings.Contains(content, "after restore") {
+		t.Errorf("run B's record leaked into run A's log file:\n%s", content)
+	}
+	waitFor(t, func() bool { return bridge.Applied() >= 1 })
+	seen := false
+	for _, ev := range state.Snapshot().RecentEvents {
+		if ev == strings.TrimSuffix(rec, "\n") {
+			seen = true
+		}
+		if strings.HasPrefix(ev, "ERROR: log file") {
+			t.Errorf("stale log-writer error injected: %q", ev)
+		}
+	}
+	if !seen {
+		t.Errorf("record after A's restore did not reach the Recent Events panel: %q", state.Snapshot().RecentEvents)
+	}
+
+	// When B's own restore runs, the target returns to the bridge.
+	restoreB()
+	if got := LogTarget.current(); got != bridge {
+		t.Errorf("after both restores the target is %T, want the bridge", got)
+	}
+}
+
 // W3-01 (Acceptance 3) boundary: a watch-loop config reload that changes
 // output_dir does not move the current run's writer mid-batch — every
 // iteration keeps writing to the run-start path — and the new path is used

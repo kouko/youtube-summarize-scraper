@@ -1789,6 +1789,22 @@ func (s *swappableWriter) Set(w io.Writer) {
 	s.w = w
 }
 
+// CompareAndSet replaces the target with next only while the current target
+// is still old, reporting whether the swap happened. A run's deferred restore
+// uses it to back out when a newer run already swapped in its own writer
+// during a stop→restart overlap, so the restore can never clobber the newer
+// swap. The write lock excludes concurrent Write calls, so once the call
+// returns — either way — no record can be in flight through old.
+func (s *swappableWriter) CompareAndSet(old, next io.Writer) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.w != old {
+		return false
+	}
+	s.w = next
+	return true
+}
+
 // current returns the target writer without changing it.
 func (s *swappableWriter) current() io.Writer {
 	s.mu.RLock()
@@ -1804,6 +1820,23 @@ func (s *swappableWriter) Write(p []byte) (int, error) {
 		return len(p), nil
 	}
 	return s.w.Write(p)
+}
+
+// swapRunLogWriter installs lw as the run's log target and returns the
+// function that undoes the swap when the run ends. The undo is conditional:
+// it replaces lw with prev only while lw is still the installed target, so a
+// newer run that swapped in its own writer during a stop→restart overlap is
+// never clobbered. The run's writer is closed only after it is no longer
+// installed: a non-installed LogWriter is referenced by no other writer
+// (installs always unwrap an older run's writer down to the bridge), and the
+// write lock guarantees no record is in flight through it, so closing it is
+// safe and leaks no descriptor.
+func swapRunLogWriter(lw *LogWriter, prev io.Writer) func() {
+	LogTarget.Set(lw)
+	return func() {
+		LogTarget.CompareAndSet(lw, prev)
+		lw.Close()
+	}
 }
 
 // runPipelineWithConfig loads the selected config and runs the batch (single
@@ -1828,6 +1861,18 @@ func runPipelineWithConfig(configPath string, state *AppState, ctx context.Conte
 	// every record unchanged. A failed open is surfaced once and the run
 	// continues without the file.
 	if inner := LogTarget.current(); inner != nil {
+		// A previous run may still be installed while it unwinds after a
+		// stop→restart (its restore runs after pipeline shutdown). Never tee
+		// this run's records through that run's writer: its file belongs to
+		// the other run's output dir and is closed when that run's restore
+		// runs. Unwrap it down to the writer below — the event bridge.
+		for {
+			lw, ok := inner.(*LogWriter)
+			if !ok {
+				break
+			}
+			inner = lw.inner
+		}
 		lw, err := newRunLogWriter(cfg.OutputDir, inner)
 		if err != nil {
 			state.AddRecentEvent("ERROR: log file: " + err.Error())
@@ -1840,11 +1885,8 @@ func runPipelineWithConfig(configPath string, state *AppState, ctx context.Conte
 			lw.reportWriteErr = func(writeErr error) {
 				state.AddRecentEvent("ERROR: log file: " + writeErr.Error())
 			}
-			LogTarget.Set(lw)
-			defer func() {
-				LogTarget.Set(inner)
-				lw.Close()
-			}()
+			restore := swapRunLogWriter(lw, inner)
+			defer restore()
 		}
 	}
 
