@@ -30,9 +30,11 @@ func SanitizeTag(tag string) string {
 
 // EnrichTagsForObsidian merges LLM-generated tags, a sanitized channel name,
 // and autoTags into a single deduplicated list for Obsidian's tags field.
+// It also respects the includeChannelName flag to control whether the
+// channel name is included in the final tags list.
 // All tags are sanitized for Obsidian compatibility (lowercase, no spaces, no special chars).
 // YouTube native video tags are excluded (kept separately in video_tags).
-func EnrichTagsForObsidian(llmTags []string, channelName string, autoTags []string) []string {
+func EnrichTagsForObsidian(llmTags []string, channelName string, autoTags []string, includeChannelName bool) []string {
 	seen := make(map[string]struct{})
 	var result []string
 
@@ -52,7 +54,9 @@ func EnrichTagsForObsidian(llmTags []string, channelName string, autoTags []stri
 		add(t)
 	}
 
-	add(channelName)
+	if includeChannelName {
+		add(channelName)
+	}
 
 	for _, t := range autoTags {
 		add(t)

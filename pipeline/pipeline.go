@@ -956,6 +956,7 @@ func (p *Pipeline) runSummarization(
 	if p.config.Obsidian.Enabled {
 		fmData.Tags = output.EnrichTagsForObsidian(
 			fmData.Tags, meta.ChannelName, p.config.Obsidian.AutoTags,
+			p.config.Obsidian.IncludeChannelName,
 		)
 	}
 
@@ -1454,6 +1455,7 @@ func (p *Pipeline) runSummarizationPlaylist(
 	if p.config.Obsidian.Enabled {
 		fmData.Tags = output.EnrichTagsForObsidian(
 			fmData.Tags, meta.ChannelName, p.config.Obsidian.AutoTags,
+			p.config.Obsidian.IncludeChannelName,
 		)
 	}
 
