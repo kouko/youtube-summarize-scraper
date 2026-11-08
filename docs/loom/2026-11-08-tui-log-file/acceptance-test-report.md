@@ -1,6 +1,6 @@
 # TUI 執行紀錄:把日誌寫成輸出資料夾裡的純文字檔 — what I tried and what happened
 
-Tried on 2026-11-08, in a clean copy of the project at `deb866f`. How I tried
+Tried on 2026-11-08, in a clean copy of the project at deb866f. How I tried
 each line and what came back:
 `docs/loom/2026-11-08-tui-log-file/evidence/acceptance-test-evidence.md`。
 
