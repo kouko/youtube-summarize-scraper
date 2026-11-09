@@ -4,7 +4,7 @@ kind: engineering
 needs-design: no — 僅在 ProcessVideo 最開頭加入已處理前置檢查 + dry-run 跳過 metadata fetch；無新 CLI、config 結構、輸出檔案格式或 TUI 變更；既有設計文件 docs/loom/specs/ytss-design.md 已涵蓋管線行為
 evidence: [pipeline/pipeline.go, output/index.go, docs/loom/specs/ytss-design.md]
 status: confirmed 2026-11-09
-intent_confirmed_sha: ddaac35fe35e14dde2bb73888aec8e121950d975
+intent_confirmed_sha: 748ba9ba00d66b0d60f3413a5b42501f93b9ead1
 publication: automatic — authorized 2026-11-09 by kouko
 
 ## Problem
