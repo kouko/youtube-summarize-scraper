@@ -28,6 +28,7 @@ Tried on 2026-11-09, in a clean copy of the project at 54a7492 (54a74920f8c17002
   ```
   Zero occurrences of "fetching full metadata". (Dry-run subtest additionally asserts no "would process (dry run)" appears for already-processed videos — they are reported skipped.)
 - Committed tests: `TestProcessVideo_EarlySkip/already-processed_skips_metadata_fetch` — at base e801bba: FAIL (`FetchVideoMeta calls = 1, want 0`, error instead of skip) → at HEAD 54a7492: PASS (skipped, 0 fetch calls).
+- Base-scan probe (scratch `TestBaseProbe_ScanAllProcessed_NoFetch`, run in a base worktree): at e801bba the full channel-scan loop also made 0 full-metadata fetches and reported skipped=3, because `processChannelVideos` already pre-skips terminal videos by video ID before `ProcessVideo` (plan Current State Evidence). So line 1 already held for the scan path before this change; the net-new behavior of this change is the `ProcessVideo` early check itself (RED→GREEN above) and, most importantly, the dry-run fast path (line 3). The early check is redundant-but-harmless on the scan path and keeps every caller of `ProcessVideo` with a channel config protected.
 - Evidence: `pipeline/pipeline.go:621-627` (early skip guarded by `!force`), harness assertions and captured log above, RED→GREEN table below.
 
 ## 2. New (unprocessed) videos behave as today: full metadata fetch then subtitle/transcription/summary
@@ -94,6 +95,7 @@ Base worktree at e801bba (pre-change), with the new tests from HEAD copied in:
 - `TestProcessVideo_EarlySkip/unindexed_video_fetches_exactly_once` → PASS (unchanged-behavior baseline).
 - `TestProcessVideo_EarlySkip/renamed_handle_falls_through_then_post-fetch_skips` → PASS (fallback existed before; this change must not break it).
 - `TestProcessVideo_EarlySkip/force_bypasses_early_processed_check` → PASS (`--force` semantics existed before).
+- `TestBaseProbe_ScanAllProcessed_NoFetch` (base only) → PASS: fetch calls=0, skipped=3 — the channel-scan loop's existing pre-check already handled processed videos before this change (see section 1).
 
 HEAD 54a7492: all of the above PASS — GREEN.
 
