@@ -1,0 +1,96 @@
+{
+  "schema": "loom-attestation/v2",
+  "change_id": "2026-11-09-accelerate-channel-scan",
+  "content_digest": "73b6639ebb361ff69050c17da8cfb870713643ac",
+  "executions": [
+    {
+      "kind": "package-tests",
+      "command": "go test ./...",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "1bb497e3e13a1105cf24e3359fa3ef75de08b66ff8a2839cd7f9ea97824d9eb3"
+    },
+    {
+      "kind": "adversarial",
+      "no_program": "Build committed no adversarial probe program for this change: it is a two-check early-exit guard in ProcessVideo whose boundary cases (dry-run, already-processed, force bypass, handle-mismatch fallback) are covered by the RED→GREEN unit tests TestProcessVideo_EarlySkip and TestExtractHandleFromURL in pipeline/pipeline_test.go"
+    }
+  ],
+  "verdicts": [
+    {
+      "reviewer": "reviewer-1",
+      "vendor": "litellm",
+      "model": "hyper-coding-group-200k",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": [
+        {
+          "severity": "nit",
+          "dimension": "tests",
+          "anchor": "pipeline/pipeline_test.go:449",
+          "text": "nitpick: TestExtractHandleFromURL tests the unexported extractHandleFromURL directly; per the lens, a new test calling an internal (non-entry) function whose behaviour is reachable from the module entry is a placement finding — the URL-form behaviour is observable through ProcessVideo via channelCfg.URL.",
+          "fix": "Fold the URL-form cases into TestProcessVideo_EarlySkip as channelCfg.URL cases, then delete TestExtractHandleFromURL."
+        },
+        {
+          "severity": "nit",
+          "dimension": "naming",
+          "anchor": "pipeline/pipeline.go:1666",
+          "text": "nitpick: the parameter is named url, shadowing the net/url package that this same file imports and uses at pipeline.go:1558; a future url.Parse inside this function would fail confusingly.",
+          "fix": "Rename the parameter to rawURL (or channelURL) in the signature, body, and test call sites."
+        },
+        {
+          "severity": "nit",
+          "dimension": "refactoring",
+          "anchor": "pipeline/pipeline.go:1668",
+          "text": "nitpick: regexp.MustCompile runs inside extractHandleFromURL on every call, recompiling a fixed pattern once per video in a scan — a needless cost in a change whose whole purpose is scan speed.",
+          "fix": "Hoist to a package-level var (var handleRe = regexp.MustCompile(`/(@[^/]+)`)) and reference it from the function."
+        }
+      ]
+    },
+    {
+      "reviewer": "reviewer-2",
+      "vendor": "litellm",
+      "model": "hyper-coding-group-200k",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": [
+        {
+          "severity": "nit",
+          "dimension": "tests",
+          "anchor": "pipeline/pipeline_test.go:449",
+          "text": "nitpick (non-blocking): TestExtractHandleFromURL calls the unexported extractHandleFromURL, whose behaviour is reachable from the module entry ProcessVideo via channelCfg.URL, so the parser's rejection forms (/channel/UC…, /c/…, /user/…) are asserted only at the internal seam and no entry-level test proves a handle-less config URL skips the early check and falls through to a fetch.",
+          "fix": "Add one entry-level case to TestProcessVideo_EarlySkip whose channelCfg.URL is e.g. https://www.youtube.com/channel/UC1234567890abcdef, asserting the video is not skipped by the early check and FetchVideoMeta is called exactly once, then delete TestExtractHandleFromURL."
+        },
+        {
+          "severity": "nit",
+          "dimension": "naming",
+          "anchor": "pipeline/pipeline.go:1666",
+          "text": "nitpick (non-blocking): the parameter `url string` shadows the imported net/url package (still used elsewhere in this file at pipeline.go:1558), so any future url.* call inside the function silently binds the string parameter.",
+          "fix": "Rename the parameter to `channelURL` (or `rawURL`) in the signature and the two body references."
+        }
+      ]
+    }
+  ],
+  "findings": [],
+  "selection": null,
+  "intent_confirmed_sha": "748ba9ba00d66b0d60f3413a5b42501f93b9ead1",
+  "tested_commit": "33d70eb",
+  "reviewed_commit": "19358cb9425d50f11b2646b56dc34daae0e4ae78",
+  "acceptance_status": [
+    {
+      "acceptance": 1,
+      "status": "works"
+    },
+    {
+      "acceptance": 2,
+      "status": "works"
+    },
+    {
+      "acceptance": 3,
+      "status": "works"
+    },
+    {
+      "acceptance": 4,
+      "status": "works"
+    }
+  ]
+}
