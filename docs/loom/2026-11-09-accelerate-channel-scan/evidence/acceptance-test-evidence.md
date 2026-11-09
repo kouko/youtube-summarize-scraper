@@ -1,6 +1,6 @@
 # Accelerate channel scan — acceptance test evidence
 
-Tried on 2026-11-09, in a clean copy of the project at 54a7492 (54a74920f8c17002bb104b7367785c1fb6bd07f6).
+Tried on 2026-11-09, in a clean copy of the project at 33d70eb (33d70ebf614e9c52f012bf42481d56bb4c30394c).
 
 ## Setup
 
@@ -101,4 +101,20 @@ HEAD 54a7492: all of the above PASS — GREEN.
 
 ## Re-run
 
-- n/a — first acceptance run; no fix has been made.
+### Re-run on 2026-11-09, at 33d70eb (33d70ebf614e9c52f012bf42481d56bb4c30394c)
+
+Reason: publication-metadata correction commit 33d70eb re-confirmed the intent with only its `intent_confirmed_sha:` pin value corrected (748ba9ba, replacing a pin computed with a stray trailing newline). The intent file counts as functional content in this repo's digest, so acceptance evidence must be produced on the corrected HEAD. No functional code changed.
+
+Precheck — the tested source is identical to the first run:
+- `git diff 54a74920f8c17002bb104b7367785c1fb6bd07f6..33d70ebf614e9c52f012bf42481d56bb4c30394c --stat` → only `docs/loom/intent/2026-11-09-accelerate-channel-scan.md` (1 line: `intent_confirmed_sha`).
+- `diff <(git show 54a7492:pipeline/pipeline.go) pipeline/pipeline.go` → identical; `pipeline/pipeline_test.go` → identical.
+- Clean `git worktree add` at 33d70eb (detached HEAD), embedded tool binaries provisioned the same way (copied gitignored `embedded/bin/darwin-arm64/{yt-dlp,ffmpeg,whisper-cli}` from the working repo; `make build` still cannot compile ffmpeg/whisper because nasm is absent). `go build ./...` → OK; `go vet ./...` → OK.
+- The full package suite was again left to finalize-review (not run here). Only the criterion tests below were run.
+
+Re-tested (all four lines re-tested in full, every surface each line names):
+- 1: re-tested — harness `TestAcc_A1_ScanAllProcessed_NoFetch_AllSkipped` (scan and dry-run subtests) → PASS; `FetchVideoMeta` calls=0 in both, stats skipped=3, captured Debug log has 3× "skipped (already processed)" and zero "fetching full metadata". Committed `TestProcessVideo_EarlySkip` (all 5 cases) + `TestExtractHandleFromURL` → PASS (`go test ./pipeline -run 'TestProcessVideo_EarlySkip|TestExtractHandleFromURL'` → ok).
+- 2: re-tested — harness `TestAcc_A2_NewVideo_FetchThenExistingFlow` → PASS; exactly 1 fetch, subtitle downloader invoked, `*__subtitle.srt`, `*__transcription.md`, `*__summary.md` written, stats success=1. Log: fetching full metadata → subtitle download succeeded → stage 1 → video processing complete.
+- 3: re-tested — harness `TestAcc_A3_DryRun_NoFetch_OnlyWouldProcess` → PASS; `FetchVideoMeta` calls=0, exactly 3× "would process (dry run)", zero "fetching full metadata", output dir remains empty. Committed `TestProcessVideo_EarlySkip/dry-run_skips_metadata_fetch` → PASS.
+- 4: re-tested — harness `TestAcc_A4_RenamedHandle_FetchOnce_PostFetchSkip_NoDuplicate` and `TestAcc_A4b_RenamedHandle_ChannelScan_NoErrorNoDuplicate` → PASS for both; early miss → exactly 1 fetch → post-fetch "skipped (already processed)" → `IsSkipped`, no error, only the original `@oldhandle` dir remains. Committed `TestProcessVideo_EarlySkip/renamed_handle_falls_through_then_post-fetch_skips` and `/force_bypasses_early_processed_check` → PASS.
+
+Result: all four Acceptance lines `works` at 33d70eb — same verdicts as the first run at 54a7492; no new findings.
