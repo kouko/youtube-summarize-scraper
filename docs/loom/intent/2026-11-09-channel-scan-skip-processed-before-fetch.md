@@ -3,7 +3,7 @@ originator: kouko
 kind: engineering
 needs-design: no — 不改變任何 CLI 參數、config 結構、輸出檔案格式或 TUI 介面；只調整內部檢查順序（先查已處理、後補 metadata），既有設計文件 docs/loom/specs/ytss-design.md 已涵蓋掃描與管線行為
 evidence: [fetcher/types.go, fetcher/fetcher.go, pipeline/pipeline.go, output/index.go, docs/loom/specs/ytss-design.md]
-status: confirmed 2026-11-09
+status: withdrawn — 前提與現況程式行為不符：頻道掃描迴圈（pipeline/pipeline.go:560-568）已在補抓前按影片 id 跳過已處理影片，四條驗收標準於現況已成立；改以「加速掃描」新 intent 處理實際瓶頸（新影片逐支補抓、清單啟動成本、dry-run 補抓）
 intent_confirmed_sha: 37b4dbae0f4efb246432bd0761dfb6e14da50b6d
 publication: automatic — authorized 2026-11-09 by kouko
 
