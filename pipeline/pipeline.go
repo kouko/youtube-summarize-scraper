@@ -613,22 +613,23 @@ func (p *Pipeline) processChannelVideos(videos []fetcher.VideoMeta, channelCfg *
 
 // ProcessVideo is the core pipeline for a single video.
 func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.ChannelConfig) error {
-	// Early skip: dry-run mode never fetches metadata.
-	if p.dryRun {
-		slog.Info("would process (dry run)", "video_id", meta.ID, "title", meta.Title)
-		return errSkipped
-	}
-
 	// Early skip: already-processed check using config handle + video ID.
 	// This avoids a full-metadata fetch for videos already in the index.
 	// The handle is taken from the channel config URL (not from metadata,
 	// which may not yet have uploader_id for flat-playlist entries).
-	if channelCfg != nil {
+	// --force bypasses this exactly like the post-fetch check below.
+	if channelCfg != nil && !p.force {
 		handle := extractHandleFromURL(channelCfg.URL)
 		if handle != "" && p.index.IsProcessed(handle, meta.ID) {
 			slog.Info("skipped (already processed)", "video_id", meta.ID)
 			return errSkipped
 		}
+	}
+
+	// Early skip: dry-run mode never fetches metadata.
+	if p.dryRun {
+		slog.Info("would process (dry run)", "video_id", meta.ID, "title", meta.Title)
+		return errSkipped
 	}
 
 	// 1. Fetch full metadata if we only have partial data (e.g., from ytss video command).

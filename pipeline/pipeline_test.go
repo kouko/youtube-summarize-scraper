@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -285,5 +286,182 @@ func TestLoopPreChecks_SkipMarked(t *testing.T) {
 				t.Error("per-video pipeline was dispatched (subtitle.Download invoked) — pre-check did not short-circuit on .skipped")
 			}
 		})
+	}
+}
+
+// callTrackingFetcher records FetchVideoMeta calls for the early-skip tests.
+type callTrackingFetcher struct {
+	calls int
+	fn    func(url string) (*fetcher.VideoMeta, error)
+}
+
+func (f *callTrackingFetcher) FetchVideoMeta(url string) (*fetcher.VideoMeta, error) {
+	f.calls++
+	if f.fn != nil {
+		return f.fn(url)
+	}
+	return nil, nil
+}
+
+func (f *callTrackingFetcher) FetchChannelTab(string, int) ([]fetcher.VideoMeta, error) {
+	return nil, nil
+}
+
+func (f *callTrackingFetcher) FetchPlaylistVideos(string, int, []string) ([]fetcher.VideoMeta, string, error) {
+	return nil, "", nil
+}
+
+// buildProcessedIndex creates outputDir/@testhandle/20240101__<videoID>__Test-Video
+// with a summary file, then builds the index from disk. The file name must end
+// with "__summary.md" for BuildIndex to register the summary flag.
+func buildProcessedIndex(t *testing.T, outputDir, videoID string) *output.VideoIndex {
+	t.Helper()
+	videoDir := filepath.Join(outputDir, "@testhandle", "20240101__"+videoID+"__Test-Video")
+	if err := output.EnsureDir(videoDir); err != nil {
+		t.Fatalf("EnsureDir: %v", err)
+	}
+	summaryPath := filepath.Join(videoDir, "20240101__"+videoID+"__summary.md")
+	if err := os.WriteFile(summaryPath, []byte("test"), 0644); err != nil {
+		t.Fatalf("Write summary: %v", err)
+	}
+	return output.BuildIndex(outputDir)
+}
+
+// TestProcessVideo_EarlySkip verifies the two early-exit checks at the top of
+// ProcessVideo: an already-processed video (index has summary.md/.skipped under
+// the config URL's @handle) and dry-run mode both return errSkipped before any
+// metadata fetch. Unindexed videos fetch exactly once; a handle mismatch falls
+// through to the post-fetch check; --force bypasses the early check.
+func TestProcessVideo_EarlySkip(t *testing.T) {
+	tests := []struct {
+		name             string
+		dryRun           bool
+		force            bool
+		channelCfg       *config.ChannelConfig
+		videoID          string
+		alreadyProcessed bool
+		fetchFullMeta    *fetcher.VideoMeta // returned by FetchVideoMeta; nil means error
+		wantSkipped      bool
+		wantFetchCalls   int
+	}{
+		{
+			name:        "dry-run skips metadata fetch",
+			dryRun:      true,
+			videoID:     "earlySkipVid1",
+			wantSkipped: true,
+		},
+		{
+			name:             "already-processed skips metadata fetch",
+			channelCfg:       &config.ChannelConfig{URL: "https://www.youtube.com/@testhandle"},
+			videoID:          "earlySkipVid2",
+			alreadyProcessed: true,
+			wantSkipped:      true,
+		},
+		{
+			name:       "unindexed video fetches exactly once",
+			channelCfg: &config.ChannelConfig{URL: "https://www.youtube.com/@testhandle"},
+			videoID:    "earlySkipVid3",
+			// Full fetch fails and the partial meta has no channel info,
+			// so ProcessVideo returns an error right after the fetch.
+			wantSkipped:    false,
+			wantFetchCalls: 1,
+		},
+		{
+			name:             "renamed handle falls through then post-fetch skips",
+			channelCfg:       &config.ChannelConfig{URL: "https://www.youtube.com/@renamedhandle"},
+			videoID:          "earlySkipVid4",
+			alreadyProcessed: true,
+			// Full meta reports the original @testhandle channel, so the
+			// post-fetch IsProcessed check still catches it.
+			fetchFullMeta: &fetcher.VideoMeta{
+				ID: "earlySkipVid4", Title: "Test Video", Channel: "@testhandle",
+				UploadDate: "20240101", Tags: []string{"tag"},
+			},
+			wantSkipped:    true,
+			wantFetchCalls: 1,
+		},
+		{
+			name:             "force bypasses early processed check",
+			force:            true,
+			channelCfg:       &config.ChannelConfig{URL: "https://www.youtube.com/@testhandle"},
+			videoID:          "earlySkipVid5",
+			alreadyProcessed: true,
+			// Fetch fails and partial meta has no channel → error, proving
+			// the early skip did not fire.
+			wantSkipped:    false,
+			wantFetchCalls: 1,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			outputDir := t.TempDir()
+
+			var idx *output.VideoIndex
+			if tc.alreadyProcessed {
+				idx = buildProcessedIndex(t, outputDir, tc.videoID)
+			} else {
+				idx = output.BuildIndex(outputDir)
+			}
+
+			fetcherMock := &callTrackingFetcher{fn: func(string) (*fetcher.VideoMeta, error) {
+				if tc.fetchFullMeta != nil {
+					return tc.fetchFullMeta, nil
+				}
+				return nil, fmt.Errorf("fetch failed")
+			}}
+
+			p := &Pipeline{
+				config:   &config.Config{OutputDir: outputDir},
+				fetcher:  fetcherMock,
+				index:    idx,
+				timezone: time.UTC,
+				force:    tc.force,
+				dryRun:   tc.dryRun,
+			}
+
+			// Partial metadata (Tags nil) — without an early skip this
+			// triggers the full-metadata fetch branch.
+			meta := &fetcher.VideoMeta{
+				ID:    tc.videoID,
+				Title: "Test Video",
+			}
+
+			var channelCfg *config.ChannelConfig
+			if tc.channelCfg != nil {
+				channelCfg = tc.channelCfg
+			}
+
+			err := p.ProcessVideo(meta, channelCfg)
+
+			if got := IsSkipped(err); got != tc.wantSkipped {
+				t.Errorf("IsSkipped(err) = %v, want %v (err=%v)", got, tc.wantSkipped, err)
+			}
+			if fetcherMock.calls != tc.wantFetchCalls {
+				t.Errorf("FetchVideoMeta calls = %d, want %d", fetcherMock.calls, tc.wantFetchCalls)
+			}
+		})
+	}
+}
+
+// TestExtractHandleFromURL covers the URL forms accepted and rejected by the
+// early-check handle parser.
+func TestExtractHandleFromURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"https://www.youtube.com/@MacroMicro_tw", "MacroMicro_tw"},
+		{"https://www.youtube.com/@MacroMicro_tw/videos", "MacroMicro_tw"},
+		{"https://youtube.com/@somehandle/featured", "somehandle"},
+		{"https://www.youtube.com/channel/UC1234567890abcdef", ""},
+		{"https://www.youtube.com/c/SomeName", ""},
+		{"https://www.youtube.com/user/SomeUser", ""},
+		{"", ""},
+	}
+	for _, tc := range tests {
+		if got := extractHandleFromURL(tc.url); got != tc.want {
+			t.Errorf("extractHandleFromURL(%q) = %q, want %q", tc.url, got, tc.want)
+		}
 	}
 }
