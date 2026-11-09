@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -612,6 +613,25 @@ func (p *Pipeline) processChannelVideos(videos []fetcher.VideoMeta, channelCfg *
 
 // ProcessVideo is the core pipeline for a single video.
 func (p *Pipeline) ProcessVideo(meta *fetcher.VideoMeta, channelCfg *config.ChannelConfig) error {
+	// Early skip: already-processed check using config handle + video ID.
+	// This avoids a full-metadata fetch for videos already in the index.
+	// The handle is taken from the channel config URL (not from metadata,
+	// which may not yet have uploader_id for flat-playlist entries).
+	// --force bypasses this exactly like the post-fetch check below.
+	if channelCfg != nil && !p.force {
+		handle := extractHandleFromURL(channelCfg.URL)
+		if handle != "" && p.index.IsProcessed(handle, meta.ID) {
+			slog.Info("skipped (already processed)", "video_id", meta.ID)
+			return errSkipped
+		}
+	}
+
+	// Early skip: dry-run mode never fetches metadata.
+	if p.dryRun {
+		slog.Info("would process (dry run)", "video_id", meta.ID, "title", meta.Title)
+		return errSkipped
+	}
+
 	// 1. Fetch full metadata if we only have partial data (e.g., from ytss video command).
 	// Preserve approximate date from flat-playlist as fallback.
 	approxUploadDate := meta.UploadDate
@@ -1638,6 +1658,19 @@ func deriveChannelHandle(meta *fetcher.VideoMeta) string {
 		ch = "unknown"
 	}
 	return ch
+}
+
+// extractHandleFromURL parses the channel handle from a YouTube channel URL.
+// Supported forms: https://www.youtube.com/@handle, https://www.youtube.com/@handle/videos, etc.
+// Returns empty string if the URL doesn't contain a handle (e.g., /channel/UC..., /c/..., /user/...).
+func extractHandleFromURL(url string) string {
+	// Look for /@handle/ pattern or /@handle at end
+	re := regexp.MustCompile(`/(@[^/]+)`)
+	matches := re.FindStringSubmatch(url)
+	if len(matches) >= 2 {
+		return strings.TrimPrefix(matches[1], "@")
+	}
+	return ""
 }
 
 // videoURL constructs a YouTube watch URL from a video ID.
