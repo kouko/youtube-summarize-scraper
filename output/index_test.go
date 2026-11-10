@@ -104,6 +104,50 @@ func TestBuildIndex_InvalidDirName(t *testing.T) {
 	}
 }
 
+func TestBuildIndex_VideoIDWithDoubleUnderscore(t *testing.T) {
+	// Video ID containing "__" must be extracted correctly.
+	// Real example: tp_F__iRC04 (MacroMicro channel live stream ID)
+	tmp := t.TempDir()
+	createVideoDir(t, tmp, "@MacroMicro_tw", "2023-12-05__tp_F__iRC04__課程前導直播未來五年影響你決策的關鍵趨勢對談", []string{
+		"2023-12-05__tp_F__iRC04__summary.md",
+	})
+
+	idx := BuildIndex(tmp)
+
+	if dir := idx.FindVideoDir("tp_F__iRC04"); dir == "" {
+		t.Error("BuildIndex: video ID with __ not found")
+	}
+	if !idx.HasFile("tp_F__iRC04", "summary.md") {
+		t.Error("BuildIndex: expected summary.md for video ID with __")
+	}
+	if !idx.IsProcessed("MacroMicro_tw", "tp_F__iRC04") {
+		t.Error("BuildIndex: expected IsProcessed true for video ID with __")
+	}
+}
+
+func TestExtractVideoID_ContainsDoubleUnderscore(t *testing.T) {
+	cases := []struct {
+		name     string
+		dirName  string
+		wantVID  string
+	}{
+		{"normal ID", "2024-01-01__vid1__Title", "vid1"},
+		{"ID with __", "2023-12-05__tp_F__iRC04__課程前導直播", "tp_F__iRC04"},
+		{"ID with multiple __", "2024-01-01__a__b__c__Title", "a__b__c"},
+		{"no separator", "no-separator-dir", ""},
+		{"only one __", "2024-01-01__onlyone", ""},
+		{"empty middle", "2024-01-01____Title", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := extractVideoID(tc.dirName)
+			if got != tc.wantVID {
+				t.Errorf("extractVideoID(%q) = %q, want %q", tc.dirName, got, tc.wantVID)
+			}
+		})
+	}
+}
+
 func TestBuildIndex_SkippedMarker(t *testing.T) {
 	tmp := t.TempDir()
 	// A terminal skip marker file, named DATE__videoID__.skipped, must register
