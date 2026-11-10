@@ -4,7 +4,7 @@ originator: kouko
 kind: engineering
 needs-design: no — 既有設計文件 docs/loom/specs/ytss-design.md 的輸出結構章節已涵蓋輸出資料夾命名規則（DATE__videoID__title）；本修正不改變格式，只修正解析邏輯
 status: confirmed 2026-11-11
-intent_confirmed_sha: a0367f98d0b296b57007be93206b7705190874ed
+intent_confirmed_sha: 581832dd05331c34bae09227b9fdbe068458a911
 publication: automatic — authorized 2026-11-11 by kouko
 
 ## Problem
