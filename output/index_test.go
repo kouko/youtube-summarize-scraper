@@ -127,9 +127,9 @@ func TestBuildIndex_VideoIDWithDoubleUnderscore(t *testing.T) {
 
 func TestExtractVideoID_ContainsDoubleUnderscore(t *testing.T) {
 	cases := []struct {
-		name     string
-		dirName  string
-		wantVID  string
+		name    string
+		dirName string
+		wantVID string
 	}{
 		{"normal ID", "2024-01-01__vid1__Title", "vid1"},
 		{"ID with __", "2023-12-05__tp_F__iRC04__課程前導直播", "tp_F__iRC04"},
