@@ -85,11 +85,24 @@ func BuildIndex(outputDir string) *VideoIndex {
 
 // extractVideoID extracts the video ID from a directory name formatted as DATE__videoID__title.
 func extractVideoID(dirName string) string {
-	parts := strings.SplitN(dirName, "__", 3)
-	if len(parts) >= 2 {
-		return parts[1]
+	// Directory format: DATE__videoID__title
+	// videoID may itself contain "__", so we must find the first "__" (after DATE)
+	// and the last "__" (before title), taking the middle segment.
+	first := strings.Index(dirName, "__")
+	if first == -1 {
+		return ""
 	}
-	return ""
+	last := strings.LastIndex(dirName, "__")
+	if last == -1 || last == first {
+		return ""
+	}
+	// videoID starts after first "__", ends before last "__"
+	start := first + 2
+	end := last
+	if start >= end {
+		return ""
+	}
+	return dirName[start:end]
 }
 
 // FindVideoDir returns the existing video directory path for a given video ID.
