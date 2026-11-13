@@ -125,6 +125,128 @@ func TestBuildIndex_VideoIDWithDoubleUnderscore(t *testing.T) {
 	}
 }
 
+// TestBuildIndex_DuplicateDirs pins the duplicate-directory selection rule:
+// when several directories carry the same video ID, a completed directory must
+// win over an empty shell regardless of lexicographic order, and ties keep the
+// earliest-sorted directory.
+func TestBuildIndex_DuplicateDirs(t *testing.T) {
+	t.Run("summaryBeatsEmptyShell", func(t *testing.T) {
+		tmp := t.TempDir()
+		summaryDir := createVideoDir(t, tmp, "@ch", "2024-03-01__vid1__Summary", []string{
+			"2024-03-01__vid1__summary.md",
+		})
+		createVideoDir(t, tmp, "@ch", "2024-04-01__vid1__Empty", []string{})
+
+		idx := BuildIndex(tmp)
+
+		if got := idx.FindVideoDir("vid1"); got != summaryDir {
+			t.Errorf("FindVideoDir: got %q, want summary dir %q", got, summaryDir)
+		}
+		if !idx.HasFile("vid1", "summary.md") {
+			t.Error("expected HasFile summary.md true")
+		}
+		if !idx.IsProcessed("ch", "vid1") {
+			t.Error("expected IsProcessed true")
+		}
+	})
+
+	t.Run("emptyShellSortsLast", func(t *testing.T) {
+		tmp := t.TempDir()
+		summaryDir := createVideoDir(t, tmp, "@ch", "2024-05-01__vid1__Summary", []string{
+			"2024-05-01__vid1__summary.md",
+		})
+		// Sorts after 2024-05-01 and is empty; it must not steal the slot.
+		createVideoDir(t, tmp, "@ch", "2024-06-01__vid1__Empty", []string{})
+
+		idx := BuildIndex(tmp)
+
+		if got := idx.FindVideoDir("vid1"); got != summaryDir {
+			t.Errorf("FindVideoDir: got %q, want summary dir %q", got, summaryDir)
+		}
+		if !idx.HasFile("vid1", "summary.md") {
+			t.Error("expected HasFile summary.md true")
+		}
+	})
+
+	t.Run("allEmptyReturnsSomeDir", func(t *testing.T) {
+		tmp := t.TempDir()
+		createVideoDir(t, tmp, "@ch", "2024-01-01__vid1__A", []string{})
+		createVideoDir(t, tmp, "@ch", "2024-02-01__vid1__B", []string{})
+
+		idx := BuildIndex(tmp)
+
+		if got := idx.FindVideoDir("vid1"); got == "" {
+			t.Error("FindVideoDir: expected a non-empty stable path when all duplicates are empty")
+		}
+	})
+
+	t.Run("allEmptyPicksFirstSorted", func(t *testing.T) {
+		tmp := t.TempDir()
+		firstDir := createVideoDir(t, tmp, "@ch", "2024-01-01__vid1__A", []string{})
+		createVideoDir(t, tmp, "@ch", "2024-02-01__vid1__B", []string{})
+
+		idx := BuildIndex(tmp)
+
+		if got := idx.FindVideoDir("vid1"); got != firstDir {
+			t.Errorf("FindVideoDir: got %q, want first-sorted dir %q", got, firstDir)
+		}
+	})
+
+	t.Run("xjLayoutResolvesSummary", func(t *testing.T) {
+		tmp := t.TempDir()
+		const playlist = "_playlist__PL8-ulaGCrHSWz3nf0SgqWakeFg29SB4vS__Playlist"
+		// Many older duplicate directories, then the real completed one, then an
+		// empty shell that sorts last (the real-world xJ__cqXlboc layout).
+		for _, day := range []string{"2024-01-01", "2024-02-01", "2024-03-01"} {
+			createVideoDir(t, tmp, playlist, day+"__xJ__cqXlboc__old", []string{})
+		}
+		wantDir := createVideoDir(t, tmp, playlist, "2021-11-13__xJ__cqXlboc__done", []string{
+			"2021-11-13__xJ__cqXlboc__summary.md",
+		})
+		createVideoDir(t, tmp, playlist, "2022-08-18__xJ__cqXlboc__empty", []string{})
+
+		idx := BuildIndex(tmp)
+
+		if got := idx.FindVideoDir("xJ__cqXlboc"); got != wantDir {
+			t.Errorf("FindVideoDir: got %q, want %q", got, wantDir)
+		}
+		if !idx.HasFile("xJ__cqXlboc", "summary.md") {
+			t.Error("expected HasFile summary.md true")
+		}
+	})
+
+	t.Run("emptyShellNotChosen", func(t *testing.T) {
+		tmp := t.TempDir()
+		const playlist = "_playlist__PL8-ulaGCrHSWz3nf0SgqWakeFg29SB4vS__Playlist"
+		createVideoDir(t, tmp, playlist, "2021-11-13__xJ__cqXlboc__done", []string{
+			"2021-11-13__xJ__cqXlboc__summary.md",
+		})
+		emptyDir := createVideoDir(t, tmp, playlist, "2022-08-18__xJ__cqXlboc__empty", []string{})
+
+		idx := BuildIndex(tmp)
+
+		if got := idx.FindVideoDir("xJ__cqXlboc"); got == emptyDir {
+			t.Errorf("FindVideoDir: chose empty shell %q", got)
+		}
+	})
+
+	t.Run("singleDirUnchanged", func(t *testing.T) {
+		tmp := t.TempDir()
+		wantDir := createVideoDir(t, tmp, "@ch", "2024-01-01__vid1__Only", []string{
+			"2024-01-01__vid1__summary.md",
+		})
+
+		idx := BuildIndex(tmp)
+
+		if got := idx.FindVideoDir("vid1"); got != wantDir {
+			t.Errorf("FindVideoDir: got %q, want %q", got, wantDir)
+		}
+		if !idx.HasFile("vid1", "summary.md") {
+			t.Error("expected HasFile summary.md true")
+		}
+	})
+}
+
 func TestExtractVideoID_ContainsDoubleUnderscore(t *testing.T) {
 	cases := []struct {
 		name    string
