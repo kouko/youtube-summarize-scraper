@@ -656,6 +656,81 @@ func TestAddFile_DynamicCandidateUpdates(t *testing.T) {
 	})
 }
 
+// concern: stale lastAdded after a stat-drop — FindVideoDir discards a
+// candidate whose directory vanished from disk, but the working-dir pointer
+// recorded by Add survived. A later AddFile could then find no candidate for
+// that pointer and fabricate a terminal mark on an unrelated surviving
+// candidate. The pointer must be cleared on drop, and AddFile must never fall
+// back to another candidate for a video that had an Add recorded.
+func TestAddFile_LastAddedClearedOnDrop(t *testing.T) {
+	tmp := t.TempDir()
+	aaaDir := createVideoDir(t, tmp, "@aaa", "2024-01-01__vid1__A", []string{})
+	workDir := createVideoDir(t, tmp, "@bbb", "2024-02-01__vid1__B", []string{
+		"2024-02-01__vid1__transcription.md",
+	})
+	// A video known only to BuildIndex — no Add ever recorded for it.
+	createVideoDir(t, tmp, "@aaa", "2024-01-02__vid2__C", []string{})
+
+	idx := BuildIndex(tmp)
+	idx.Add("vid1", workDir)
+	if err := os.RemoveAll(workDir); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := idx.FindVideoDir("vid1"); got != aaaDir {
+		t.Fatalf("FindVideoDir: got %q, want surviving candidate %q", got, aaaDir)
+	}
+	// The pointer recorded by Add was cleared when its candidate was dropped.
+	if got := idx.lastAdded["vid1"]; got != "" {
+		t.Errorf("lastAdded after drop: got %q, want empty", got)
+	}
+
+	idx.AddFile("vid1", "summary.md")
+	if idx.HasFile("vid1", "summary.md") {
+		t.Error("AddFile after drop: surviving candidate gained a fabricated summary.md mark")
+	}
+
+	// The BuildIndex-only fallback still marks for a video that never had Add.
+	idx.AddFile("vid2", "summary.md")
+	if !idx.HasFile("vid2", "summary.md") {
+		t.Error("AddFile for a never-Added video: expected bestEntry fallback to mark")
+	}
+}
+
+func TestAddFile_AfterStatDropMarksNothing(t *testing.T) {
+	tmp := t.TempDir()
+	aaaDir := createVideoDir(t, tmp, "@aaa", "2024-01-01__dup__A", []string{})
+	workDir := createVideoDir(t, tmp, "@bbb", "2024-02-01__dup__B", []string{})
+
+	idx := BuildIndex(tmp)
+	idx.Add("dup", workDir)
+	idx.AddFile("dup", "transcription.md")
+	if !idx.HasFile("dup", "transcription.md") {
+		t.Fatal("precondition: AddFile should mark the working candidate")
+	}
+
+	if err := os.RemoveAll(workDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := idx.FindVideoDir("dup"); got != aaaDir {
+		t.Fatalf("FindVideoDir: got %q, want surviving candidate %q", got, aaaDir)
+	}
+
+	// The working dir is gone; AddFile must not mark the surviving @aaa
+	// candidate, which would fabricate a terminal state not present on disk.
+	idx.AddFile("dup", "summary.md")
+
+	if idx.HasFile("dup", "summary.md") {
+		t.Error("HasFile: fabricated summary.md after stat-drop")
+	}
+	if idx.IsProcessed("aaa", "dup") {
+		t.Error("IsProcessed(@aaa): fabricated terminal state after stat-drop")
+	}
+	if idx.StatCheck("dup", "summary.md") {
+		t.Error("StatCheck: reported summary.md that does not exist on disk")
+	}
+}
+
 // ---------------------------------------------------------------------------
 // StatCheck before processing (3rd layer defense)
 // ---------------------------------------------------------------------------

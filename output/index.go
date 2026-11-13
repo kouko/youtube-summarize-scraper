@@ -174,6 +174,13 @@ func (idx *VideoIndex) FindVideoDir(videoID string) string {
 		}
 		// The chosen candidate's directory is gone; drop it and fall back to
 		// the next-best candidate instead of dropping the video entirely.
+		// Clear the working-dir pointer when the dropped candidate is the one
+		// Add recorded, so a later AddFile cannot fabricate a terminal mark on
+		// an unrelated survivor. The record is kept (empty value) so the video
+		// stays recognisable as one that had an Add.
+		if idx.lastAdded[videoID] == best.Dir {
+			idx.lastAdded[videoID] = ""
+		}
 		candidates = append(candidates[:bestAt], candidates[bestAt+1:]...)
 		if len(candidates) == 0 {
 			delete(idx.entries, videoID)
@@ -254,10 +261,11 @@ func (idx *VideoIndex) Add(videoID, dir string) {
 
 // AddFile registers a new file suffix for a video. AddFile carries no
 // directory argument, so the mark lands on the candidate Add most recently
-// registered as the working directory; when that directory is not among the
-// candidates (e.g. an AddFile for a video known only to BuildIndex), the mark
-// falls back to the highest-scoring candidate, preserving the previous
-// single-entry semantics.
+// registered as the working directory. The bestEntry fallback applies only to
+// videos that never had an Add recorded (e.g. an AddFile for a video known
+// only to BuildIndex), preserving the previous single-entry semantics; when
+// Add was recorded but its directory is no longer a candidate, no mark is
+// made.
 func (idx *VideoIndex) AddFile(videoID, suffix string) {
 	if dir, ok := idx.lastAdded[videoID]; ok {
 		for _, entry := range idx.entries[videoID] {
@@ -266,6 +274,11 @@ func (idx *VideoIndex) AddFile(videoID, suffix string) {
 				return
 			}
 		}
+		// The working directory recorded by Add is gone (its candidate was
+		// dropped when its dir vanished from disk). Falling back onto another
+		// candidate — possibly another channel's — would fabricate a
+		// summary.md/.skipped mark the disk does not have.
+		return
 	}
 	if entry := idx.bestEntry(videoID); entry != nil {
 		entry.Files[suffix] = true
