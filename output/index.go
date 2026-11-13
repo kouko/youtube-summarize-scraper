@@ -76,11 +76,28 @@ func BuildIndex(outputDir string) *VideoIndex {
 				}
 			}
 
-			idx.entries[videoID] = entry
+			if existing, ok := idx.entries[videoID]; !ok || entryScore(entry) > entryScore(existing) {
+				idx.entries[videoID] = entry
+			}
 		}
 	}
 
 	return idx
+}
+
+// entryScore ranks a video directory so duplicate directories for the same
+// video ID prefer a completed one. Unconditional overwrite would let an empty
+// stale directory that sorts last steal the slot and force reprocessing.
+// 2 = summary.md or .skipped (terminal), 1 = any other known file, 0 = empty.
+// Ties keep the earlier-sorted entry (first occurrence wins on equal score).
+func entryScore(entry *VideoEntry) int {
+	if entry.Files["summary.md"] || entry.Files[".skipped"] {
+		return 2
+	}
+	if entry.Files["transcription.md"] || entry.Files["subtitle.srt"] {
+		return 1
+	}
+	return 0
 }
 
 // extractVideoID extracts the video ID from a directory name formatted as DATE__videoID__title.
