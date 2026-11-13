@@ -125,6 +125,11 @@ func TestBuildIndex_VideoIDWithDoubleUnderscore(t *testing.T) {
 	}
 }
 
+// concern: duplicate-directory index selection — guards BuildIndex's
+// prefer-completed rule against an empty stale duplicate directory stealing
+// the index slot (which forced full reprocessing of an already-summarised
+// video on every scan) and against nondeterministic or order-dependent
+// tie-breaking between equal-score duplicate directories.
 // TestBuildIndex_DuplicateDirs pins the duplicate-directory selection rule:
 // when several directories carry the same video ID, a completed directory must
 // win over an empty shell regardless of lexicographic order, and ties keep the
