@@ -16,6 +16,11 @@ charter: 1.1
 - Test: A1 positive: crossChannelSummaryBothTrue; boundary: crossChannelEmptyVsSummary. A2 positive: skippedShadowedBySummary; boundary: summaryRanksAboveSkipped. A3 positive: singleDirUnchanged; boundary: dynamicAddFileUpdates. A4 positive: fullSuiteGreen; boundary: gofmtClean.
 - Risk: agent-decided: entries 改為候選清單 map[string][]*VideoEntry，查找依 channel handle 篩選；無 channel 時回退最高分；Add/AddFile 更新匹配候選。
 
+**W2-02 Fix stale lastAdded fabricating terminal marks after stat-drop**  after: W2-01  acceptance: 3,4
+- Files: `output/index.go`, `output/index_test.go`
+- Test: A3 positive: lastAddedClearedOnDrop; negative: addFileAfterStatDropMarksNothing. A4 positive: fullSuiteGreen; boundary: gofmtClean.
+- Risk: agent-decided: FindVideoDir 丟棄候選時同步清除指向該目錄的 lastAdded；AddFile 在 lastAdded 已記錄但候選不存在時 return 而非回退 bestEntry（回退僅限從未 Add 的影片）。Adversary 評級 nit、pipeline 現行呼叫順序不可達，修復屬防禦性正確性。
+
 ## Simplicity check
 - 完全保留所有重複資料夾不做選擇 — declined: 記憶體成長，FindVideoDir 需要線性掃描
 - 改為 channel-aware 索引（本方案） — taken
