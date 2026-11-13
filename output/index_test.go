@@ -291,6 +291,60 @@ func TestBuildIndex_SkippedMarker(t *testing.T) {
 	}
 }
 
+// concern: .skipped shadowing summary — within one channel, when a duplicate
+// directory with a stale .skipped marker and another with a completed summary.md
+// share a video ID, the summary directory must win as the representative and
+// never be shadowed by sort order.
+func TestBuildIndex_SummaryRanksAboveSkipped(t *testing.T) {
+	t.Run("skippedShadowedBySummary", func(t *testing.T) {
+		tmp := t.TempDir()
+		// Summary sorts first; the stale .skipped duplicate must not overwrite it.
+		createVideoDir(t, tmp, "@ch", "2024-01-01__vid1__Summary", []string{
+			"2024-01-01__vid1__summary.md",
+		})
+		createVideoDir(t, tmp, "@ch", "2024-02-01__vid1__Skipped", []string{
+			"2024-02-01__vid1__.skipped",
+		})
+		summaryDir := filepath.Join(tmp, "@ch", "2024-01-01__vid1__Summary")
+
+		idx := BuildIndex(tmp)
+
+		if !idx.HasFile("vid1", "summary.md") {
+			t.Error("expected HasFile summary.md true")
+		}
+		if !idx.IsProcessed("ch", "vid1") {
+			t.Error("expected IsProcessed true")
+		}
+		if got := idx.FindVideoDir("vid1"); got != summaryDir {
+			t.Errorf("FindVideoDir: got %q, want summary dir %q", got, summaryDir)
+		}
+	})
+
+	t.Run("summaryRanksAboveSkipped", func(t *testing.T) {
+		tmp := t.TempDir()
+		// .skipped dir sorts before the summary dir; the summary must still win.
+		createVideoDir(t, tmp, "@ch", "2024-01-01__vid1__Skipped", []string{
+			"2024-01-01__vid1__.skipped",
+		})
+		createVideoDir(t, tmp, "@ch", "2024-02-01__vid1__Summary", []string{
+			"2024-02-01__vid1__summary.md",
+		})
+		summaryDir := filepath.Join(tmp, "@ch", "2024-02-01__vid1__Summary")
+
+		idx := BuildIndex(tmp)
+
+		if !idx.HasFile("vid1", "summary.md") {
+			t.Error("expected HasFile summary.md true when .skipped sorts first")
+		}
+		if !idx.IsProcessed("ch", "vid1") {
+			t.Error("expected IsProcessed true when .skipped sorts first")
+		}
+		if got := idx.FindVideoDir("vid1"); got != summaryDir {
+			t.Errorf("FindVideoDir: got %q, want summary dir %q despite sort order", got, summaryDir)
+		}
+	})
+}
+
 // ---------------------------------------------------------------------------
 // FindVideoDir
 // ---------------------------------------------------------------------------
@@ -473,6 +527,48 @@ func TestIsProcessed_SkippedMarker(t *testing.T) {
 	}
 }
 
+// concern: cross-channel duplicate index selection — a video ID present in two
+// channel directories must resolve independently per channel. A single global
+// winner made IsProcessed false for the channel whose duplicate lost the slot,
+// so that channel reprocessed the same video on every run and never converged.
+func TestIsProcessed_CrossChannel(t *testing.T) {
+	t.Run("crossChannelSummaryBothTrue", func(t *testing.T) {
+		tmp := t.TempDir()
+		createVideoDir(t, tmp, "@aaa", "2024-01-01__dupvid__A", []string{
+			"2024-01-01__dupvid__summary.md",
+		})
+		createVideoDir(t, tmp, "@bbb", "2024-02-01__dupvid__B", []string{
+			"2024-02-01__dupvid__summary.md",
+		})
+
+		idx := BuildIndex(tmp)
+
+		if !idx.IsProcessed("aaa", "dupvid") {
+			t.Error("IsProcessed(@aaa): expected true")
+		}
+		if !idx.IsProcessed("bbb", "dupvid") {
+			t.Error("IsProcessed(@bbb): expected true")
+		}
+	})
+
+	t.Run("crossChannelEmptyVsSummary", func(t *testing.T) {
+		tmp := t.TempDir()
+		createVideoDir(t, tmp, "@aaa", "2024-01-01__dupvid__A", []string{})
+		createVideoDir(t, tmp, "@bbb", "2024-02-01__dupvid__B", []string{
+			"2024-02-01__dupvid__summary.md",
+		})
+
+		idx := BuildIndex(tmp)
+
+		if idx.IsProcessed("aaa", "dupvid") {
+			t.Error("IsProcessed(@aaa empty): expected false")
+		}
+		if !idx.IsProcessed("bbb", "dupvid") {
+			t.Error("IsProcessed(@bbb summary): expected true")
+		}
+	})
+}
+
 // ---------------------------------------------------------------------------
 // Add / AddFile
 // ---------------------------------------------------------------------------
@@ -519,6 +615,119 @@ func TestAddFile_VideoNotInIndex(t *testing.T) {
 
 	if idx.HasFile("unknown", "summary.md") {
 		t.Error("AddFile unknown: expected false (no entry to update)")
+	}
+}
+
+// concern: duplicate-directory dynamic updates — AddFile has no directory
+// argument, so the mark must land on the candidate Add registered as the
+// working directory; marking a stale higher-scoring candidate would make
+// FindVideoDir surface the wrong directory for the resume and copy_to paths.
+func TestAddFile_DynamicCandidateUpdates(t *testing.T) {
+	t.Run("dynamicAddFileUpdates", func(t *testing.T) {
+		tmp := t.TempDir()
+		// An older duplicate already carries transcription.md, so it outranks the
+		// empty working directory until AddFile marks the working one.
+		createVideoDir(t, tmp, "@ch", "2024-01-01__vid1__Old", []string{
+			"2024-01-01__vid1__transcription.md",
+		})
+		idx := BuildIndex(tmp)
+
+		workDir := filepath.Join(tmp, "@ch", "2024-03-01__vid1__New")
+		if err := os.MkdirAll(workDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		idx.Add("vid1", workDir)
+
+		// Pipeline resume path: write summary.md into the working dir, then register it.
+		if err := os.WriteFile(filepath.Join(workDir, "2024-03-01__vid1__summary.md"), []byte("s"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		idx.AddFile("vid1", "summary.md")
+
+		if !idx.HasFile("vid1", "summary.md") {
+			t.Error("AddFile after: expected summary.md on the working candidate")
+		}
+		if got := idx.FindVideoDir("vid1"); got != workDir {
+			t.Errorf("FindVideoDir after AddFile: got %q, want working dir %q", got, workDir)
+		}
+		if !idx.IsProcessed("ch", "vid1") {
+			t.Error("IsProcessed after AddFile: expected true")
+		}
+	})
+}
+
+// concern: stale lastAdded after a stat-drop — FindVideoDir discards a
+// candidate whose directory vanished from disk, but the working-dir pointer
+// recorded by Add survived. A later AddFile could then find no candidate for
+// that pointer and fabricate a terminal mark on an unrelated surviving
+// candidate. The pointer must be cleared on drop, and AddFile must never fall
+// back to another candidate for a video that had an Add recorded.
+func TestAddFile_LastAddedClearedOnDrop(t *testing.T) {
+	tmp := t.TempDir()
+	aaaDir := createVideoDir(t, tmp, "@aaa", "2024-01-01__vid1__A", []string{})
+	workDir := createVideoDir(t, tmp, "@bbb", "2024-02-01__vid1__B", []string{
+		"2024-02-01__vid1__transcription.md",
+	})
+	// A video known only to BuildIndex — no Add ever recorded for it.
+	createVideoDir(t, tmp, "@aaa", "2024-01-02__vid2__C", []string{})
+
+	idx := BuildIndex(tmp)
+	idx.Add("vid1", workDir)
+	if err := os.RemoveAll(workDir); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := idx.FindVideoDir("vid1"); got != aaaDir {
+		t.Fatalf("FindVideoDir: got %q, want surviving candidate %q", got, aaaDir)
+	}
+	// The pointer recorded by Add was cleared when its candidate was dropped.
+	if got := idx.lastAdded["vid1"]; got != "" {
+		t.Errorf("lastAdded after drop: got %q, want empty", got)
+	}
+
+	idx.AddFile("vid1", "summary.md")
+	if idx.HasFile("vid1", "summary.md") {
+		t.Error("AddFile after drop: surviving candidate gained a fabricated summary.md mark")
+	}
+
+	// The BuildIndex-only fallback still marks for a video that never had Add.
+	idx.AddFile("vid2", "summary.md")
+	if !idx.HasFile("vid2", "summary.md") {
+		t.Error("AddFile for a never-Added video: expected bestEntry fallback to mark")
+	}
+}
+
+func TestAddFile_AfterStatDropMarksNothing(t *testing.T) {
+	tmp := t.TempDir()
+	aaaDir := createVideoDir(t, tmp, "@aaa", "2024-01-01__dup__A", []string{})
+	workDir := createVideoDir(t, tmp, "@bbb", "2024-02-01__dup__B", []string{})
+
+	idx := BuildIndex(tmp)
+	idx.Add("dup", workDir)
+	idx.AddFile("dup", "transcription.md")
+	if !idx.HasFile("dup", "transcription.md") {
+		t.Fatal("precondition: AddFile should mark the working candidate")
+	}
+
+	if err := os.RemoveAll(workDir); err != nil {
+		t.Fatal(err)
+	}
+	if got := idx.FindVideoDir("dup"); got != aaaDir {
+		t.Fatalf("FindVideoDir: got %q, want surviving candidate %q", got, aaaDir)
+	}
+
+	// The working dir is gone; AddFile must not mark the surviving @aaa
+	// candidate, which would fabricate a terminal state not present on disk.
+	idx.AddFile("dup", "summary.md")
+
+	if idx.HasFile("dup", "summary.md") {
+		t.Error("HasFile: fabricated summary.md after stat-drop")
+	}
+	if idx.IsProcessed("aaa", "dup") {
+		t.Error("IsProcessed(@aaa): fabricated terminal state after stat-drop")
+	}
+	if idx.StatCheck("dup", "summary.md") {
+		t.Error("StatCheck: reported summary.md that does not exist on disk")
 	}
 }
 

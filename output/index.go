@@ -14,15 +14,21 @@ type VideoEntry struct {
 
 // VideoIndex is an in-memory index of video IDs to their output directories and files.
 // Built once at pipeline startup, updated dynamically via Add/AddFile during processing.
+// A video ID may have several candidate directories (cross-channel or playlist
+// duplicates); each candidate keeps its own file marks.
 type VideoIndex struct {
-	entries map[string]*VideoEntry // videoID → entry
+	entries   map[string][]*VideoEntry // videoID → candidate directories, ReadDir sort order
+	lastAdded map[string]string        // videoID → dir registered by the most recent Add
 }
 
 // BuildIndex scans the output directory tree and builds an in-memory index
-// of videoID → directory path and known file suffixes.
+// of videoID → directory paths and known file suffixes.
 // Directory structure: outputDir/{@channel|_playlist__*}/{DATE__videoID__title}/
 func BuildIndex(outputDir string) *VideoIndex {
-	idx := &VideoIndex{entries: make(map[string]*VideoEntry)}
+	idx := &VideoIndex{
+		entries:   make(map[string][]*VideoEntry),
+		lastAdded: make(map[string]string),
+	}
 
 	// Level 1: channel/playlist directories.
 	topEntries, err := os.ReadDir(outputDir)
@@ -76,9 +82,10 @@ func BuildIndex(outputDir string) *VideoIndex {
 				}
 			}
 
-			if existing, ok := idx.entries[videoID]; !ok || entryScore(entry) > entryScore(existing) {
-				idx.entries[videoID] = entry
-			}
+			// Keep every parsed directory as a candidate: a single-winner overwrite
+			// let one channel's duplicate shadow another's, and a stale empty
+			// duplicate could steal the slot. Selection happens per query.
+			idx.entries[videoID] = append(idx.entries[videoID], entry)
 		}
 	}
 
@@ -86,12 +93,16 @@ func BuildIndex(outputDir string) *VideoIndex {
 }
 
 // entryScore ranks a video directory so duplicate directories for the same
-// video ID prefer a completed one. Unconditional overwrite would let an empty
-// stale directory that sorts last steal the slot and force reprocessing.
-// 2 = summary.md or .skipped (terminal), 1 = any other known file, 0 = empty.
+// video ID prefer the most complete one. 3 = summary.md (completed),
+// 2 = .skipped (permanently skipped), 1 = any other known file, 0 = empty.
+// summary.md must rank strictly above .skipped: HasFile(summary.md) must be
+// true whenever a summary exists anywhere reachable, regardless of sort order.
 // Ties keep the earlier-sorted entry (first occurrence wins on equal score).
 func entryScore(entry *VideoEntry) int {
-	if entry.Files["summary.md"] || entry.Files[".skipped"] {
+	if entry.Files["summary.md"] {
+		return 3
+	}
+	if entry.Files[".skipped"] {
 		return 2
 	}
 	if entry.Files["transcription.md"] || entry.Files["subtitle.srt"] {
@@ -122,24 +133,67 @@ func extractVideoID(dirName string) string {
 	return dirName[start:end]
 }
 
+// bestEntry returns the highest-scoring candidate for a video ID, keeping the
+// earlier-sorted candidate on ties (strictly-greater comparison first wins).
+// Returns nil when the video is unknown. For queries with no channel
+// parameter this is the single representative of the video.
+func (idx *VideoIndex) bestEntry(videoID string) *VideoEntry {
+	candidates := idx.entries[videoID]
+	if len(candidates) == 0 {
+		return nil
+	}
+	best := candidates[0]
+	for _, c := range candidates[1:] {
+		if entryScore(c) > entryScore(best) {
+			best = c
+		}
+	}
+	return best
+}
+
 // FindVideoDir returns the existing video directory path for a given video ID.
 // Returns "" if not found or if the directory no longer exists on disk.
 func (idx *VideoIndex) FindVideoDir(videoID string) string {
-	entry := idx.entries[videoID]
-	if entry == nil {
+	candidates, ok := idx.entries[videoID]
+	if !ok || len(candidates) == 0 {
 		return ""
 	}
-	// Verify directory still exists (handles external deletion).
-	if _, err := os.Stat(entry.Dir); err != nil {
-		delete(idx.entries, videoID)
-		return ""
+	for {
+		best := candidates[0]
+		bestAt := 0
+		for i, c := range candidates[1:] {
+			if entryScore(c) > entryScore(best) {
+				best = c
+				bestAt = i + 1
+			}
+		}
+		// Verify directory still exists (handles external deletion).
+		if _, err := os.Stat(best.Dir); err == nil {
+			idx.entries[videoID] = candidates
+			return best.Dir
+		}
+		// The chosen candidate's directory is gone; drop it and fall back to
+		// the next-best candidate instead of dropping the video entirely.
+		// Clear the working-dir pointer when the dropped candidate is the one
+		// Add recorded, so a later AddFile cannot fabricate a terminal mark on
+		// an unrelated survivor. The record is kept (empty value) so the video
+		// stays recognisable as one that had an Add.
+		if idx.lastAdded[videoID] == best.Dir {
+			idx.lastAdded[videoID] = ""
+		}
+		candidates = append(candidates[:bestAt], candidates[bestAt+1:]...)
+		if len(candidates) == 0 {
+			delete(idx.entries, videoID)
+			return ""
+		}
 	}
-	return entry.Dir
 }
 
 // HasFile checks whether a file with the given suffix exists for a video ID.
+// The representative is the highest-scoring candidate, so summary.md (the
+// strict top rank) is reported whenever any candidate directory has one.
 func (idx *VideoIndex) HasFile(videoID, suffix string) bool {
-	entry := idx.entries[videoID]
+	entry := idx.bestEntry(videoID)
 	if entry == nil {
 		return false
 	}
@@ -150,22 +204,23 @@ func (idx *VideoIndex) HasFile(videoID, suffix string) bool {
 // (has summary.md) or permanently skipped (has a .skipped marker) — inside
 // the expected channel directory.
 func (idx *VideoIndex) IsProcessed(channelHandle, videoID string) bool {
-	entry := idx.entries[videoID]
-	if entry == nil {
-		return false
-	}
-	if !entry.Files["summary.md"] && !entry.Files[".skipped"] {
-		return false
-	}
-	// Verify the video is in the expected channel directory.
 	expectedPrefix := string(filepath.Separator) + "@" + channelHandle + string(filepath.Separator)
-	return strings.Contains(entry.Dir, expectedPrefix)
+	for _, entry := range idx.entries[videoID] {
+		if !entry.Files["summary.md"] && !entry.Files[".skipped"] {
+			continue
+		}
+		// Verify the video is in the expected channel directory.
+		if strings.Contains(entry.Dir, expectedPrefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // StatCheck performs an os.Stat on the actual file to detect external changes.
 // Use this as a final check before expensive operations (whisper, LLM).
 func (idx *VideoIndex) StatCheck(videoID, suffix string) bool {
-	entry := idx.entries[videoID]
+	entry := idx.bestEntry(videoID)
 	if entry == nil {
 		return false
 	}
@@ -185,27 +240,47 @@ func (idx *VideoIndex) StatCheck(videoID, suffix string) bool {
 	return false
 }
 
-// Add registers a video directory in the index. If the video is already
-// indexed (e.g. discovered by BuildIndex at startup), its recorded file flags
-// are preserved and only the directory is updated — otherwise re-adding a
-// known video before the resume check would wipe its transcription.md flag and
-// silently defeat the resume path.
+// Add registers a video directory in the index as a candidate. If a candidate
+// with that exact directory already exists (e.g. discovered by BuildIndex at
+// startup), its recorded file flags are preserved and only the working-dir
+// pointer is updated — otherwise re-adding a known video before the resume
+// check would wipe its transcription.md flag and silently defeat the resume
+// path. Otherwise the new directory is appended to the video's candidate list.
 func (idx *VideoIndex) Add(videoID, dir string) {
-	if entry, ok := idx.entries[videoID]; ok {
-		entry.Dir = dir
-		return
+	idx.lastAdded[videoID] = dir
+	for _, entry := range idx.entries[videoID] {
+		if entry.Dir == dir {
+			return
+		}
 	}
-	idx.entries[videoID] = &VideoEntry{
+	idx.entries[videoID] = append(idx.entries[videoID], &VideoEntry{
 		Dir:   dir,
 		Files: make(map[string]bool),
-	}
+	})
 }
 
-// AddFile registers a new file suffix for an existing video in the index.
+// AddFile registers a new file suffix for a video. AddFile carries no
+// directory argument, so the mark lands on the candidate Add most recently
+// registered as the working directory. The bestEntry fallback applies only to
+// videos that never had an Add recorded (e.g. an AddFile for a video known
+// only to BuildIndex), preserving the previous single-entry semantics; when
+// Add was recorded but its directory is no longer a candidate, no mark is
+// made.
 func (idx *VideoIndex) AddFile(videoID, suffix string) {
-	entry := idx.entries[videoID]
-	if entry == nil {
+	if dir, ok := idx.lastAdded[videoID]; ok {
+		for _, entry := range idx.entries[videoID] {
+			if entry.Dir == dir {
+				entry.Files[suffix] = true
+				return
+			}
+		}
+		// The working directory recorded by Add is gone (its candidate was
+		// dropped when its dir vanished from disk). Falling back onto another
+		// candidate — possibly another channel's — would fabricate a
+		// summary.md/.skipped mark the disk does not have.
 		return
 	}
-	entry.Files[suffix] = true
+	if entry := idx.bestEntry(videoID); entry != nil {
+		entry.Files[suffix] = true
+	}
 }

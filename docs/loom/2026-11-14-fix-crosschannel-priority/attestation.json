@@ -1,0 +1,100 @@
+{
+  "schema": "loom-attestation/v2",
+  "change_id": "2026-11-14-fix-crosschannel-priority",
+  "content_digest": "3e55861a71e5e3d977dd679038f3238827bae78c",
+  "executions": [
+    {
+      "kind": "package-tests",
+      "command": "go test ./...",
+      "artifact": "",
+      "result": "pass",
+      "command_digest": "1bb497e3e13a1105cf24e3359fa3ef75de08b66ff8a2839cd7f9ea97824d9eb3"
+    },
+    {
+      "kind": "adversarial",
+      "command": "go test -json docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/stat_fallback_test.go",
+      "artifact": "docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/stat_fallback_test.go",
+      "result": "pass",
+      "command_digest": "3aa87e62781a3fe551c875156366ca09b68ade4fa32e6e576373be727f985a5f",
+      "evidence": "parsed",
+      "passed": 4
+    },
+    {
+      "kind": "adversarial",
+      "command": "go test -json docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/crosschannel_priority_test.go",
+      "artifact": "docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/crosschannel_priority_test.go",
+      "result": "pass",
+      "command_digest": "fc3619f3b43f4786f00320b2d73197450300f99c895297886b39a1eeb6067232",
+      "evidence": "parsed",
+      "passed": 2
+    },
+    {
+      "kind": "adversarial",
+      "command": "go test -json docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/dynamic_wiring_test.go",
+      "artifact": "docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/dynamic_wiring_test.go",
+      "result": "pass",
+      "command_digest": "72ce373840ffc0fcff0e7d30026fba52bb3e332ec3129376cef9a42eed53590e",
+      "evidence": "parsed",
+      "passed": 2
+    }
+  ],
+  "verdicts": [
+    {
+      "reviewer": "R1",
+      "vendor": "litellm",
+      "model": "hyper-coding-group-200k",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": [
+        {
+          "severity": "nit",
+          "anchor": "output/index_test.go:684",
+          "text": "TestAddFile_LastAddedClearedOnDrop asserts the internal lastAdded field directly; behavioural assertions below already pin the tombstone semantics",
+          "fix": "Delete the idx.lastAdded field assertion or keep the white-box pin"
+        },
+        {
+          "severity": "nit",
+          "anchor": "output/index.go:243",
+          "text": "Add doc comment uses 'otherwise' for two different contrasts in adjacent sentences",
+          "fix": "Reword the second sentence to 'When no candidate matches, the directory is appended to the video's candidate list.'"
+        },
+        {
+          "severity": "nit",
+          "anchor": "docs/loom/2026-11-14-fix-crosschannel-priority/plan.md:25",
+          "text": "Simplicity-check declined-row rationale (memory growth, linear scan) also applies to the taken design; the real differentiator is per-channel IsProcessed resolution",
+          "fix": "Reword the plan's simplicity-check row to name the single-winner option and the per-channel resolution benefit"
+        }
+      ],
+      "notes": [
+        "PRINCIPLES.md exists and is ratified; no falsifiable clause violated",
+        "ARCHITECTURE.md does not exist"
+      ]
+    },
+    {
+      "reviewer": "R2",
+      "vendor": "litellm",
+      "model": "hyper-coding-group-200k",
+      "lens": "code",
+      "verdict": "PASS",
+      "findings": [
+        {
+          "severity": "nit",
+          "anchor": "output/index.go :: otherwise re-adding a known video before the resume check would wipe its transcription.md flag",
+          "text": "Add doc comment stacks two 'otherwise' clauses back to back, reading as two live conditions",
+          "fix": "Reword to separate the guarded hazard from the append branch"
+        }
+      ],
+      "notes": [
+        "Ran the changed test file output/index_test.go: all 31 top-level tests PASS",
+        "gofmt and go vet clean",
+        "Probes read as changed test source, not run per contract"
+      ]
+    }
+  ],
+  "findings": [],
+  "selection": null,
+  "intent_confirmed_sha": "41ebc2f2febeca589c2c16afb7bdcdf226b09c65",
+  "tested_commit": "8458ec0db5040d19f2b0b95ce97e0cc6e50b1e40",
+  "reviewed_commit": "8458ec0db5040d19f2b0b95ce97e0cc6e50b1e40",
+  "acceptance_status": []
+}
