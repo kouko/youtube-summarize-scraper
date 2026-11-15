@@ -1,7 +1,7 @@
 {
   "schema": "loom-attestation/v2",
   "change_id": "2026-11-15-widen-metadata-timeout",
-  "content_digest": "82bd1de177abbd9bc792ee70e2159f05fc4e41e2",
+  "content_digest": "0a6f74032a2dbb7630abe104d4d1669a8885c041",
   "executions": [
     {
       "kind": "package-tests",
@@ -12,30 +12,12 @@
     },
     {
       "kind": "adversarial",
-      "command": "go test -json docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/stat_fallback_test.go",
-      "artifact": "docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/stat_fallback_test.go",
+      "command": "go test -json -v -count=1 -run ^TestMetadataTimeout_AtLeast120s$ ./fetcher",
+      "artifact": "fetcher/fetcher_test.go",
       "result": "pass",
-      "command_digest": "3aa87e62781a3fe551c875156366ca09b68ade4fa32e6e576373be727f985a5f",
+      "command_digest": "6f3d92cafddb68207895403a463fbc7048985f0220d92ce95cca11d20beeff04",
       "evidence": "parsed",
-      "passed": 4
-    },
-    {
-      "kind": "adversarial",
-      "command": "go test -json docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/crosschannel_priority_test.go",
-      "artifact": "docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/crosschannel_priority_test.go",
-      "result": "pass",
-      "command_digest": "fc3619f3b43f4786f00320b2d73197450300f99c895297886b39a1eeb6067232",
-      "evidence": "parsed",
-      "passed": 2
-    },
-    {
-      "kind": "adversarial",
-      "command": "go test -json docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/dynamic_wiring_test.go",
-      "artifact": "docs/loom/2026-11-14-fix-crosschannel-priority/evidence/probes/dynamic_wiring_test.go",
-      "result": "pass",
-      "command_digest": "72ce373840ffc0fcff0e7d30026fba52bb3e332ec3129376cef9a42eed53590e",
-      "evidence": "parsed",
-      "passed": 2
+      "passed": 1
     }
   ],
   "verdicts": [
@@ -48,21 +30,21 @@
       "findings": [
         {
           "severity": "nit",
-          "anchor": "output/index_test.go:684",
-          "text": "TestAddFile_LastAddedClearedOnDrop asserts the internal lastAdded field directly; behavioural assertions below already pin the tombstone semantics",
-          "fix": "Delete the idx.lastAdded field assertion or keep the white-box pin"
+          "anchor": "fetcher/fetcher_test.go:121",
+          "text": "TestMetadataTimeout_Below60WouldFail failure condition (<=60s) is strictly implied by TestMetadataTimeout_AtLeast120s (<120s), making it a duplicated guard case",
+          "fix": "Delete TestMetadataTimeout_Below60WouldFail, folding its 60s-threshold rationale comment into TestMetadataTimeout_AtLeast120s comment block"
         },
         {
           "severity": "nit",
-          "anchor": "output/index.go:243",
-          "text": "Add doc comment uses 'otherwise' for two different contrasts in adjacent sentences",
-          "fix": "Reword the second sentence to 'When no candidate matches, the directory is appended to the video's candidate list.'"
+          "anchor": "fetcher/fetcher_test.go:168",
+          "text": "TestRunYtDlpWithTimeout_ShortTimeoutStillKills calls the internal runYtDlpWithTimeout; its kill-on-timeout behaviour is reachable from the module entry FetchVideoMeta, which TestWidenedValueAppliesToRunYtDlp already exercises",
+          "fix": "Extend TestWidenedValueAppliesToRunYtDlp first phase to assert signal: killed and delete TestRunYtDlpWithTimeout_ShortTimeoutStillKills"
         },
         {
           "severity": "nit",
-          "anchor": "docs/loom/2026-11-14-fix-crosschannel-priority/plan.md:25",
-          "text": "Simplicity-check declined-row rationale (memory growth, linear scan) also applies to the taken design; the real differentiator is per-channel IsProcessed resolution",
-          "fix": "Reword the plan's simplicity-check row to name the single-winner option and the per-channel resolution benefit"
+          "anchor": "fetcher/fetcher_test.go:159",
+          "text": "the t.Fatalf message says metadataTimeout=3s but the var is set to 5s at line 156 - stale copy from an earlier draft",
+          "fix": "Change the message to FetchVideoMeta with metadataTimeout=5s failed"
         }
       ],
       "notes": [
@@ -79,22 +61,39 @@
       "findings": [
         {
           "severity": "nit",
-          "anchor": "output/index.go :: otherwise re-adding a known video before the resume check would wipe its transcription.md flag",
-          "text": "Add doc comment stacks two 'otherwise' clauses back to back, reading as two live conditions",
-          "fix": "Reword to separate the guarded hazard from the append branch"
+          "anchor": "fetcher/fetcher_test.go:170",
+          "text": "TestRunYtDlpWithTimeout_ShortTimeoutStillKills calls the internal runYtDlpWithTimeout directly, though the same kill-on-timeout behavior is reachable from the module entry FetchVideoMeta and already exercised by TestWidenedValueAppliesToRunYtDlp 500ms branch",
+          "fix": "Fold the signal: killed assertion into the 500ms branch of TestWidenedValueAppliesToRunYtDlp and delete TestRunYtDlpWithTimeout_ShortTimeoutStillKills"
+        },
+        {
+          "severity": "nit",
+          "anchor": "fetcher/fetcher_test.go:121",
+          "text": "TestMetadataTimeout_Below60WouldFail failure set is a strict subset of TestMetadataTimeout_AtLeast120s - every value <=60s is also <120s - so it can never catch a regression the 120s floor misses",
+          "fix": "Delete TestMetadataTimeout_Below60WouldFail and move its 60s-threshold context into TestMetadataTimeout_AtLeast120s comment"
+        },
+        {
+          "severity": "nit",
+          "anchor": "docs/loom/specs/ytss-design.md:983",
+          "text": "the design spec still documents the metadata fetch timeout as 60s, which disagrees with the code 180s after this delta",
+          "fix": "Update that row to 180s keeping No in the configurable column"
+        },
+        {
+          "severity": "nit",
+          "anchor": "fetcher/fetcher_test.go:159",
+          "text": "the failure message says metadataTimeout=3s while the code sets 5s one line above",
+          "fix": "Change the message literal to metadataTimeout=5s"
         }
       ],
       "notes": [
-        "Ran the changed test file output/index_test.go: all 31 top-level tests PASS",
-        "gofmt and go vet clean",
-        "Probes read as changed test source, not run per contract"
+        "Acceptance 4 is a real-scenario claim not verifiable here; it belongs to acceptance testing",
+        "Worst-case failure latency per video grows: 5 retries x up to 180s (x2 cookie retry) approx 15-30 min before marked failed; accepted trade-off documented in plan Risk 2"
       ]
     }
   ],
   "findings": [],
   "selection": null,
   "intent_confirmed_sha": "ee18608be154e94bb91f2dc901b9d46f7df6f821",
-  "tested_commit": "8532f6491733986aa8a65697363d58ef5fe663e1",
-  "reviewed_commit": "8532f6491733986aa8a65697363d58ef5fe663e1",
+  "tested_commit": "bc3ce4a785cff033ff87cc691247eab5a12af565",
+  "reviewed_commit": "bc3ce4a785cff033ff87cc691247eab5a12af565",
   "acceptance_status": []
 }
