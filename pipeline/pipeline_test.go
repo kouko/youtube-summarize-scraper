@@ -1,11 +1,14 @@
 package pipeline
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -482,6 +485,10 @@ func newMetadataFailurePipeline(outputDir string, fetchErr error) (*Pipeline, *c
 // no channel info from the flat playlist, is a skip for this scan, not a
 // failure. The skip writes nothing under the output dir, so it leaves no marker
 // for later scans (Acceptance 2).
+//
+// Acceptance 1 also requires that such a failure is logged at INFO (not ERROR
+// or WARN) naming the reason "members-only", and that no WARN or ERROR is emitted
+// in the same scan.
 func TestProcessVideo_MembersOnlyIsSkip(t *testing.T) {
 	t.Run("membersOnlyIsSkip", func(t *testing.T) {
 		outputDir := t.TempDir()
@@ -521,6 +528,70 @@ func TestProcessVideo_MembersOnlyIsSkip(t *testing.T) {
 			t.Errorf("members-only skip wrote files/dirs under output dir: %v — no marker (or any state) may persist", written)
 		}
 	})
+
+	t.Run("logAcceptance", func(t *testing.T) {
+		outputDir := t.TempDir()
+		p, _ := newMetadataFailurePipeline(outputDir, membersOnlyFetchErr())
+
+		// Capture slog records with a test handler.
+		var records []slog.Record
+		handler := &recordCapturingHandler{records: &records}
+		prev := slog.Default()
+		slog.SetDefault(slog.New(handler))
+		defer func() { slog.SetDefault(prev) }()
+
+		if err := p.ProcessVideo(partialMeta("logAcceptanceVid"), nil); !IsSkipped(err) {
+			t.Fatalf("ProcessVideo err = %v, want errSkipped", err)
+		}
+
+		if len(records) == 0 {
+			t.Fatal("no slog records were produced for members-only skip")
+		}
+		infoSeen := false
+		warnSeen := false
+		errorSeen := false
+		for _, r := range records {
+			if r.Level == slog.LevelInfo && strings.Contains(r.Message, "members-only") {
+				infoSeen = true
+			}
+			if r.Level == slog.LevelWarn {
+				warnSeen = true
+			}
+			if r.Level == slog.LevelError {
+				errorSeen = true
+			}
+		}
+		if !infoSeen {
+			t.Errorf("expected an INFO record with message containing 'members-only', got records: %v", records)
+		}
+		if warnSeen {
+			t.Errorf("expected NO LevelWarn record for members-only skip, but got one")
+		}
+		if errorSeen {
+			t.Errorf("expected NO LevelError record for members-only skip, but got one")
+		}
+	})
+}
+
+// recordCapturingHandler is a slog.Handler that captures all records in a slice
+// for test assertions.
+type recordCapturingHandler struct {
+	records *[]slog.Record
+}
+
+func (h *recordCapturingHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+
+func (h *recordCapturingHandler) Handle(_ context.Context, r slog.Record) error {
+	*h.records = append(*h.records, r)
+	return nil
+}
+
+func (h *recordCapturingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &recordCapturingHandler{records: h.records}
+}
+
+func (h *recordCapturingHandler) WithGroup(name string) slog.Handler {
+	return &recordCapturingHandler{records: h.records}
 }
 
 // TestProcessVideo_MembersOnlyReattempt covers Acceptance 2: nothing is
@@ -674,7 +745,8 @@ func TestProcessVideo_OtherFailure(t *testing.T) {
 // both observed yt-dlp stderr signatures — the named-level annotation and the
 // "Join this channel" form — classify as members-only in the wrapped form
 // FetchVideoMeta produces, each half of the match is load-bearing, and matching
-// is case-insensitive.
+// is case-insensitive. A typographic apostrophe variant (U+2019) of
+// "channel's" is also recognised after normalisation.
 func TestIsMembersOnlyError_Signatures(t *testing.T) {
 	tests := []struct {
 		name string
@@ -695,6 +767,10 @@ func TestIsMembersOnlyError_Signatures(t *testing.T) {
 		{
 			name: "uppercase stderr",
 			err:  errors.New("ERROR: [youtube] X: JOIN THIS CHANNEL TO GET ACCESS TO MEMBERS-ONLY CONTENT"),
+		},
+		{
+			name: "typographic apostrophe in level form",
+			err:  errors.New("ERROR: [youtube] X: This video is available to this channel\u2019s members on level: 小君"),
 		},
 	}
 

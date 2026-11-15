@@ -1657,7 +1657,8 @@ func classifyResult(err error) resultBucket {
 // isMembersOnlyError reports whether a metadata fetch failed because the video
 // is restricted to channel members. yt-dlp's stderr carries one of two observed
 // signatures (a named membership level, or the "Join this channel" form);
-// matching is case-insensitive. Such a video is a skip for the current scan,
+// matching is case-insensitive and quote-normalised (typographic apostrophes
+// U+2018/U+2019 → ASCII). Such a video is a skip for the current scan,
 // not a failure: access may appear later (token refresh or a subscription), so
 // it stays unprocessed and unmarked and the next scan re-attempts it.
 func isMembersOnlyError(err error) bool {
@@ -1665,6 +1666,9 @@ func isMembersOnlyError(err error) bool {
 		return false
 	}
 	msg := strings.ToLower(err.Error())
+	// Normalise typographic apostrophes (YouTube uses U+2019 in "channel's").
+	msg = strings.ReplaceAll(msg, "\u2019", "'")
+	msg = strings.ReplaceAll(msg, "\u2018", "'")
 	return strings.Contains(msg, "members-only") ||
 		strings.Contains(msg, "available to this channel's members")
 }
