@@ -14,7 +14,13 @@ import (
 	"github.com/kouko/youtube-summarize-scraper/config"
 )
 
-const metadataTimeout = 60 * time.Second
+// metadataTimeout bounds a single full-metadata yt-dlp run (the default path
+// used by FetchVideoMeta). It is a var, not a const, solely so tests can
+// override it; never set it in production code, never export it. It was
+// widened from 60s after YouTube throttling pushed per-video full-metadata
+// fetches to ~26s (normally 1-3s) and the old 60s deadline SIGKILLed them,
+// mass-failing videos (427 on 2026-11-14, 106 on 2026-11-15).
+var metadataTimeout = 180 * time.Second
 
 // Fetcher wraps yt-dlp for retrieving video metadata and channel listings.
 type Fetcher struct {
@@ -185,7 +191,7 @@ func (f *Fetcher) FetchPlaylistVideos(playlistURL string, limit int, cookieArgs 
 }
 
 // runYtDlp executes yt-dlp with the given arguments and an optional cookie flag.
-// A context timeout of 60 seconds is applied.
+// The metadataTimeout deadline is applied.
 func (f *Fetcher) runYtDlp(args []string, useCookie bool) ([]byte, error) {
 	return f.runYtDlpWithTimeout(args, useCookie, metadataTimeout)
 }
