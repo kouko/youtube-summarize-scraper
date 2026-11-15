@@ -1,9 +1,14 @@
 package pipeline
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -439,6 +444,362 @@ func TestProcessVideo_EarlySkip(t *testing.T) {
 			}
 			if fetcherMock.calls != tc.wantFetchCalls {
 				t.Errorf("FetchVideoMeta calls = %d, want %d", fetcherMock.calls, tc.wantFetchCalls)
+			}
+		})
+	}
+}
+
+// membersOnlyFetchErr returns an error in the shape FetchVideoMeta produces for
+// a members-only video: the yt-dlp wrapper prefix followed by the observed
+// stderr signature naming the membership tier.
+func membersOnlyFetchErr() error {
+	return fmt.Errorf("fetching video metadata: yt-dlp [--dump-json --no-download https://www.youtube.com/watch?v=eYOcdhR-72c]: exit status 1\nstderr: ERROR: [youtube] eYOcdhR-72c: This video is available to this channel's members on level: 小君 (or any higher level). Join this channel to get access to members-only content and other exclusive perks.")
+}
+
+// partialMeta builds a flat-playlist entry: no channel info and no upload date,
+// so ProcessVideo enters the full-metadata fetch branch.
+func partialMeta(videoID string) *fetcher.VideoMeta {
+	return &fetcher.VideoMeta{ID: videoID, Title: "Test Video"}
+}
+
+// newMetadataFailurePipeline builds a Pipeline whose FetchVideoMeta always
+// fails with fetchErr. The subtitle seam is a fake that would only be reached
+// by a mistaken success path, so every members-only test asserts the fetch
+// branch returned before it.
+func newMetadataFailurePipeline(outputDir string, fetchErr error) (*Pipeline, *callTrackingFetcher) {
+	fake := &callTrackingFetcher{fn: func(string) (*fetcher.VideoMeta, error) {
+		return nil, fetchErr
+	}}
+	p := &Pipeline{
+		config:   &config.Config{OutputDir: outputDir},
+		fetcher:  fake,
+		subtitle: &fakeSubtitleDownloader{err: fmt.Errorf("no subtitles")},
+		index:    output.BuildIndex(outputDir),
+		timezone: time.UTC,
+	}
+	return p, fake
+}
+
+// TestProcessVideo_MembersOnlyIsSkip covers Acceptance 1 at the single-video
+// level: a metadata failure whose stderr carries a members-only signature, with
+// no channel info from the flat playlist, is a skip for this scan, not a
+// failure. The skip writes nothing under the output dir, so it leaves no marker
+// for later scans (Acceptance 2).
+//
+// Acceptance 1 also requires that such a failure is logged at INFO (not ERROR
+// or WARN) naming the reason "members-only", and that no WARN or ERROR is emitted
+// in the same scan.
+func TestProcessVideo_MembersOnlyIsSkip(t *testing.T) {
+	t.Run("membersOnlyIsSkip", func(t *testing.T) {
+		outputDir := t.TempDir()
+		p, fake := newMetadataFailurePipeline(outputDir, membersOnlyFetchErr())
+
+		err := p.ProcessVideo(partialMeta("membersOnlyIsSkip"), nil)
+		if !IsSkipped(err) {
+			t.Fatalf("ProcessVideo err = %v, want errSkipped", err)
+		}
+		if fake.calls != 1 {
+			t.Errorf("FetchVideoMeta calls = %d, want 1", fake.calls)
+		}
+	})
+
+	t.Run("noMarkerFile", func(t *testing.T) {
+		outputDir := t.TempDir()
+		p, _ := newMetadataFailurePipeline(outputDir, membersOnlyFetchErr())
+
+		if err := p.ProcessVideo(partialMeta("noMarkerFileVid"), nil); !IsSkipped(err) {
+			t.Fatalf("ProcessVideo err = %v, want errSkipped", err)
+		}
+
+		var written []string
+		walkErr := filepath.WalkDir(outputDir, func(path string, _ fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if path != outputDir {
+				written = append(written, path)
+			}
+			return nil
+		})
+		if walkErr != nil {
+			t.Fatalf("walk output dir: %v", walkErr)
+		}
+		if len(written) > 0 {
+			t.Errorf("members-only skip wrote files/dirs under output dir: %v — no marker (or any state) may persist", written)
+		}
+	})
+
+	t.Run("logAcceptance", func(t *testing.T) {
+		outputDir := t.TempDir()
+		p, _ := newMetadataFailurePipeline(outputDir, membersOnlyFetchErr())
+
+		// Capture slog records with a test handler.
+		var records []slog.Record
+		handler := &recordCapturingHandler{records: &records}
+		prev := slog.Default()
+		slog.SetDefault(slog.New(handler))
+		defer func() { slog.SetDefault(prev) }()
+
+		if err := p.ProcessVideo(partialMeta("logAcceptanceVid"), nil); !IsSkipped(err) {
+			t.Fatalf("ProcessVideo err = %v, want errSkipped", err)
+		}
+
+		if len(records) == 0 {
+			t.Fatal("no slog records were produced for members-only skip")
+		}
+		infoSeen := false
+		warnSeen := false
+		errorSeen := false
+		for _, r := range records {
+			if r.Level == slog.LevelInfo && strings.Contains(r.Message, "members-only") {
+				infoSeen = true
+			}
+			if r.Level == slog.LevelWarn {
+				warnSeen = true
+			}
+			if r.Level == slog.LevelError {
+				errorSeen = true
+			}
+		}
+		if !infoSeen {
+			t.Errorf("expected an INFO record with message containing 'members-only', got records: %v", records)
+		}
+		if warnSeen {
+			t.Errorf("expected NO LevelWarn record for members-only skip, but got one")
+		}
+		if errorSeen {
+			t.Errorf("expected NO LevelError record for members-only skip, but got one")
+		}
+	})
+}
+
+// recordCapturingHandler is a slog.Handler that captures all records in a slice
+// for test assertions.
+type recordCapturingHandler struct {
+	records *[]slog.Record
+}
+
+func (h *recordCapturingHandler) Enabled(_ context.Context, _ slog.Level) bool { return true }
+
+func (h *recordCapturingHandler) Handle(_ context.Context, r slog.Record) error {
+	*h.records = append(*h.records, r)
+	return nil
+}
+
+func (h *recordCapturingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return &recordCapturingHandler{records: h.records}
+}
+
+func (h *recordCapturingHandler) WithGroup(name string) slog.Handler {
+	return &recordCapturingHandler{records: h.records}
+}
+
+// TestProcessVideo_MembersOnlyReattempt covers Acceptance 2: nothing is
+// persisted, so the next scan reaches the fetcher again instead of
+// short-circuiting on a marker.
+func TestProcessVideo_MembersOnlyReattempt(t *testing.T) {
+	outputDir := t.TempDir()
+	p, fake := newMetadataFailurePipeline(outputDir, membersOnlyFetchErr())
+	meta := partialMeta("reattemptVid")
+
+	for attempt := 1; attempt <= 2; attempt++ {
+		if err := p.ProcessVideo(meta, nil); !IsSkipped(err) {
+			t.Fatalf("attempt %d: ProcessVideo err = %v, want errSkipped", attempt, err)
+		}
+		if fake.calls != attempt {
+			t.Fatalf("attempt %d: FetchVideoMeta calls = %d, want %d", attempt, fake.calls, attempt)
+		}
+	}
+}
+
+// TestProcessChannelVideos_MembersOnlyCountedFailed covers Acceptance 1's
+// counting: a members-only metadata failure goes through processChannelVideos
+// as a skip — Skipped increments, Failed stays 0, and no VideoError is
+// recorded (that is what drives the ERROR log and the failed total).
+func TestProcessChannelVideos_MembersOnlyCountedFailed(t *testing.T) {
+	outputDir := t.TempDir()
+	p, _ := newMetadataFailurePipeline(outputDir, membersOnlyFetchErr())
+
+	stats, err := p.processChannelVideos([]fetcher.VideoMeta{
+		{ID: "countedFailedVid", Title: "Test Video"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("processChannelVideos: %v", err)
+	}
+	if stats.Skipped != 1 {
+		t.Errorf("stats.Skipped = %d, want 1", stats.Skipped)
+	}
+	if stats.Failed != 0 {
+		t.Errorf("stats.Failed = %d, want 0", stats.Failed)
+	}
+	if len(stats.Errors) != 0 {
+		t.Errorf("stats.Errors = %d entries, want 0: %v", len(stats.Errors), stats.Errors)
+	}
+}
+
+// newRecoveringPipeline fails the first metadata fetch with a members-only
+// error and succeeds with full metadata afterwards — the user's access appeared
+// (token refresh or a new subscription). Used by
+// TestProcessVideo_MembersOnlyAfterEarlier for Acceptance 3.
+func newRecoveringPipeline(outputDir string) (*Pipeline, *callTrackingFetcher) {
+	fake := &callTrackingFetcher{}
+	fake.fn = func(string) (*fetcher.VideoMeta, error) {
+		if fake.calls == 1 {
+			return nil, membersOnlyFetchErr()
+		}
+		return &fetcher.VideoMeta{
+			ID:         "recoveredVid",
+			Title:      "Test Video",
+			Channel:    "@testhandle",
+			UploadDate: "20240101",
+			Tags:       []string{"tag"},
+		}, nil
+	}
+	p := &Pipeline{
+		config:  &config.Config{OutputDir: outputDir},
+		fetcher: fake,
+		subtitle: &fakeSubtitleDownloader{result: &subtitle.SubtitleResult{
+			Content:      "1\n00:00:00,000 --> 00:00:01,000\nhello world\n\n",
+			Language:     "en",
+			SubtitleType: "auto",
+		}},
+		index:    output.BuildIndex(outputDir),
+		timezone: time.UTC,
+	}
+	return p, fake
+}
+
+// TestProcessVideo_MembersOnlyAfterEarlier covers Acceptance 3: the earlier
+// skip persists nothing, so a later attempt that CAN fetch the metadata is
+// processed through the normal success path with no members-only branch.
+func TestProcessVideo_MembersOnlyAfterEarlier(t *testing.T) {
+	t.Run("successAfterEarlierFailure", func(t *testing.T) {
+		outputDir := t.TempDir()
+		p, fake := newRecoveringPipeline(outputDir)
+		meta := partialMeta("recoveredVid")
+
+		if err := p.ProcessVideo(meta, nil); !IsSkipped(err) {
+			t.Fatalf("first attempt: err = %v, want errSkipped (members-only)", err)
+		}
+		if err := p.ProcessVideo(meta, nil); err != nil {
+			t.Fatalf("second attempt: err = %v, want nil (normal success path)", err)
+		}
+		if fake.calls != 2 {
+			t.Errorf("FetchVideoMeta calls = %d, want 2", fake.calls)
+		}
+	})
+
+	t.Run("noSpecialHandlingAfterSuccess", func(t *testing.T) {
+		outputDir := t.TempDir()
+		p, _ := newRecoveringPipeline(outputDir)
+		meta := partialMeta("recoveredVid")
+
+		if err := p.ProcessVideo(meta, nil); !IsSkipped(err) {
+			t.Fatalf("first attempt: err = %v, want errSkipped", err)
+		}
+		if err := p.ProcessVideo(meta, nil); err != nil {
+			t.Fatalf("second attempt: err = %v, want nil (normal success path)", err)
+		}
+
+		// The normal success path produced its artifacts — the same ones any
+		// first-time success writes, with no members-only special handling.
+		matches, _ := filepath.Glob(filepath.Join(outputDir, "@testhandle", "*", "*__transcription.md"))
+		if len(matches) != 1 {
+			t.Errorf("transcription.md files = %d, want 1: %v", len(matches), matches)
+		}
+		if !p.index.HasFile("recoveredVid", "transcription.md") {
+			t.Error("index does not list transcription.md — normal success path did not complete")
+		}
+	})
+}
+
+// TestProcessVideo_OtherFailure covers Acceptance 4: any metadata failure that
+// is NOT a members-only signature (a network error here) keeps the pre-change
+// behaviour — a real error, classified as failed.
+func TestProcessVideo_OtherFailure(t *testing.T) {
+	t.Run("otherFailureStillFails", func(t *testing.T) {
+		outputDir := t.TempDir()
+		p, _ := newMetadataFailurePipeline(outputDir, fmt.Errorf("network timeout after 180s"))
+
+		err := p.ProcessVideo(partialMeta("otherFailureVid"), nil)
+		if err == nil {
+			t.Fatal("ProcessVideo err = nil, want a non-nil failure error")
+		}
+		if IsSkipped(err) {
+			t.Errorf("ProcessVideo err = %v, want NOT skipped", err)
+		}
+	})
+
+	t.Run("otherFailureNotSkipped", func(t *testing.T) {
+		outputDir := t.TempDir()
+		p, _ := newMetadataFailurePipeline(outputDir, fmt.Errorf("network timeout after 180s"))
+
+		err := p.ProcessVideo(partialMeta("otherFailureVid2"), nil)
+		if bucket := classifyResult(err); bucket != bucketFailed {
+			t.Errorf("classifyResult(err) = %v, want bucketFailed (err=%v)", bucket, err)
+		}
+	})
+}
+
+// TestIsMembersOnlyError_Signatures pins the recognition surface (plan Risk 1):
+// both observed yt-dlp stderr signatures — the named-level annotation and the
+// "Join this channel" form — classify as members-only in the wrapped form
+// FetchVideoMeta produces, each half of the match is load-bearing, and matching
+// is case-insensitive. A typographic apostrophe variant (U+2019) of
+// "channel's" is also recognised after normalisation.
+func TestIsMembersOnlyError_Signatures(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "named-tier signature, wrapped",
+			err:  membersOnlyFetchErr(),
+		},
+		{
+			name: "join-content signature",
+			err:  errors.New("fetching video metadata: yt-dlp: exit status 1\nstderr: ERROR: [youtube] X: Join this channel to get access to members-only content like this video, and other exclusive perks."),
+		},
+		{
+			name: "level fragment without the members-only hyphen",
+			err:  errors.New("ERROR: [youtube] X: This video is available to this channel's members only"),
+		},
+		{
+			name: "uppercase stderr",
+			err:  errors.New("ERROR: [youtube] X: JOIN THIS CHANNEL TO GET ACCESS TO MEMBERS-ONLY CONTENT"),
+		},
+		{
+			name: "typographic apostrophe in level form",
+			err:  errors.New("ERROR: [youtube] X: This video is available to this channel\u2019s members on level: 小君"),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if !isMembersOnlyError(tc.err) {
+				t.Errorf("isMembersOnlyError(%v) = false, want true", tc.err)
+			}
+		})
+	}
+}
+
+// TestIsMembersOnlyError_NearMiss guards against over-classification: messages
+// that merely mention "members" (channel member lists, memberships) and a nil
+// error must NOT classify as members-only skips — those keep failing.
+func TestIsMembersOnlyError_NearMiss(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{name: "channel members list", err: errors.New("ERROR: [youtube] X: channel members list unavailable")},
+		{name: "membership wording", err: errors.New("ERROR: [youtube] X: your membership expired")},
+		{name: "nil error", err: nil},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if isMembersOnlyError(tc.err) {
+				t.Errorf("isMembersOnlyError(%v) = true, want false", tc.err)
 			}
 		})
 	}
