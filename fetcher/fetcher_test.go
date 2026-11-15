@@ -104,6 +104,7 @@ func TestChannelTabSuffixes_Nil(t *testing.T) {
 	}
 }
 
+// concern: silent regression of metadataTimeout back to a throttling-fatal value (60s) that SIGKILLs throttled yt-dlp metadata fetches mid-run
 // metadataTimeout must stay wide enough that a throttled yt-dlp full-metadata
 // fetch (~26s measured on 2026-11-15 under YouTube throttling) finishes.
 func TestMetadataTimeout_AtLeast120s(t *testing.T) {
