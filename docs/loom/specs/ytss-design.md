@@ -980,7 +980,7 @@ batch:
 
 | Operation | Default Timeout | Configurable |
 |-----------|----------------|--------------|
-| `yt-dlp` metadata/subtitle fetch | 60s | No |
+| `yt-dlp` metadata/subtitle fetch | 180s | No |
 | `yt-dlp` audio download | 10min | Yes, via `whisper.download_timeout` (minutes) |
 | `whisper.cpp` transcription | 30min | Yes, via `whisper.transcribe_timeout` (minutes) |
 | LLM summarization call | 15min | Yes, per provider via `timeout` field (seconds) |
